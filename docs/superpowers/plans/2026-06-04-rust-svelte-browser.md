@@ -232,6 +232,7 @@ cargo test models -- --nocapture
 Expected: all model serialization tests pass.
 
 Task 2 execution notes:
+
 - `src-tauri/src/main.rs` now declares `mod models;` so inline model tests are discoverable before the later `lib.rs` task exists.
 - `src-tauri/icons/icon.ico` was added because `cargo test models -- --nocapture` failed in Tauri's build script without the Windows resource icon.
 
@@ -747,7 +748,7 @@ Expected initially may fail until components exist. Type errors in `utils` must 
 - Create: `src/lib/state/settings.svelte.ts`
 - Create: `src/lib/state/toasts.svelte.ts`
 
-- [ ] **Step 1: Use class-based runes state**
+- [x] **Step 1: Use class-based runes state**
 
 Each state file should export a singleton class instance. Use class fields like:
 
@@ -763,7 +764,7 @@ export const tabsState = new TabsState();
 
 Do not use Svelte stores unless a specific Tauri listener needs an unsubscribe bridge.
 
-- [ ] **Step 2: Implement tab state**
+- [x] **Step 2: Implement tab state**
 
 `tabs.svelte.ts` should include:
 
@@ -781,11 +782,11 @@ Do not use Svelte stores unless a specific Tauri listener needs an unsubscribe b
 
 The close functions must return closed tab IDs so `WebViewContainer` can close native child webviews.
 
-- [ ] **Step 3: Implement backend-backed states**
+- [x] **Step 3: Implement backend-backed states**
 
 `bookmarks`, `history`, `downloads`, and `settings` state modules must call only typed wrappers from `utils/tauri.ts`, wrap each call in `try/catch`, update `$state` on success, and call `toastsState.error(...)` on failure.
 
-- [ ] **Step 4: Implement toasts state**
+- [x] **Step 4: Implement toasts state**
 
 `toasts.svelte.ts` should support:
 
@@ -795,7 +796,7 @@ The close functions must return closed tab IDs so `WebViewContainer` can close n
 - `remove(id: string)`
 - automatic removal after 4000 ms
 
-- [ ] **Step 5: Run typecheck**
+- [x] **Step 5: Run typecheck**
 
 Run:
 
@@ -805,6 +806,15 @@ pnpm check
 ```
 
 Expected: state files typecheck once placeholder component imports are not present.
+
+Task 11 execution notes:
+
+- Added singleton class-based Svelte rune modules for tabs, bookmarks, history, downloads, settings, and toasts.
+- Tab IDs are generated as 32 lowercase hex strings so native child webview labels can be derived as `tab_${id}`.
+- Backend-backed states call only typed wrappers from `src/lib/utils/tauri.ts`, update local `$state` on successful calls, and report failures through `toastsState.error(...)`.
+- `pnpm check` exited 0 with the existing warning that no `.svelte` component input files exist yet.
+- `pnpm exec tsc --noEmit` exited 0.
+- `npx @sveltejs/mcp svelte-autofixer` reported no issues for all six new `.svelte.ts` modules.
 
 ---
 
