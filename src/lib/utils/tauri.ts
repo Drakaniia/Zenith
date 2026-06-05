@@ -270,6 +270,16 @@ export async function setBrowserWebviewZoom(label: string, scaleFactor: number):
   await webview.setZoom(scaleFactor);
 }
 
+export async function focusBrowserWebview(label: string): Promise<void> {
+  const webview = await Webview.getByLabel(label);
+
+  if (!webview) {
+    throw new Error(`Browser webview not found: ${label}`);
+  }
+
+  await webview.setFocus();
+}
+
 export function getBrowserWebviewUrl(label: string): Promise<string> {
   return invoke<string>('get_browser_webview_url', { label });
 }
