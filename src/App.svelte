@@ -4,6 +4,7 @@
   import HistoryPanel from './lib/components/HistoryPanel.svelte';
   import NavigationBar from './lib/components/NavigationBar.svelte';
   import FindBar from './lib/components/FindBar.svelte';
+  import SettingsPage from './lib/components/SettingsPage.svelte';
   import StatusBar from './lib/components/StatusBar.svelte';
   import TitleBar from './lib/components/TitleBar.svelte';
   import Toast from './lib/components/Toast.svelte';
@@ -22,6 +23,7 @@
   let title = $derived(tabsState.activeTab?.title?.trim() || 'Rust Browser');
   let showStatusBar = $derived(settingsState.settings.show_status_bar);
   let isLibraryPanelOpen = $derived(activePanel === 'bookmarks' || activePanel === 'history');
+  let isSettingsTabActive = $derived(tabsState.activeTab?.url === 'browser://settings');
 
   const EMPTY_FIND_RESULT: FindResult = {
     active_match: 0,
@@ -29,6 +31,11 @@
   };
 
   async function navigateActive(url: string): Promise<void> {
+    if (url === 'browser://settings') {
+      openSettingsTab();
+      return;
+    }
+
     if (!webViewController) {
       tabsState.openTab(url, url);
       activePanel = null;
@@ -56,7 +63,24 @@
   }
 
   function openPanel(panel: ChromePanel): void {
+    if (panel === 'settings') {
+      openSettingsTab();
+      return;
+    }
+
     activePanel = activePanel === panel ? null : panel;
+  }
+
+  function openSettingsTab(): void {
+    const existingSettingsTab = tabsState.tabs.find((tab) => tab.url === 'browser://settings');
+
+    if (existingSettingsTab) {
+      tabsState.setActiveTab(existingSettingsTab.id);
+    } else {
+      tabsState.openInternalTab('browser://settings');
+    }
+
+    activePanel = null;
   }
 
   function closeFindBar(): void {
@@ -103,19 +127,26 @@
     onForward={forwardActive}
     onOpenPanel={openPanel}
   />
-  <FindBar
-    open={activePanel === 'find'}
-    onClose={closeFindBar}
-    onFind={findActive}
-    onClear={clearFindActive}
-  />
+  <div class="findbar-slot">
+    <FindBar
+      open={activePanel === 'find'}
+      onClose={closeFindBar}
+      onFind={findActive}
+      onClear={clearFindActive}
+    />
+  </div>
   <main
     class={`app-content ${isLibraryPanelOpen ? 'app-content--with-library' : ''}`}
     aria-label="Browser content"
     data-active-panel={activePanel ?? 'none'}
   >
-    <div class="webview-slot">
-      <WebViewContainer bind:controller={webViewController} />
+    <div class={`webview-slot ${isSettingsTabActive ? 'webview-slot--internal' : ''}`}>
+      <div class="webview-host" aria-hidden={isSettingsTabActive}>
+        <WebViewContainer bind:controller={webViewController} />
+      </div>
+      {#if isSettingsTabActive}
+        <SettingsPage />
+      {/if}
     </div>
     <BookmarksPanel
       open={activePanel === 'bookmarks'}
@@ -267,6 +298,27 @@
     min-width: 0;
     min-height: 0;
     overflow: hidden;
+  }
+
+  .webview-host {
+    position: absolute;
+    inset: 0;
+    min-width: 0;
+    min-height: 0;
+  }
+
+  .webview-slot--internal {
+    background: var(--color-background);
+  }
+
+  .findbar-slot {
+    min-width: 0;
+    min-height: 0;
+  }
+
+  .webview-slot--internal .webview-host {
+    visibility: hidden;
+    pointer-events: none;
   }
 
   @media (max-width: 720px) {
