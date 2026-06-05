@@ -17,7 +17,7 @@
   } from 'lucide-svelte';
   import { bookmarksState } from '../state/bookmarks.svelte';
   import { historyState } from '../state/history.svelte';
-  import { resolveHomepageUrl, settingsState } from '../state/settings.svelte';
+  import { resolveHomepageUrl, settingsState, type SearchEngine } from '../state/settings.svelte';
   import { tabsState } from '../state/tabs.svelte';
   import { toastsState } from '../state/toasts.svelte';
   import { BROWSER_HOME_URL } from '../utils/internalUrls';
@@ -33,6 +33,9 @@
     onForward: () => Promise<void>;
     onOpenPanel: (panel: ChromePanel) => void;
     focusAddressRequest?: number;
+    focusToolbarStartRequest?: number;
+    focusToolbarEndRequest?: number;
+    openMenuRequest?: number;
   }
 
   let {
@@ -42,20 +45,32 @@
     onBack,
     onForward,
     onOpenPanel,
-    focusAddressRequest = 0
+    focusAddressRequest = 0,
+    focusToolbarStartRequest = 0,
+    focusToolbarEndRequest = 0,
+    openMenuRequest = 0
   }: Props = $props();
+
+  const isApplePlatform = /Mac|iPhone|iPad|iPod/.test(navigator.userAgent);
 
   let addressInput = $state('');
   let addressElement: HTMLInputElement | undefined = $state();
+  let backButtonElement: HTMLButtonElement | undefined = $state();
+  let menuButtonElement: HTMLButtonElement | undefined = $state();
   let isFocused = $state(false);
   let validationError = $state('');
   let suggestions = $state<HistoryEntry[]>([]);
+  let selectedSuggestionIndex = $state(-1);
   let isSuggestionsOpen = $state(false);
   let isSubmitting = $state(false);
   let isBookmarkChecked = $state(false);
   let isBookmarkBusy = $state(false);
   let isMenuOpen = $state(false);
+  let searchEngineMode = $state<SearchEngine | null>(null);
   let lastFocusAddressRequest = 0;
+  let lastFocusToolbarStartRequest = 0;
+  let lastFocusToolbarEndRequest = 0;
+  let lastOpenMenuRequest = 0;
   let lastActiveTabId: string | null = null;
 
   let activeTab = $derived(tabsState.activeTab);
@@ -64,6 +79,9 @@
   let activeTabId = $derived(activeTab?.id ?? null);
   let canBookmark = $derived(isBookmarkableUrl(activeUrl));
   let addressIcon = $derived(iconKindForUrl(addressInput || activeDisplayUrl));
+  let addressPlaceholder = $derived(
+    searchEngineMode ? `Search ${searchEngineLabel(searchEngineMode)}` : 'Search or enter address'
+  );
 
   $effect(() => {
     const tabId = activeTabId;
@@ -74,12 +92,16 @@
       addressInput = url === BROWSER_HOME_URL ? '' : url;
       validationError = '';
       isSuggestionsOpen = false;
+      selectedSuggestionIndex = -1;
+      searchEngineMode = null;
       return;
     }
 
     if (!isFocused) {
       addressInput = url === BROWSER_HOME_URL ? '' : url;
       validationError = '';
+      selectedSuggestionIndex = -1;
+      searchEngineMode = null;
     }
   });
 
@@ -95,11 +117,52 @@
   });
 
   $effect(() => {
+    const request = focusToolbarStartRequest;
+
+    if (request <= 0 || request === lastFocusToolbarStartRequest) {
+      return;
+    }
+
+    lastFocusToolbarStartRequest = request;
+    window.setTimeout(() => {
+      backButtonElement?.focus();
+    }, 0);
+  });
+
+  $effect(() => {
+    const request = focusToolbarEndRequest;
+
+    if (request <= 0 || request === lastFocusToolbarEndRequest) {
+      return;
+    }
+
+    lastFocusToolbarEndRequest = request;
+    window.setTimeout(() => {
+      menuButtonElement?.focus();
+    }, 0);
+  });
+
+  $effect(() => {
+    const request = openMenuRequest;
+
+    if (request <= 0 || request === lastOpenMenuRequest) {
+      return;
+    }
+
+    lastOpenMenuRequest = request;
+    isMenuOpen = true;
+    window.setTimeout(() => {
+      menuButtonElement?.focus();
+    }, 0);
+  });
+
+  $effect(() => {
     const query = addressInput.trim();
 
-    if (!isFocused || query.length < 2) {
+    if (!isFocused || searchEngineMode || query.length < 2) {
       suggestions = [];
       isSuggestionsOpen = false;
+      selectedSuggestionIndex = -1;
       return;
     }
 
@@ -111,6 +174,7 @@
         if (!cancelled) {
           suggestions = results;
           isSuggestionsOpen = results.length > 0;
+          selectedSuggestionIndex = -1;
         }
       })();
     }, 150);
@@ -168,13 +232,19 @@
     isFocused = true;
     addressInput = activeUrl === BROWSER_HOME_URL ? '' : activeUrl;
     validationError = '';
+    searchEngineMode = null;
   }
 
   function handleAddressBlur(): void {
     isFocused = false;
 
+    if (!addressInput.trim()) {
+      searchEngineMode = null;
+    }
+
     window.setTimeout(() => {
       isSuggestionsOpen = false;
+      selectedSuggestionIndex = -1;
     }, 120);
   }
 
@@ -184,6 +254,14 @@
   }
 
   function handleAddressKeydown(event: KeyboardEvent): void {
+    if (activateSearchEngineMode(event)) {
+      return;
+    }
+
+    if (handleSuggestionKeydown(event)) {
+      return;
+    }
+
     if (event.key === 'Enter') {
       event.preventDefault();
 
@@ -194,6 +272,11 @@
 
       if (event.ctrlKey) {
         void submitNavigation(siteNameShortcutUrl(addressInput));
+        return;
+      }
+
+      if (isApplePlatform && event.metaKey) {
+        void submitNavigationInNewTab(addressInput, true);
         return;
       }
 
@@ -210,15 +293,103 @@
       event.preventDefault();
       validationError = '';
       isSuggestionsOpen = false;
+      selectedSuggestionIndex = -1;
+      searchEngineMode = null;
       addressElement?.blur();
     }
   }
 
-  async function submitNavigationInNewTab(rawInput: string): Promise<void> {
+  function activateSearchEngineMode(event: KeyboardEvent): boolean {
+    if (
+      event.key !== 'Tab' ||
+      event.shiftKey ||
+      event.ctrlKey ||
+      event.metaKey ||
+      event.altKey
+    ) {
+      return false;
+    }
+
+    const engine = searchEngineFromKeyword(addressInput);
+
+    if (!engine) {
+      return false;
+    }
+
+    event.preventDefault();
+    searchEngineMode = engine;
+    addressInput = '';
+    suggestions = [];
+    isSuggestionsOpen = false;
+    selectedSuggestionIndex = -1;
+    validationError = '';
+    return true;
+  }
+
+  function handleSuggestionKeydown(event: KeyboardEvent): boolean {
+    if (!isSuggestionsOpen || suggestions.length === 0) {
+      return false;
+    }
+
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      selectedSuggestionIndex =
+        (selectedSuggestionIndex + 1 + suggestions.length) % suggestions.length;
+      return true;
+    }
+
+    if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      selectedSuggestionIndex =
+        selectedSuggestionIndex <= 0 ? suggestions.length - 1 : selectedSuggestionIndex - 1;
+      return true;
+    }
+
+    if (event.key === 'Enter' && selectedSuggestionIndex >= 0) {
+      const suggestion = suggestions[selectedSuggestionIndex];
+
+      if (!suggestion) {
+        return false;
+      }
+
+      event.preventDefault();
+      void submitNavigation(suggestion.url);
+      return true;
+    }
+
+    if (event.shiftKey && (event.key === 'Delete' || event.key === 'Backspace')) {
+      const suggestion = suggestions[selectedSuggestionIndex];
+
+      if (!suggestion) {
+        return false;
+      }
+
+      event.preventDefault();
+      void removeSuggestion(suggestion);
+      return true;
+    }
+
+    return false;
+  }
+
+  async function removeSuggestion(suggestion: HistoryEntry): Promise<void> {
+    await historyState.removeEntry(suggestion.id);
+    suggestions = suggestions.filter((entry) => entry.id !== suggestion.id);
+
+    if (suggestions.length === 0) {
+      isSuggestionsOpen = false;
+      selectedSuggestionIndex = -1;
+      return;
+    }
+
+    selectedSuggestionIndex = Math.min(selectedSuggestionIndex, suggestions.length - 1);
+  }
+
+  async function submitNavigationInNewTab(rawInput: string, background = false): Promise<void> {
     const rawUrl = rawInput.trim();
 
     if (!rawUrl) {
-      validationError = 'Enter a URL or search query';
+      validationError = searchEngineMode ? 'Enter a search query' : 'Enter a URL or search query';
       return;
     }
 
@@ -226,11 +397,21 @@
     validationError = '';
 
     try {
-      const normalizedUrl = await normalizeUrl(rawUrl);
-      tabsState.openTab(normalizedUrl, normalizedUrl);
-      addressInput = normalizedUrl;
+      const normalizedUrl = await resolveAddressInput(rawUrl);
+
+      if (background) {
+        tabsState.openBackgroundTab(normalizedUrl, normalizedUrl);
+      } else {
+        tabsState.openTab(normalizedUrl, normalizedUrl);
+      }
+
+      addressInput = background ? activeDisplayUrl : normalizedUrl;
       isSuggestionsOpen = false;
-      addressElement?.blur();
+      selectedSuggestionIndex = -1;
+      searchEngineMode = null;
+      if (!background) {
+        addressElement?.blur();
+      }
     } catch (error) {
       validationError = errorMessage(error);
     } finally {
@@ -242,7 +423,7 @@
     const rawUrl = rawInput.trim();
 
     if (!rawUrl) {
-      validationError = 'Enter a URL or search query';
+      validationError = searchEngineMode ? 'Enter a search query' : 'Enter a URL or search query';
       return;
     }
 
@@ -250,10 +431,12 @@
     validationError = '';
 
     try {
-      const normalizedUrl = await normalizeUrl(rawUrl);
+      const normalizedUrl = await resolveAddressInput(rawUrl);
       await onNavigate(normalizedUrl);
       addressInput = normalizedUrl;
       isSuggestionsOpen = false;
+      selectedSuggestionIndex = -1;
+      searchEngineMode = null;
       addressElement?.blur();
     } catch (error) {
       validationError = errorMessage(error);
@@ -359,6 +542,42 @@
     return `https://www.${siteName}.com`;
   }
 
+  async function resolveAddressInput(rawInput: string): Promise<string> {
+    if (searchEngineMode) {
+      return searchUrlForEngine(rawInput, searchEngineMode);
+    }
+
+    return normalizeUrl(rawInput);
+  }
+
+  function searchEngineFromKeyword(rawInput: string): SearchEngine | null {
+    const keyword = rawInput.trim().toLocaleLowerCase();
+
+    if (keyword === 'google' || keyword === 'google.com') {
+      return 'google';
+    }
+
+    if (keyword === 'yandex' || keyword === 'yandex.com') {
+      return 'yandex';
+    }
+
+    return null;
+  }
+
+  function searchEngineLabel(engine: SearchEngine): string {
+    return engine === 'google' ? 'Google' : 'Yandex';
+  }
+
+  function searchUrlForEngine(query: string, engine: SearchEngine): string {
+    const encodedQuery = encodeURIComponent(query.trim());
+
+    if (engine === 'google') {
+      return `https://www.google.com/search?q=${encodedQuery}`;
+    }
+
+    return `https://yandex.com/search/?text=${encodedQuery}`;
+  }
+
   function errorMessage(error: unknown): string {
     if (error instanceof Error) {
       return error.message;
@@ -377,6 +596,7 @@
 <nav class="navigation-bar" aria-label="Navigation controls">
   <div class="history-controls" aria-label="Page history">
     <button
+      bind:this={backButtonElement}
       class="toolbar-button"
       type="button"
       aria-label="Back"
@@ -439,7 +659,7 @@
         aria-label="Search or enter address"
         aria-invalid={validationError ? 'true' : 'false'}
         aria-describedby={validationError ? 'address-error' : undefined}
-        placeholder="Search or enter address"
+        placeholder={addressPlaceholder}
         onfocus={handleAddressFocus}
         onblur={handleAddressBlur}
         oninput={handleAddressInput}
@@ -457,12 +677,12 @@
 
     {#if isSuggestionsOpen && suggestions.length > 0}
       <div class="suggestions" role="listbox" aria-label="History suggestions">
-        {#each suggestions as suggestion (suggestion.id)}
+        {#each suggestions as suggestion, index (suggestion.id)}
           <button
-            class="suggestion"
+            class={`suggestion ${index === selectedSuggestionIndex ? 'suggestion--selected' : ''}`}
             type="button"
             role="option"
-            aria-selected="false"
+            aria-selected={index === selectedSuggestionIndex}
             onpointerdown={(event) => selectSuggestion(event, suggestion)}
           >
             <History size={15} strokeWidth={2.2} />
@@ -494,6 +714,7 @@
 
     <div class="menu-anchor">
       <button
+        bind:this={menuButtonElement}
         class="toolbar-button"
         type="button"
         aria-label="Open browser menu"
@@ -731,7 +952,8 @@
     cursor: default;
   }
 
-  .suggestion:hover {
+  .suggestion:hover,
+  .suggestion--selected {
     color: var(--color-text-primary);
     background: color-mix(in srgb, var(--color-accent) 18%, transparent);
   }
