@@ -91,11 +91,17 @@ pub struct FindResult {
     pub total_matches: u32,
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct WindowState {
+    pub is_minimized: bool,
+    pub is_maximized: bool,
+}
+
 impl Default for AppSettings {
     fn default() -> Self {
         AppSettings {
             default_search_engine: "yandex".to_string(),
-            homepage: "https://yandex.com".to_string(),
+            homepage: "browser://home".to_string(),
             theme: "dark".to_string(),
             javascript_enabled: true,
             show_status_bar: true,
@@ -175,7 +181,7 @@ mod tests {
         let decoded: AppSettings = serde_json::from_str(&json).expect("deserialize app settings");
 
         assert_eq!(decoded.default_search_engine, "yandex");
-        assert_eq!(decoded.homepage, "https://yandex.com");
+        assert_eq!(decoded.homepage, "browser://home");
         assert_eq!(decoded.theme, "dark");
         assert!(decoded.javascript_enabled);
         assert!(decoded.show_status_bar);

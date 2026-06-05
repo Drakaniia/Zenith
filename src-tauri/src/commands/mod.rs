@@ -4,3 +4,4 @@ pub mod history;
 pub mod navigation;
 pub mod settings;
 pub mod webviews;
+pub mod window;

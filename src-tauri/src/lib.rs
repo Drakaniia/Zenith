@@ -35,7 +35,12 @@ pub fn run() {
             commands::webviews::get_browser_webview_url,
             commands::webviews::eval_browser_webview,
             commands::webviews::find_in_browser_webview,
-            commands::webviews::clear_browser_webview_find
+            commands::webviews::clear_browser_webview_find,
+            commands::window::get_window_state,
+            commands::window::minimize_window,
+            commands::window::maximize_window,
+            commands::window::restore_window,
+            commands::window::close_window
         ])
         .run(tauri::generate_context!())
         .expect("error while running Rust Browser");
