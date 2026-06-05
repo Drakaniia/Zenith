@@ -826,11 +826,11 @@ Task 11 execution notes:
 - Create: `src/App.svelte`
 - Create: `src/lib/components/Toast.svelte`
 
-- [ ] **Step 1: Implement `main.ts`**
+- [x] **Step 1: Implement `main.ts`**
 
 Mount `App` into `document.getElementById('app')`. Throw a clear error if the element is missing.
 
-- [ ] **Step 2: Add global CSS in `App.svelte`**
+- [x] **Step 2: Add global CSS in `App.svelte`**
 
 Use CSS custom properties for dark and light themes. Include:
 
@@ -843,11 +843,11 @@ Use CSS custom properties for dark and light themes. Include:
 - styled scrollbars
 - fixed chrome layout variables for 36px tab bar, 48px nav bar, 24px status bar
 
-- [ ] **Step 3: Implement `Toast.svelte`**
+- [x] **Step 3: Implement `Toast.svelte`**
 
 Render toasts from `toastsState.items`. Use Svelte 5 event attributes (`onclick`) and `$props()` if props are needed. No `on:` syntax and no `export let`.
 
-- [ ] **Step 4: Initial typecheck**
+- [x] **Step 4: Initial typecheck**
 
 Run:
 
@@ -858,6 +858,14 @@ pnpm check
 
 Expected: failures only for components not yet created. Fix `App`, `main`, and `Toast` issues immediately.
 
+Task 12 execution notes:
+
+- Verified `src/main.ts` mounts `App` into `#app` and throws a clear missing-element error.
+- Verified `src/App.svelte` defines dark/light theme variables, required background/surface/border/accent values, text primary/secondary variables, focus-visible outlines, styled scrollbars, and 36px/48px/24px chrome layout variables.
+- Verified `src/lib/components/Toast.svelte` renders `toastsState.items` and uses Svelte 5 `onclick` handlers.
+- Targeted scan of Task 12/13 files found no `export let`, `$:`, or Svelte `on:` event directives.
+- `pnpm check` exited 0 on 2026-06-04 with `svelte-check found 0 errors and 0 warnings`.
+
 ---
 
 ## Task 13: Title Bar
@@ -867,7 +875,7 @@ Expected: failures only for components not yet created. Fix `App`, `main`, and `
 - Create: `src/lib/components/TitleBar.svelte`
 - Modify: `src/App.svelte`
 
-- [ ] **Step 1: Implement props and active title**
+- [x] **Step 1: Implement props and active title**
 
 Use `$props()` for:
 
@@ -879,11 +887,11 @@ interface Props {
 
 Render current tab title or `Rust Browser`.
 
-- [ ] **Step 2: Implement draggable region**
+- [x] **Step 2: Implement draggable region**
 
 Add `data-tauri-drag-region` to the title region. Do not put it on interactive buttons.
 
-- [ ] **Step 3: Implement window buttons**
+- [x] **Step 3: Implement window buttons**
 
 Use:
 
@@ -893,11 +901,11 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 
 Wire minimize, maximize/restore, and close. Catch errors and show a toast.
 
-- [ ] **Step 4: Style platform positions**
+- [x] **Step 4: Style platform positions**
 
 Detect macOS with `navigator.userAgent` and place controls left on macOS, right elsewhere. Keep hit targets stable at 32px.
 
-- [ ] **Step 5: Typecheck**
+- [x] **Step 5: Typecheck**
 
 Run:
 
@@ -907,6 +915,14 @@ pnpm check
 ```
 
 Expected: no errors from `TitleBar.svelte`.
+
+Task 13 execution notes:
+
+- Verified `src/App.svelte` passes the active tab title with `Rust Browser` fallback, and `TitleBar.svelte` receives `title` through `$props()`.
+- Verified `data-tauri-drag-region` is on the title region and not on the window-control buttons.
+- Verified minimize, maximize/restore, and close handlers use `getCurrentWindow()` and report failures through `toastsState.error(...)`.
+- Verified macOS control placement is selected from `navigator.userAgent`; non-macOS placement is right-side. Window control hit targets are fixed at 32px.
+- `pnpm check` exited 0 on 2026-06-04 with `svelte-check found 0 errors and 0 warnings`.
 
 ---
 
@@ -918,11 +934,11 @@ Expected: no errors from `TitleBar.svelte`.
 - Modify: `src/App.svelte`
 - Modify: `src/lib/state/tabs.svelte.ts`
 
-- [ ] **Step 1: Render tabs**
+- [x] **Step 1: Render tabs**
 
 Each tab shows favicon or globe icon, loading spinner, title with ellipsis, and close button. Active tab uses accent border/background.
 
-- [ ] **Step 2: Implement tab actions**
+- [x] **Step 2: Implement tab actions**
 
 Wire:
 
@@ -932,15 +948,15 @@ Wire:
 - duplicate -> `tabsState.duplicateTab`
 - close other tabs -> `tabsState.closeOtherTabs`
 
-- [ ] **Step 3: Implement context menu**
+- [x] **Step 3: Implement context menu**
 
 Use component-local `$state` for menu position and selected tab ID. Provide Reload, Duplicate Tab, Close Tab, and Close Other Tabs.
 
-- [ ] **Step 4: Keep layout stable**
+- [x] **Step 4: Keep layout stable**
 
 Use fixed tab height 36px, horizontal overflow, and fixed-width close/icon buttons so text never shifts controls.
 
-- [ ] **Step 5: Typecheck**
+- [x] **Step 5: Typecheck**
 
 Run:
 
@@ -950,6 +966,14 @@ pnpm check
 ```
 
 Expected: no errors from `TabBar.svelte`.
+
+Task 14 execution notes:
+
+- Added `src/lib/components/TabBar.svelte` with fixed-height tab strip, favicon/globe icon slot, loading spinner overlay, ellipsized titles, fixed close buttons, new-tab button, and local context menu state.
+- Wired tab activation, close, new tab from `settingsState.settings.homepage`, duplicate, close other tabs, and reload request signaling through `tabsState`.
+- Added `tabsState.reloadRequests` and `tabsState.requestReload(id)` so Task 16 can consume tab reload intents when native webviews are connected.
+- `pnpm check` exited 0 on 2026-06-04 with `svelte-check found 0 errors and 0 warnings`.
+- Playwright CLI smoke test on `http://localhost:1420/` verified opening a new tab, context menu items, duplicate tab, and close other tabs.
 
 ---
 
@@ -962,7 +986,7 @@ Expected: no errors from `TabBar.svelte`.
 - Modify: `src/lib/state/history.svelte.ts`
 - Modify: `src/lib/state/bookmarks.svelte.ts`
 
-- [ ] **Step 1: Implement props**
+- [x] **Step 1: Implement props**
 
 Use `$props()` for callbacks:
 
@@ -977,23 +1001,23 @@ interface Props {
 }
 ```
 
-- [ ] **Step 2: Implement address input**
+- [x] **Step 2: Implement address input**
 
 Use component `$state` for input text, focus state, validation error, and suggestion list. On focus, select all text. On Enter, call typed `normalizeUrl`, then `onNavigate`.
 
-- [ ] **Step 3: Implement suggestions**
+- [x] **Step 3: Implement suggestions**
 
 Call `historyState.search(input)` after a short debounce. Show recent history title/URL. Clicking a suggestion navigates and closes the dropdown.
 
-- [ ] **Step 4: Implement bookmark star**
+- [x] **Step 4: Implement bookmark star**
 
 Use `bookmarksState.checkIsBookmarked(activeTab.url)` in `$effect`. Toggle by calling `bookmarksState.addBookmark` or `bookmarksState.removeBookmark`.
 
-- [ ] **Step 5: Implement menu**
+- [x] **Step 5: Implement menu**
 
 Menu actions: New Tab, Bookmarks, History, Downloads, Settings, Find in Page. Use lucide icons and no text-only buttons where an icon is clearer.
 
-- [ ] **Step 6: Typecheck**
+- [x] **Step 6: Typecheck**
 
 Run:
 
@@ -1015,7 +1039,7 @@ Expected: no errors from `NavigationBar.svelte`.
 - Modify: `src/lib/state/tabs.svelte.ts`
 - Modify: `src/lib/utils/tauri.ts`
 
-- [ ] **Step 1: Implement child webview lifecycle**
+- [x] **Step 1: Implement child webview lifecycle**
 
 Use a container `div` with `bind:this`. For each non-internal tab:
 
@@ -1025,11 +1049,11 @@ Use a container `div` with `bind:this`. For each non-internal tab:
 - show active tab webview
 - close webviews for closed tabs
 
-- [ ] **Step 2: Implement geometry sync**
+- [x] **Step 2: Implement geometry sync**
 
 Use `ResizeObserver` and window resize handling inside `$effect`. Convert container bounds to Tauri logical coordinates. Call `setBrowserWebviewBounds` whenever the content area changes.
 
-- [ ] **Step 3: Implement navigation methods**
+- [x] **Step 3: Implement navigation methods**
 
 Expose callbacks to `App.svelte`:
 
@@ -1042,15 +1066,15 @@ Expose callbacks to `App.svelte`:
 
 Because native back/forward may not be directly exposed, implement back/forward initially with tab-local history stacks updated from app-driven navigations and webview URL events. Be explicit in code comments that this tracks app-visible navigations, not every in-page redirect.
 
-- [ ] **Step 4: Update metadata**
+- [x] **Step 4: Update metadata**
 
 After navigation starts, set `is_loading = true`. After command returns and metadata fetch resolves, update title/favicon, add history entry, and set `is_loading = false`. On error, update tab title to `Load failed` and show toast.
 
-- [ ] **Step 5: Validate remote content isolation**
+- [x] **Step 5: Validate remote content isolation**
 
 Do not grant broad Tauri invoke permissions to remote webviews. Verify a remote page cannot access trusted app command wrappers.
 
-- [ ] **Step 6: Typecheck**
+- [x] **Step 6: Typecheck**
 
 Run:
 
@@ -1072,7 +1096,7 @@ Expected: no TypeScript errors from webview orchestration.
 - Modify: `src/App.svelte`
 - Modify: `src/lib/utils/tauri.ts`
 
-- [ ] **Step 1: Implement FindBar**
+- [x] **Step 1: Implement FindBar**
 
 Use `$props()` for:
 
@@ -1091,11 +1115,11 @@ interface Props {
 
 Render input, match count, previous/next buttons, case-sensitive toggle, and close button. Escape closes the bar.
 
-- [ ] **Step 2: Implement find behavior**
+- [x] **Step 2: Implement find behavior**
 
 Use `$effect` to run find when query/case state changes and open is true. Catch unavailable-platform errors and show a toast once per open session.
 
-- [ ] **Step 3: Implement StatusBar**
+- [x] **Step 3: Implement StatusBar**
 
 Render security state from active URL:
 
@@ -1105,7 +1129,7 @@ Render security state from active URL:
 
 Show loading text from active tab state.
 
-- [ ] **Step 4: Typecheck**
+- [x] **Step 4: Typecheck**
 
 Run:
 
@@ -1115,6 +1139,15 @@ pnpm check
 ```
 
 Expected: no errors from `FindBar` or `StatusBar`.
+
+Task 17 execution notes:
+
+- Added `src/lib/components/FindBar.svelte` with `$props()`, input focus, match count, previous/next controls, case-sensitive toggle, close handling, Escape handling, and best-effort clear behavior.
+- Added `$effect`-driven find behavior that runs while open when the query or case setting changes, and reports unavailable-platform errors once per open session.
+- Added `src/lib/components/StatusBar.svelte` showing HTTPS secure, HTTP not secure, internal page, loading, and current URL status.
+- Updated `src/App.svelte` to wire the find bar to the `WebViewController` find/clear methods, reserve chrome space above the native child webview while find is open, and render the status bar when `settings.show_status_bar` is true.
+- `src/lib/utils/tauri.ts` already had the required `FindResult`, `FindDirection`, `findInBrowserWebview`, and `clearBrowserWebviewFind` wrappers from Task 16, so no Task 17 change was needed there.
+- `pnpm check` exited 0 on 2026-06-04 with `svelte-check found 0 errors and 0 warnings`.
 
 ---
 
