@@ -41,6 +41,18 @@ class TabsState {
     return tab;
   };
 
+  openBackgroundTab = (url = BROWSER_HOME_URL, title = DEFAULT_TAB_TITLE): BrowserTab => {
+    if (isInternalBrowserUrl(url)) {
+      const tab = createTab(url, internalTitle(url), true);
+      this.tabs = [...this.tabs, tab];
+      return tab;
+    }
+
+    const tab = createTab(url, title, false);
+    this.tabs = [...this.tabs, tab];
+    return tab;
+  };
+
   openHomeTab = (): BrowserTab => this.openInternalTab(BROWSER_HOME_URL);
 
   openInternalTab = (url: InternalUrl): BrowserTab => {
