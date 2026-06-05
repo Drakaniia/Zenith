@@ -1,4 +1,5 @@
 import { getSettings, saveSettings, type AppSettings } from '../utils/tauri';
+import { BROWSER_HOME_URL } from '../utils/internalUrls';
 import { toastsState } from './toasts.svelte.js';
 
 export type SearchEngine = 'yandex' | 'google';
@@ -13,7 +14,7 @@ export type SettingsPatch = Partial<
 
 export const DEFAULT_SETTINGS: AppSettings = {
   default_search_engine: 'yandex',
-  homepage: 'https://yandex.com',
+  homepage: BROWSER_HOME_URL,
   theme: 'dark',
   javascript_enabled: true,
   show_status_bar: true
@@ -73,8 +74,43 @@ function normalizeSettings(settings: AppSettings): AppSettings {
     default_search_engine: isSearchEngine(settings.default_search_engine)
       ? settings.default_search_engine
       : DEFAULT_SETTINGS.default_search_engine,
+    homepage: resolveHomepageUrl(settings.homepage),
     theme: isThemePreference(settings.theme) ? settings.theme : DEFAULT_SETTINGS.theme
   };
+}
+
+export function resolveHomepageUrl(homepage: string): string {
+  const trimmed = homepage.trim();
+
+  if (!trimmed || trimmed === BROWSER_HOME_URL) {
+    return BROWSER_HOME_URL;
+  }
+
+  try {
+    const url = new URL(trimmed);
+
+    if (isLegacyYandexHomepage(url)) {
+      return BROWSER_HOME_URL;
+    }
+
+    if (url.protocol === 'http:' || url.protocol === 'https:') {
+      return trimmed;
+    }
+  } catch {
+    return BROWSER_HOME_URL;
+  }
+
+  return BROWSER_HOME_URL;
+}
+
+function isLegacyYandexHomepage(url: URL): boolean {
+  return (
+    url.protocol === 'https:' &&
+    url.hostname.toLocaleLowerCase() === 'yandex.com' &&
+    (url.pathname === '' || url.pathname === '/') &&
+    url.search === '' &&
+    url.hash === ''
+  );
 }
 
 function isSearchEngine(value: string): value is SearchEngine {
