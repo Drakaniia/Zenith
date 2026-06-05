@@ -17,6 +17,7 @@ const SETTINGS_TITLE = 'Settings';
 class TabsState {
   tabs = $state<BrowserTab[]>([]);
   activeTabId = $state<string | null>(null);
+  reloadRequests = $state<Record<string, number>>({});
   activeTab = $derived(this.tabs.find((tab) => tab.id === this.activeTabId) ?? null);
   activeIndex = $derived(this.tabs.findIndex((tab) => tab.id === this.activeTabId));
 
@@ -42,6 +43,7 @@ class TabsState {
 
     const closedTab = this.tabs[index];
     this.tabs = this.tabs.filter((tab) => tab.id !== id);
+    this.reloadRequests = withoutReloadRequests(this.reloadRequests, [id]);
 
     if (this.activeTabId === id) {
       this.activeTabId = this.tabs[index]?.id ?? this.tabs[index - 1]?.id ?? null;
@@ -89,8 +91,23 @@ class TabsState {
 
     const closedIds = this.tabs.filter((tab) => tab.id !== id).map((tab) => tab.id);
     this.tabs = this.tabs.filter((tab) => tab.id === id);
+    this.reloadRequests = withoutReloadRequests(this.reloadRequests, closedIds);
     this.activeTabId = id;
     return closedIds;
+  };
+
+  requestReload = (id: string): number | null => {
+    if (!this.tabs.some((tab) => tab.id === id)) {
+      return null;
+    }
+
+    const nextRequest = (this.reloadRequests[id] ?? 0) + 1;
+    this.reloadRequests = {
+      ...this.reloadRequests,
+      [id]: nextRequest
+    };
+    this.activeTabId = id;
+    return nextRequest;
   };
 
   nextTab = (): void => {
@@ -159,6 +176,17 @@ function createTabId(): string {
   const bytes = new Uint8Array(16);
   globalThis.crypto.getRandomValues(bytes);
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
+function withoutReloadRequests(
+  reloadRequests: Record<string, number>,
+  tabIds: string[]
+): Record<string, number> {
+  const removedIds = new Set(tabIds);
+
+  return Object.fromEntries(
+    Object.entries(reloadRequests).filter(([tabId]) => !removedIds.has(tabId))
+  );
 }
 
 export const tabsState = new TabsState();
