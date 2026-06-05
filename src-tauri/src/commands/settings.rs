@@ -90,7 +90,7 @@ mod tests {
         let settings = read_settings(&path).expect("read missing settings");
 
         assert_eq!(settings.default_search_engine, "yandex");
-        assert_eq!(settings.homepage, "https://yandex.com");
+        assert_eq!(settings.homepage, "browser://home");
         assert_eq!(settings.theme, "dark");
         assert!(settings.javascript_enabled);
         assert!(settings.show_status_bar);
@@ -131,7 +131,7 @@ mod tests {
         let settings = read_settings(&path).expect("read invalid settings");
 
         assert_eq!(settings.default_search_engine, "yandex");
-        assert_eq!(settings.homepage, "https://yandex.com");
+        assert_eq!(settings.homepage, "browser://home");
         assert_eq!(settings.theme, "dark");
         assert!(settings.javascript_enabled);
         assert!(settings.show_status_bar);

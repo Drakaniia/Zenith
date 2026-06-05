@@ -4,10 +4,9 @@ use std::{sync::mpsc, time::Duration};
 use tauri::{
     webview::{PageLoadEvent, WebviewBuilder},
     AppHandle, Emitter, EventTarget, LogicalPosition, LogicalSize, Manager, Position, Rect, Size,
-    Webview, WebviewUrl,
+    Webview, WebviewUrl, WebviewWindow,
 };
 
-const MAIN_CHROME_LABEL: &str = "main";
 const FIND_CALLBACK_TIMEOUT: Duration = Duration::from_secs(3);
 const WEBVIEW_NAVIGATION_EVENT: &str = "browser-webview-navigation";
 const WEBVIEW_TITLE_EVENT: &str = "browser-webview-title";
@@ -48,10 +47,12 @@ struct FindScriptResult {
 #[tauri::command]
 pub async fn create_browser_webview(
     app: AppHandle,
+    chrome_window: WebviewWindow,
     label: String,
     url: String,
     bounds: WebviewBounds,
     javascript_enabled: bool,
+    incognito: bool,
 ) -> Result<(), String> {
     validate_browser_webview_label(&label)?;
     validate_bounds("create_browser_webview", &label, &bounds)?;
@@ -63,16 +64,11 @@ pub async fn create_browser_webview(
         ));
     }
 
-    let main_chrome = app
-        .get_webview_window(MAIN_CHROME_LABEL)
-        .ok_or_else(|| {
-            format!(
-                "create_browser_webview({label}): main chrome webview window '{MAIN_CHROME_LABEL}' was not found"
-            )
-        })?;
-    let parent_window = main_chrome.as_ref().window();
+    let chrome_label = chrome_window.label().to_string();
+    let parent_window = chrome_window.as_ref().window();
 
     let navigation_app = app.clone();
+    let navigation_chrome_label = chrome_label.clone();
     let navigation_label = label.clone();
     let mut builder = WebviewBuilder::new(label.clone(), WebviewUrl::External(parsed_url))
         .on_navigation(move |next_url| {
@@ -85,7 +81,7 @@ pub async fn create_browser_webview(
                 url: next_url.to_string(),
             };
             let _ = navigation_app.emit_to(
-                EventTarget::labeled(MAIN_CHROME_LABEL),
+                EventTarget::labeled(navigation_chrome_label.clone()),
                 WEBVIEW_NAVIGATION_EVENT,
                 payload,
             );
@@ -93,6 +89,7 @@ pub async fn create_browser_webview(
         });
 
     let title_app = app.clone();
+    let title_chrome_label = chrome_label.clone();
     let title_label = label.clone();
     builder = builder.on_document_title_changed(move |_webview, title| {
         let payload = BrowserWebviewTitleEvent {
@@ -100,13 +97,14 @@ pub async fn create_browser_webview(
             title,
         };
         let _ = title_app.emit_to(
-            EventTarget::labeled(MAIN_CHROME_LABEL),
+            EventTarget::labeled(title_chrome_label.clone()),
             WEBVIEW_TITLE_EVENT,
             payload,
         );
     });
 
     let load_app = app.clone();
+    let load_chrome_label = chrome_label.clone();
     let load_label = label.clone();
     builder = builder.on_page_load(move |_webview, payload| {
         let state = match payload.event() {
@@ -119,11 +117,15 @@ pub async fn create_browser_webview(
             state,
         };
         let _ = load_app.emit_to(
-            EventTarget::labeled(MAIN_CHROME_LABEL),
+            EventTarget::labeled(load_chrome_label.clone()),
             WEBVIEW_LOAD_EVENT,
             event_payload,
         );
     });
+
+    if incognito {
+        builder = builder.incognito(true);
+    }
 
     if !javascript_enabled {
         builder = builder.disable_javascript();
