@@ -1,6 +1,7 @@
 <script lang="ts">
   import { getAllWindows, getCurrentWindow } from '@tauri-apps/api/window';
   import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
+  import { open as openExternal } from '@tauri-apps/plugin-shell';
   import BookmarksPanel from './lib/components/BookmarksPanel.svelte';
   import DownloadManager from './lib/components/DownloadManager.svelte';
   import HistoryPanel from './lib/components/HistoryPanel.svelte';
@@ -46,11 +47,17 @@
   const MAX_ZOOM = 5;
   const SHORTCUT_SEQUENCE_TIMEOUT_MS = 1400;
   const BROWSER_WINDOW_LABEL_PREFIX = 'browser_window_';
+  const CHROME_HELP_URL =
+    'https://support.google.com/chrome/answer/157179?co=GENIE.Platform%3DDesktop&hl=en';
   const isIncognitoWindow = new URLSearchParams(window.location.search).get('incognito') === '1';
 
   let activePanel = $state<ChromePanel | null>(null);
   let webViewController = $state<WebViewController | null>(null);
+  let mainContentElement: HTMLElement | undefined = $state();
   let addressFocusRequest = $state(0);
+  let toolbarStartFocusRequest = $state(0);
+  let toolbarEndFocusRequest = $state(0);
+  let menuOpenRequest = $state(0);
   let findStepRequest = $state(0);
   let findStepDirection = $state<FindStepDirection>('next');
   let pageZoom = $state(1);
@@ -107,11 +114,16 @@
     const handleKeydown = (event: KeyboardEvent) => {
       handleGlobalKeydown(event);
     };
+    const handleWheel = (event: WheelEvent) => {
+      handleGlobalWheel(event);
+    };
 
     window.addEventListener('keydown', handleKeydown);
+    window.addEventListener('wheel', handleWheel, { passive: false });
 
     return () => {
       window.removeEventListener('keydown', handleKeydown);
+      window.removeEventListener('wheel', handleWheel);
       clearPendingShortcutSequence();
     };
   });
@@ -288,6 +300,31 @@
     addressFocusRequest += 1;
   }
 
+  function focusFirstToolbarItem(): void {
+    toolbarStartFocusRequest += 1;
+  }
+
+  function focusRightmostToolbarItem(): void {
+    toolbarEndFocusRequest += 1;
+  }
+
+  function openBrowserMenu(): void {
+    menuOpenRequest += 1;
+  }
+
+  async function focusWebContent(): Promise<void> {
+    if (!tabsState.activeTab) {
+      return;
+    }
+
+    if (tabsState.activeTab.isInternal) {
+      mainContentElement?.focus();
+      return;
+    }
+
+    await webViewController?.focusActive();
+  }
+
   function focusNextChromeArea(): void {
     if (focusTabsOnNextF6) {
       focusTabsOnNextF6 = false;
@@ -313,6 +350,46 @@
       findStepDirection = direction;
       findStepRequest += 1;
     }
+  }
+
+  function openHelpCenterTab(): void {
+    tabsState.openTab(CHROME_HELP_URL, 'Chrome keyboard shortcuts');
+    activePanel = null;
+  }
+
+  async function printActivePage(): Promise<void> {
+    if (!tabsState.activeTab) {
+      showUnsupportedShortcut('print-no-tab', 'There is no active page to print.');
+      return;
+    }
+
+    if (tabsState.activeTab.isInternal) {
+      window.print();
+      return;
+    }
+
+    await webViewController?.printActive();
+  }
+
+  async function emailActivePageLink(): Promise<void> {
+    const activeTab = tabsState.activeTab;
+
+    if (!activeTab || !isBookmarkableUrl(activeTab.url)) {
+      showUnsupportedShortcut('email-page-empty', 'There is no web page link to email.');
+      return;
+    }
+
+    if (!nativeRuntime) {
+      showUnsupportedShortcut(
+        'email-page-native',
+        'Emailing the current page is only available in the Tauri app.'
+      );
+      return;
+    }
+
+    const subject = encodeURIComponent(activeTab.title.trim() || activeTab.url);
+    const body = encodeURIComponent(activeTab.url);
+    await openExternal(`mailto:?subject=${subject}&body=${body}`);
   }
 
   function replaceActiveHomeTab(url: string): void {
@@ -397,6 +474,16 @@
     runShortcut(command);
   }
 
+  function handleGlobalWheel(event: WheelEvent): void {
+    if (!event.ctrlKey || event.defaultPrevented) {
+      return;
+    }
+
+    event.preventDefault();
+    const direction = event.deltaY < 0 ? 1 : -1;
+    runShortcut(() => setPageZoom(pageZoom + direction * ZOOM_STEP));
+  }
+
   function shortcutCommand(event: KeyboardEvent): ShortcutCommand | null {
     const key = shortcutKey(event);
     const primary = isPrimaryShortcut(event);
@@ -444,7 +531,19 @@
       return toggleFullscreen;
     }
 
+    if (isApplePlatform && event.ctrlKey && !event.metaKey && !event.altKey && key === 'f2') {
+      return focusRightmostToolbarItem;
+    }
+
+    if (key === 'f6' && event.ctrlKey && !event.altKey && !event.metaKey) {
+      return focusWebContent;
+    }
+
     if (key === 'f5' && primary && !event.shiftKey) {
+      return focusAddressBar;
+    }
+
+    if (key === 'f5' && event.ctrlKey && !event.altKey && !event.metaKey && !event.shiftKey) {
       return focusAddressBar;
     }
 
@@ -459,11 +558,7 @@
     }
 
     if (key === 'f1' && noCommandModifier && !event.shiftKey) {
-      return () =>
-        showUnsupportedShortcut(
-          'help-center',
-          'Opening a Chrome Help Center tab is not implemented.'
-        );
+      return openHelpCenterTab;
     }
 
     if (key === 'f6' && !event.altKey && !event.metaKey) {
@@ -475,7 +570,7 @@
     }
 
     if (key === 'f10' && noCommandModifier && !event.shiftKey) {
-      return focusAddressBar;
+      return focusRightmostToolbarItem;
     }
 
     if (key === 'f12' && noCommandModifier && !event.shiftKey) {
@@ -501,6 +596,7 @@
 
       if (key === 'f' || key === 'e') {
         startPendingShortcutSequence('browser-menu');
+        openBrowserMenu();
         return noop;
       }
 
@@ -509,7 +605,7 @@
 
     if (event.altKey && event.shiftKey && !event.ctrlKey && !event.metaKey) {
       if (key === 't') {
-        return focusAddressBar;
+        return focusFirstToolbarItem;
       }
 
       if (key === 'i') {
@@ -533,12 +629,55 @@
     }
 
     if (isApplePlatform && event.metaKey && event.altKey && !event.ctrlKey) {
+      if (event.shiftKey && key === 'i') {
+        return () =>
+          showUnsupportedShortcut('feedback', 'The Chrome feedback form is not implemented.');
+      }
+
+      if (event.shiftKey && key === 'a') {
+        return () =>
+          showUnsupportedShortcut(
+            'inactive-dialogs',
+            'Inactive dialog focusing is not implemented.'
+          );
+      }
+
       if (key === 'arrowright') {
         return tabsState.nextTab;
       }
 
       if (key === 'arrowleft') {
         return tabsState.previousTab;
+      }
+
+      if (key === 'arrowup' || key === 'arrowdown') {
+        return () =>
+          showUnsupportedShortcut(
+            'dialog-toolbar-focus',
+            'Dialog and toolbar focus cycling is not implemented.'
+          );
+      }
+
+      if (key === 'b' && !event.shiftKey) {
+        return () => {
+          activePanel = 'bookmarks';
+        };
+      }
+
+      if (key === 'f' && !event.shiftKey) {
+        return focusAddressBar;
+      }
+
+      if (key === 'n' && !event.shiftKey) {
+        return () => showUnsupportedShortcut('split-view', 'Split view is not implemented.');
+      }
+
+      if (key === 'p' && !event.shiftKey) {
+        return () => showUnsupportedShortcut('page-setup', 'Page setup is not implemented.');
+      }
+
+      if (key === 'u' && !event.shiftKey) {
+        return () => showUnsupportedShortcut('view-source', 'Page source view is not implemented.');
       }
 
       if (key === 'i' || key === 'j') {
@@ -610,6 +749,10 @@
 
     if (key === 'm' && !event.shiftKey && isApplePlatform) {
       return minimizeCurrentWindow;
+    }
+
+    if (key === 'h' && event.shiftKey && isApplePlatform) {
+      return openHomepageInCurrentTab;
     }
 
     if ((key === 'l' || key === 'k' || key === 'e') && !event.shiftKey) {
@@ -699,7 +842,7 @@
     }
 
     if (key === 'p' && !event.shiftKey) {
-      return () => showUnsupportedShortcut('print', 'Print is not implemented.');
+      return printActivePage;
     }
 
     if (key === 's' && !event.shiftKey) {
@@ -713,6 +856,10 @@
 
     if (key === 'u' && !event.shiftKey) {
       return () => showUnsupportedShortcut('view-source', 'Page source view is not implemented.');
+    }
+
+    if (key === 'i' && event.shiftKey && isApplePlatform) {
+      return emailActivePageLink;
     }
 
     if ((key === 'i' || key === 'c') && event.shiftKey) {
@@ -1059,6 +1206,9 @@
     onForward={forwardActive}
     onOpenPanel={openPanel}
     focusAddressRequest={addressFocusRequest}
+    focusToolbarStartRequest={toolbarStartFocusRequest}
+    focusToolbarEndRequest={toolbarEndFocusRequest}
+    openMenuRequest={menuOpenRequest}
   />
   <div class="findbar-slot">
     <FindBar
@@ -1071,9 +1221,11 @@
     />
   </div>
   <main
+    bind:this={mainContentElement}
     class={`app-content ${isSidePanelOpen ? 'app-content--with-library' : ''}`}
     aria-label="Browser content"
     data-active-panel={activePanel ?? 'none'}
+    tabindex="-1"
   >
     <div class={`webview-slot ${isInternalTabActive ? 'webview-slot--internal' : ''}`}>
       <div class="webview-host" aria-hidden={isInternalTabActive}>
