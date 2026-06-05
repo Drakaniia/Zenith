@@ -22,6 +22,8 @@
   let canOpenTab = $derived(
     Boolean(tabsState.activeTab && tabsState.activeTab.url !== BROWSER_HOME_URL)
   );
+  let isHiddenHomeTabActive = $derived(tabsState.activeTab?.url === BROWSER_HOME_URL);
+  let showTabAction = $derived(canOpenTab || isHiddenHomeTabActive);
   let contextTab = $derived(
     contextMenu ? (visibleTabs.find((tab) => tab.id === contextMenu?.tabId) ?? null) : null
   );
@@ -35,6 +37,25 @@
     }
 
     closeContextMenu();
+  }
+
+  function closeHiddenHomeTab(): void {
+    const activeTab = tabsState.activeTab;
+
+    if (activeTab?.url === BROWSER_HOME_URL) {
+      tabsState.closeTab(activeTab.id);
+    }
+
+    closeContextMenu();
+  }
+
+  function handleTabAction(): void {
+    if (isHiddenHomeTabActive) {
+      closeHiddenHomeTab();
+      return;
+    }
+
+    openDefaultTab();
   }
 
   function activateTab(id: string): void {
@@ -242,19 +263,25 @@
         </button>
       </div>
 
-      {#if tab.id === tabsState.activeTabId && canOpenTab}
-        <button
-          class="new-tab-button"
-          type="button"
-          aria-label="Open default screen"
-          title="Default screen"
-          data-tauri-drag-region="false"
-          onclick={openDefaultTab}
-        >
-          <Plus size={17} strokeWidth={2.35} />
-        </button>
-      {/if}
     {/each}
+
+    {#if showTabAction}
+      <button
+        class={`new-tab-button ${isHiddenHomeTabActive ? 'new-tab-button--close' : ''}`}
+        type="button"
+        aria-label={isHiddenHomeTabActive ? 'Close default screen' : 'Open default screen'}
+        title={isHiddenHomeTabActive ? 'Close default screen' : 'Default screen'}
+        data-tauri-drag-region="false"
+        onclick={handleTabAction}
+      >
+        <span class="new-tab-button__icon new-tab-button__icon--plus" aria-hidden="true">
+          <Plus size={17} strokeWidth={2.35} />
+        </span>
+        <span class="new-tab-button__icon new-tab-button__icon--close" aria-hidden="true">
+          <X size={17} strokeWidth={2.35} />
+        </span>
+      </button>
+    {/if}
   </div>
 </nav>
 
@@ -479,16 +506,62 @@
   }
 
   .new-tab-button {
-    flex: 0 0 32px;
-    width: 32px;
-    height: 30px;
-    min-width: 32px;
+    position: relative;
+    flex: 0 0 23px;
+    width: 23px;
+    height: 23px;
+    min-width: 23px;
     padding: 0;
     color: var(--color-text-secondary);
     background: transparent;
     border: 0;
-    border-radius: 7px;
+    border-radius: 50%;
     cursor: default;
+    transition:
+      color 150ms ease,
+      background 150ms ease,
+      box-shadow 150ms ease,
+      transform 180ms ease;
+  }
+
+  .new-tab-button:active {
+    transform: scale(0.94);
+  }
+
+  .new-tab-button--close {
+    color: #202124;
+    background: #ffffff;
+    box-shadow: 0 1px 2px rgb(0 0 0 / 0.28);
+  }
+
+  .new-tab-button__icon {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    transition:
+      opacity 180ms ease,
+      transform 180ms ease;
+  }
+
+  .new-tab-button__icon--plus {
+    opacity: 1;
+    transform: rotate(0deg) scale(1);
+  }
+
+  .new-tab-button__icon--close {
+    opacity: 0;
+    transform: rotate(-90deg) scale(0.64);
+  }
+
+  .new-tab-button--close .new-tab-button__icon--plus {
+    opacity: 0;
+    transform: rotate(90deg) scale(0.64);
+  }
+
+  .new-tab-button--close .new-tab-button__icon--close {
+    opacity: 1;
+    transform: rotate(0deg) scale(1);
   }
 
   .tab-menu {
