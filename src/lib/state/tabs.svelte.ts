@@ -1,6 +1,12 @@
 import type { Tab } from '../utils/tauri';
+import {
+  BROWSER_HOME_URL,
+  BROWSER_SETTINGS_URL,
+  isInternalBrowserUrl,
+  titleForInternalUrl,
+  type InternalUrl
+} from '../utils/internalUrls';
 
-export type InternalUrl = 'browser://settings';
 export type BrowserWebviewLabel = `tab_${string}`;
 
 export interface BrowserTab extends Tab {
@@ -10,23 +16,32 @@ export interface BrowserTab extends Tab {
   historyIndex: number;
 }
 
-const DEFAULT_HOME_URL = 'https://yandex.com';
 const DEFAULT_TAB_TITLE = 'New Tab';
-const SETTINGS_TITLE = 'Settings';
+const MAX_CLOSED_TABS = 10;
+
+type ClosedTabSnapshot = Omit<BrowserTab, 'id' | 'webviewLabel'>;
 
 class TabsState {
   tabs = $state<BrowserTab[]>([]);
   activeTabId = $state<string | null>(null);
+  selectedTabIds = $state<string[]>([]);
   reloadRequests = $state<Record<string, number>>({});
+  closedTabs = $state<ClosedTabSnapshot[]>([]);
   activeTab = $derived(this.tabs.find((tab) => tab.id === this.activeTabId) ?? null);
   activeIndex = $derived(this.tabs.findIndex((tab) => tab.id === this.activeTabId));
 
-  openTab = (url = DEFAULT_HOME_URL, title = DEFAULT_TAB_TITLE): BrowserTab => {
+  openTab = (url = BROWSER_HOME_URL, title = DEFAULT_TAB_TITLE): BrowserTab => {
+    if (isInternalBrowserUrl(url)) {
+      return this.openInternalTab(url);
+    }
+
     const tab = createTab(url, title, false);
     this.tabs = [...this.tabs, tab];
     this.activeTabId = tab.id;
     return tab;
   };
+
+  openHomeTab = (): BrowserTab => this.openInternalTab(BROWSER_HOME_URL);
 
   openInternalTab = (url: InternalUrl): BrowserTab => {
     const tab = createTab(url, internalTitle(url), true);
@@ -42,8 +57,10 @@ class TabsState {
     }
 
     const closedTab = this.tabs[index];
+    this.rememberClosedTab(closedTab);
     this.tabs = this.tabs.filter((tab) => tab.id !== id);
     this.reloadRequests = withoutReloadRequests(this.reloadRequests, [id]);
+    this.selectedTabIds = this.selectedTabIds.filter((tabId) => tabId !== id);
 
     if (this.activeTabId === id) {
       this.activeTabId = this.tabs[index]?.id ?? this.tabs[index - 1]?.id ?? null;
@@ -89,11 +106,82 @@ class TabsState {
       return [];
     }
 
-    const closedIds = this.tabs.filter((tab) => tab.id !== id).map((tab) => tab.id);
+    const closedTabs = this.tabs.filter((tab) => tab.id !== id);
+    const closedIds = closedTabs.map((tab) => tab.id);
+    closedTabs.forEach((tab) => this.rememberClosedTab(tab));
     this.tabs = this.tabs.filter((tab) => tab.id === id);
     this.reloadRequests = withoutReloadRequests(this.reloadRequests, closedIds);
+    this.selectedTabIds = this.selectedTabIds.filter((tabId) => tabId === id);
     this.activeTabId = id;
     return closedIds;
+  };
+
+  restoreClosedTab = (): BrowserTab | null => {
+    const snapshot = this.closedTabs.at(-1);
+
+    if (!snapshot) {
+      return null;
+    }
+
+    this.closedTabs = this.closedTabs.slice(0, -1);
+    const tab = createTabFromSnapshot(snapshot);
+    this.tabs = [...this.tabs, tab];
+    this.activeTabId = tab.id;
+    return tab;
+  };
+
+  moveActiveTab = (direction: -1 | 1): void => {
+    const activeTabId = this.activeTabId;
+
+    if (!activeTabId) {
+      return;
+    }
+
+    const existingTabIds = new Set(this.tabs.map((tab) => tab.id));
+    const selectedIds = this.selectedTabIds.filter((tabId) => existingTabIds.has(tabId));
+    this.selectedTabIds = selectedIds;
+    const movingIds =
+      selectedIds.includes(activeTabId) && selectedIds.length > 1
+        ? new Set(selectedIds)
+        : new Set([activeTabId]);
+
+    if (movingIds.size === 0) {
+      return;
+    }
+
+    const reordered = [...this.tabs];
+
+    if (direction < 0) {
+      for (let index = 1; index < reordered.length; index += 1) {
+        if (movingIds.has(reordered[index].id) && !movingIds.has(reordered[index - 1].id)) {
+          [reordered[index - 1], reordered[index]] = [reordered[index], reordered[index - 1]];
+        }
+      }
+    } else {
+      for (let index = reordered.length - 2; index >= 0; index -= 1) {
+        if (movingIds.has(reordered[index].id) && !movingIds.has(reordered[index + 1].id)) {
+          [reordered[index], reordered[index + 1]] = [reordered[index + 1], reordered[index]];
+        }
+      }
+    }
+
+    this.tabs = reordered;
+  };
+
+  isTabSelected = (id: string): boolean => this.selectedTabIds.includes(id);
+
+  toggleTabSelection = (id: string): void => {
+    if (!this.tabs.some((tab) => tab.id === id)) {
+      return;
+    }
+
+    this.selectedTabIds = this.selectedTabIds.includes(id)
+      ? this.selectedTabIds.filter((tabId) => tabId !== id)
+      : [...this.selectedTabIds, id];
+  };
+
+  clearTabSelection = (): void => {
+    this.selectedTabIds = [];
   };
 
   requestReload = (id: string): number | null => {
@@ -144,6 +232,10 @@ class TabsState {
       this.activeTabId = tab.id;
     }
   };
+
+  private rememberClosedTab(tab: BrowserTab): void {
+    this.closedTabs = [...this.closedTabs, snapshotTab(tab)].slice(-MAX_CLOSED_TABS);
+  }
 }
 
 function createTab(url: string, title: string, isInternal: boolean): BrowserTab {
@@ -164,12 +256,40 @@ function createTab(url: string, title: string, isInternal: boolean): BrowserTab 
   };
 }
 
+function createTabFromSnapshot(snapshot: ClosedTabSnapshot): BrowserTab {
+  const tab = createTab(snapshot.url, snapshot.title, snapshot.isInternal);
+
+  return {
+    ...tab,
+    favicon_url: snapshot.favicon_url,
+    is_loading: false,
+    can_go_back: snapshot.can_go_back,
+    can_go_forward: snapshot.can_go_forward,
+    history: [...snapshot.history],
+    historyIndex: snapshot.historyIndex
+  };
+}
+
+function snapshotTab(tab: BrowserTab): ClosedTabSnapshot {
+  return {
+    title: tab.title,
+    url: tab.url,
+    favicon_url: tab.favicon_url,
+    is_loading: false,
+    can_go_back: tab.can_go_back,
+    can_go_forward: tab.can_go_forward,
+    isInternal: tab.isInternal,
+    history: [...tab.history],
+    historyIndex: tab.historyIndex
+  };
+}
+
 function internalTitle(url: InternalUrl): string {
-  if (url === 'browser://settings') {
-    return SETTINGS_TITLE;
+  if (url === BROWSER_SETTINGS_URL) {
+    return titleForInternalUrl(BROWSER_SETTINGS_URL);
   }
 
-  return DEFAULT_TAB_TITLE;
+  return titleForInternalUrl(BROWSER_HOME_URL);
 }
 
 function createTabId(): string {
