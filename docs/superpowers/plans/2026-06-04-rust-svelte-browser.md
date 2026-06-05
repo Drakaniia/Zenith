@@ -1159,7 +1159,7 @@ Task 17 execution notes:
 - Create: `src/lib/components/HistoryPanel.svelte`
 - Modify: `src/App.svelte`
 
-- [ ] **Step 1: Implement BookmarksPanel**
+- [x] **Step 1: Implement BookmarksPanel**
 
 Props:
 
@@ -1173,15 +1173,15 @@ interface Props {
 
 Load bookmarks on open. Render add-current button when active URL is not bookmarked, list entries with favicon/title/URL, and delete buttons. Empty state must be simple and non-decorative.
 
-- [ ] **Step 2: Implement HistoryPanel**
+- [x] **Step 2: Implement HistoryPanel**
 
 Props match `BookmarksPanel`. Load history on open. Search input calls `historyState.search`. Group entries into Today, Yesterday, This Week, and Earlier using local date comparisons.
 
-- [ ] **Step 3: Implement clear confirmation**
+- [x] **Step 3: Implement clear confirmation**
 
 Use `tauri-plugin-dialog` through a typed wrapper if available, or implement an in-app confirmation dialog. Clearing history must call `historyState.clear()`, refresh the list, and toast success/error.
 
-- [ ] **Step 4: Typecheck**
+- [x] **Step 4: Typecheck**
 
 Run:
 
@@ -1241,11 +1241,11 @@ Run the app and download a small public file. Expected: progress event updates, 
 - Modify: `src/App.svelte`
 - Modify: `src/lib/state/settings.svelte.ts`
 
-- [ ] **Step 1: Render internal tab only**
+- [x] **Step 1: Render internal tab only**
 
 When active tab URL is `browser://settings`, hide child webviews and render `SettingsPage` inside the content area.
 
-- [ ] **Step 2: Implement settings controls**
+- [x] **Step 2: Implement settings controls**
 
 Render:
 
@@ -1258,11 +1258,11 @@ Render:
 - clear browsing data button that calls `clearAllBrowsingData` for browser webviews where possible
 - app version/about section
 
-- [ ] **Step 3: Auto-save changes**
+- [x] **Step 3: Auto-save changes**
 
 Use `$effect` with a debounce. Every settings change calls `settingsState.save()`. On error, show toast and keep local state visible.
 
-- [ ] **Step 4: Typecheck**
+- [x] **Step 4: Typecheck**
 
 Run:
 
@@ -1282,7 +1282,7 @@ Expected: no errors from `SettingsPage`.
 - Modify: `src/App.svelte`
 - Modify: state and component files as needed
 
-- [ ] **Step 1: Compose the shell**
+- [x] **Step 1: Compose the shell**
 
 Render in order:
 
@@ -1296,7 +1296,7 @@ Render in order:
 - `StatusBar`
 - `Toast`
 
-- [ ] **Step 2: Implement startup load**
+- [x] **Step 2: Implement startup load**
 
 On first app load:
 
@@ -1308,7 +1308,7 @@ On first app load:
 
 Use `$effect` for lifecycle work and return cleanup functions where listeners are registered.
 
-- [ ] **Step 3: Implement global shortcuts**
+- [x] **Step 3: Implement global shortcuts**
 
 In one `$effect`, add a `keydown` listener for all prompt shortcuts:
 
@@ -1332,7 +1332,7 @@ In one `$effect`, add a `keydown` listener for all prompt shortcuts:
 
 Prevent default only when the browser shell handles the shortcut.
 
-- [ ] **Step 4: Verify no Svelte 4 patterns**
+- [x] **Step 4: Verify no Svelte 4 patterns**
 
 Search:
 
@@ -1344,7 +1344,7 @@ rg "on:" src
 
 Expected: no matches except inside explanatory README text if any.
 
-- [ ] **Step 5: Full frontend typecheck and build**
+- [x] **Step 5: Full frontend typecheck and build**
 
 Run:
 
@@ -1355,6 +1355,17 @@ pnpm build
 ```
 
 Expected: both pass.
+
+Task 21 execution notes:
+
+- Added `src/lib/components/DownloadManager.svelte` because Task 21 required rendering `DownloadManager`, but that component was not present in the working tree.
+- Updated `src/App.svelte` to run startup loading for settings, bookmarks, history, and downloads in a guarded `$effect`, then open the configured homepage tab when no tabs exist.
+- Added one global keydown listener in `src/App.svelte` for the requested shortcuts, including tab selection, panel opening, address focus, reload, find, settings, bookmark toggling, and back/forward when app-visible history is available.
+- Added `focusAddressRequest` to `NavigationBar.svelte` so `Ctrl+L` can focus and select the address field without querying component internals.
+- Fixed address input synchronization when a shortcut changes the active tab while the address field is focused.
+- The exact broad search `rg "on:" src` is not a reliable Svelte event-directive check in this codebase because it also matches normal CSS and TypeScript text such as `position:` and `direction:`. Focused searches `rg 'export let|\$:' src`, `rg '<[^>]*\son:' src`, and `rg '\bon:' src` found no Svelte 4 patterns.
+- `pnpm check` and `pnpm build` passed after the Task 21 changes.
+- Playwright CLI smoke checks against `http://localhost:1420` verified `Ctrl+Shift+J`, `Ctrl+H`, `Ctrl+,`, `Ctrl+L`, and `Ctrl+T`; the only browser-console error observed was the existing missing `/favicon.ico`.
 
 ---
 
