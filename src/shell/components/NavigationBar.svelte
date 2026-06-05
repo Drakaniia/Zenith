@@ -2,33 +2,23 @@
   import {
     ArrowLeft,
     ArrowRight,
-    Bookmark,
     BookmarkCheck,
-    Download,
     History,
     Lock,
-    Menu,
     PanelTop,
     RotateCw,
     Search,
-    Settings,
     Star,
     X
   } from 'lucide-svelte';
   import { normalizeUrl } from '../../bridge/commands/navigation';
   import { bookmarksState } from '../../features/bookmarks/state/bookmarks.svelte';
   import { historyState } from '../../features/history/state/history.svelte';
-  import {
-    resolveHomepageUrl,
-    settingsState,
-    type SearchEngine
-  } from '../../features/settings/state/settings.svelte';
+  import type { SearchEngine } from '../../features/settings/state/settings.svelte';
   import { tabsState } from '../../features/tabs/state/tabs.svelte';
   import type { HistoryEntry } from '../../shared/types/backend';
   import { BROWSER_HOME_URL } from '../../shared/utils/internal-urls';
   import { toastsState } from '../state/toasts.svelte';
-
-  type ShellPanel = 'bookmarks' | 'history' | 'downloads' | 'settings' | 'find';
 
   interface Props {
     onNavigate: (url: string) => Promise<void>;
@@ -36,11 +26,8 @@
     onStop: () => Promise<void>;
     onBack: () => Promise<void>;
     onForward: () => Promise<void>;
-    onOpenPanel: (panel: ShellPanel) => void;
     focusAddressRequest?: number;
     focusToolbarStartRequest?: number;
-    focusToolbarEndRequest?: number;
-    openMenuRequest?: number;
   }
 
   let {
@@ -49,11 +36,8 @@
     onStop,
     onBack,
     onForward,
-    onOpenPanel,
     focusAddressRequest = 0,
-    focusToolbarStartRequest = 0,
-    focusToolbarEndRequest = 0,
-    openMenuRequest = 0
+    focusToolbarStartRequest = 0
   }: Props = $props();
 
   const isApplePlatform = /Mac|iPhone|iPad|iPod/.test(navigator.userAgent);
@@ -61,7 +45,6 @@
   let addressInput = $state('');
   let addressElement: HTMLInputElement | undefined = $state();
   let backButtonElement: HTMLButtonElement | undefined = $state();
-  let menuButtonElement: HTMLButtonElement | undefined = $state();
   let isFocused = $state(false);
   let validationError = $state('');
   let suggestions = $state<HistoryEntry[]>([]);
@@ -70,18 +53,17 @@
   let isSubmitting = $state(false);
   let isBookmarkChecked = $state(false);
   let isBookmarkBusy = $state(false);
-  let isMenuOpen = $state(false);
   let searchEngineMode = $state<SearchEngine | null>(null);
   let lastFocusAddressRequest = 0;
   let lastFocusToolbarStartRequest = 0;
-  let lastFocusToolbarEndRequest = 0;
-  let lastOpenMenuRequest = 0;
   let lastActiveTabId: string | null = null;
 
   let activeTab = $derived(tabsState.activeTab);
   let activeUrl = $derived(activeTab?.url ?? '');
   let activeDisplayUrl = $derived(activeUrl === BROWSER_HOME_URL ? '' : activeUrl);
   let activeTabId = $derived(activeTab?.id ?? null);
+  let canGoBack = $derived(Boolean(activeTab?.can_go_back));
+  let canGoForward = $derived(Boolean(activeTab?.can_go_forward));
   let canBookmark = $derived(isBookmarkableUrl(activeUrl));
   let addressIcon = $derived(iconKindForUrl(addressInput || activeDisplayUrl));
   let addressPlaceholder = $derived(
@@ -131,33 +113,6 @@
     lastFocusToolbarStartRequest = request;
     window.setTimeout(() => {
       backButtonElement?.focus();
-    }, 0);
-  });
-
-  $effect(() => {
-    const request = focusToolbarEndRequest;
-
-    if (request <= 0 || request === lastFocusToolbarEndRequest) {
-      return;
-    }
-
-    lastFocusToolbarEndRequest = request;
-    window.setTimeout(() => {
-      menuButtonElement?.focus();
-    }, 0);
-  });
-
-  $effect(() => {
-    const request = openMenuRequest;
-
-    if (request <= 0 || request === lastOpenMenuRequest) {
-      return;
-    }
-
-    lastOpenMenuRequest = request;
-    isMenuOpen = true;
-    window.setTimeout(() => {
-      menuButtonElement?.focus();
     }, 0);
   });
 
@@ -388,7 +343,7 @@
     const rawUrl = rawInput.trim();
 
     if (!rawUrl) {
-      validationError = searchEngineMode ? 'Enter a search query' : 'Enter a URL or search query';
+      validationError = '';
       return;
     }
 
@@ -422,7 +377,7 @@
     const rawUrl = rawInput.trim();
 
     if (!rawUrl) {
-      validationError = searchEngineMode ? 'Enter a search query' : 'Enter a URL or search query';
+      validationError = '';
       return;
     }
 
@@ -478,26 +433,6 @@
       isBookmarkChecked = Boolean(bookmark);
     } finally {
       isBookmarkBusy = false;
-    }
-  }
-
-  function openMenuPanel(panel: ShellPanel): void {
-    onOpenPanel(panel);
-    isMenuOpen = false;
-  }
-
-  function openNewTab(): void {
-    tabsState.openTab(resolveHomepageUrl(settingsState.settings.homepage));
-    isMenuOpen = false;
-  }
-
-  function handleWindowClick(): void {
-    isMenuOpen = false;
-  }
-
-  function handleWindowKeydown(event: KeyboardEvent): void {
-    if (event.key === 'Escape') {
-      isMenuOpen = false;
     }
   }
 
@@ -590,8 +525,6 @@
   }
 </script>
 
-<svelte:window onclick={handleWindowClick} onkeydown={handleWindowKeydown} />
-
 <nav class="navigation-bar" aria-label="Navigation controls">
   <div class="history-controls" aria-label="Page history">
     <button
@@ -600,21 +533,30 @@
       type="button"
       aria-label="Back"
       title="Back"
-      disabled={!activeTab?.can_go_back}
-      onclick={() => runCommand(onBack)}
+      disabled={!canGoBack}
+      onclick={() => {
+        if (canGoBack) {
+          void runCommand(onBack);
+        }
+      }}
     >
       <ArrowLeft size={18} strokeWidth={2.25} />
     </button>
-    <button
-      class="toolbar-button"
-      type="button"
-      aria-label="Forward"
-      title="Forward"
-      disabled={!activeTab?.can_go_forward}
-      onclick={() => runCommand(onForward)}
-    >
-      <ArrowRight size={18} strokeWidth={2.25} />
-    </button>
+    {#if canGoForward}
+      <button
+        class="toolbar-button toolbar-button--forward"
+        type="button"
+        aria-label="Forward"
+        title="Forward"
+        onclick={() => {
+          if (canGoForward) {
+            void runCommand(onForward);
+          }
+        }}
+      >
+        <ArrowRight size={18} strokeWidth={2.25} />
+      </button>
+    {/if}
     <button
       class="toolbar-button"
       type="button"
@@ -710,77 +652,6 @@
         <Star size={18} strokeWidth={2.25} />
       {/if}
     </button>
-
-    <div class="menu-anchor">
-      <button
-        bind:this={menuButtonElement}
-        class="toolbar-button"
-        type="button"
-        aria-label="Open browser menu"
-        aria-expanded={isMenuOpen}
-        title="Menu"
-        onclick={(event) => {
-          event.stopPropagation();
-          isMenuOpen = !isMenuOpen;
-        }}
-      >
-        <Menu size={19} strokeWidth={2.25} />
-      </button>
-
-      {#if isMenuOpen}
-        <div class="browser-menu" role="menu">
-          <button class="browser-menu__item" type="button" role="menuitem" onclick={openNewTab}>
-            <PanelTop size={16} strokeWidth={2.25} />
-            <span>New Tab</span>
-          </button>
-          <button
-            class="browser-menu__item"
-            type="button"
-            role="menuitem"
-            onclick={() => openMenuPanel('bookmarks')}
-          >
-            <Bookmark size={16} strokeWidth={2.25} />
-            <span>Bookmarks</span>
-          </button>
-          <button
-            class="browser-menu__item"
-            type="button"
-            role="menuitem"
-            onclick={() => openMenuPanel('history')}
-          >
-            <History size={16} strokeWidth={2.25} />
-            <span>History</span>
-          </button>
-          <button
-            class="browser-menu__item"
-            type="button"
-            role="menuitem"
-            onclick={() => openMenuPanel('downloads')}
-          >
-            <Download size={16} strokeWidth={2.25} />
-            <span>Downloads</span>
-          </button>
-          <button
-            class="browser-menu__item"
-            type="button"
-            role="menuitem"
-            onclick={() => openMenuPanel('settings')}
-          >
-            <Settings size={16} strokeWidth={2.25} />
-            <span>Settings</span>
-          </button>
-          <button
-            class="browser-menu__item"
-            type="button"
-            role="menuitem"
-            onclick={() => openMenuPanel('find')}
-          >
-            <Search size={16} strokeWidth={2.25} />
-            <span>Find in Page</span>
-          </button>
-        </div>
-      {/if}
-    </div>
   </div>
 </nav>
 
@@ -822,6 +693,16 @@
     border: 0;
     border-radius: 8px;
     cursor: default;
+    transition:
+      color 120ms ease,
+      background 120ms ease,
+      opacity 120ms ease,
+      transform 120ms ease;
+  }
+
+  .toolbar-button--forward {
+    transform-origin: left center;
+    animation: forward-button-appear 150ms cubic-bezier(0.22, 0.61, 0.36, 1);
   }
 
   .toolbar-button:hover:not(:disabled) {
@@ -831,6 +712,8 @@
 
   .toolbar-button:disabled {
     color: color-mix(in srgb, var(--color-text-secondary) 42%, transparent);
+    opacity: 0.58;
+    pointer-events: none;
   }
 
   .star-button--saved {
@@ -901,8 +784,7 @@
   }
 
   .address-error,
-  .suggestions,
-  .browser-menu {
+  .suggestions {
     position: absolute;
     z-index: 920;
     color: var(--color-text-primary);
@@ -983,49 +865,6 @@
     letter-spacing: 0;
   }
 
-  .menu-anchor {
-    position: relative;
-  }
-
-  .browser-menu {
-    top: calc(100% + 7px);
-    right: 0;
-    display: grid;
-    gap: 2px;
-    width: 204px;
-    padding: 6px;
-  }
-
-  .browser-menu__item {
-    display: grid;
-    grid-template-columns: 24px minmax(0, 1fr);
-    gap: 8px;
-    align-items: center;
-    width: 100%;
-    height: 34px;
-    padding: 0 8px;
-    color: var(--color-text-primary);
-    text-align: left;
-    background: transparent;
-    border: 0;
-    border-radius: 6px;
-    cursor: default;
-  }
-
-  .browser-menu__item span {
-    min-width: 0;
-    overflow: hidden;
-    font-size: 12px;
-    font-weight: 650;
-    letter-spacing: 0;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .browser-menu__item:hover {
-    background: color-mix(in srgb, var(--color-accent) 18%, transparent);
-  }
-
   :global(.app-shell[data-theme='light']) .navigation-bar {
     background:
       linear-gradient(180deg, rgb(255 255 255 / 0.84), transparent),
@@ -1061,6 +900,18 @@
   @keyframes address-spin {
     to {
       transform: rotate(360deg);
+    }
+  }
+
+  @keyframes forward-button-appear {
+    from {
+      opacity: 0;
+      transform: translateX(-6px) scale(0.92);
+    }
+
+    to {
+      opacity: 1;
+      transform: translateX(0) scale(1);
     }
   }
 </style>

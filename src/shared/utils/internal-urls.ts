@@ -12,5 +12,5 @@ export function titleForInternalUrl(url: InternalUrl): string {
     return 'Settings';
   }
 
-  return 'New Tab';
+  return '';
 }

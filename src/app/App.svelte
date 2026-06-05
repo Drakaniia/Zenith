@@ -17,6 +17,7 @@
   import TitleBar from '../shell/components/TitleBar.svelte';
   import Toast from '../shell/components/Toast.svelte';
   import { toastsState } from '../shell/state/toasts.svelte';
+  import { focusAddressInput, focusAppShell } from '../shell/utils/focus';
   import {
     BROWSER_HOME_URL,
     BROWSER_SETTINGS_URL,
@@ -34,9 +35,10 @@
     restoreWindow as restoreAppWindow,
     setCurrentWindowFullscreen
   } from '../bridge/commands/windows';
+  import { listenNativeShortcutEvents } from '../bridge/events/shortcuts';
   import { isTauriRuntime } from '../bridge/runtime';
   import type { FindResult } from '../shared/types/backend';
-  import type { FindDirection } from '../shared/types/events';
+  import type { FindDirection, NativeShortcutCommand } from '../shared/types/events';
 
   type ShellPanel = 'bookmarks' | 'history' | 'downloads' | 'settings' | 'find';
   type ShortcutCommand = () => void | Promise<void>;
@@ -59,6 +61,7 @@
   let toolbarStartFocusRequest = $state(0);
   let toolbarEndFocusRequest = $state(0);
   let menuOpenRequest = $state(0);
+  let isChromeOverlayOpen = $state(false);
   let findStepRequest = $state(0);
   let findStepDirection = $state<FindStepDirection>('next');
   let pageZoom = $state(1);
@@ -89,7 +92,6 @@
     }
 
     didStartApp = true;
-    let cancelled = false;
 
     void (async () => {
       if (nativeRuntime) {
@@ -100,15 +102,7 @@
           downloadsState.load()
         ]);
       }
-
-      if (!cancelled && tabsState.tabs.length === 0) {
-        tabsState.openTab(homepageUrl());
-      }
     })();
-
-    return () => {
-      cancelled = true;
-    };
   });
 
   $effect(() => {
@@ -118,11 +112,36 @@
     const handleWheel = (event: WheelEvent) => {
       handleGlobalWheel(event);
     };
+    let cancelled = false;
+    let unlistenNativeShortcuts: (() => void) | null = null;
 
     window.addEventListener('keydown', handleKeydown);
     window.addEventListener('wheel', handleWheel, { passive: false });
 
+    if (nativeRuntime) {
+      void listenNativeShortcutEvents(async (command) => {
+        try {
+          handleNativeShortcut(command);
+        } catch (error) {
+          toastsState.error(`Shortcut failed: ${errorMessage(error)}`);
+        }
+      })
+        .then((unlisten) => {
+          if (cancelled) {
+            unlisten();
+            return;
+          }
+
+          unlistenNativeShortcuts = unlisten;
+        })
+        .catch((error) => {
+          toastsState.error(`Failed to listen for keyboard shortcuts: ${errorMessage(error)}`);
+        });
+    }
+
     return () => {
+      cancelled = true;
+      unlistenNativeShortcuts?.();
       window.removeEventListener('keydown', handleKeydown);
       window.removeEventListener('wheel', handleWheel);
       clearPendingShortcutSequence();
@@ -136,8 +155,7 @@
     }
 
     if (url === BROWSER_HOME_URL) {
-      tabsState.openHomeTab();
-      activePanel = null;
+      openHomepageInCurrentTab();
       return;
     }
 
@@ -159,6 +177,10 @@
 
   async function reloadActive(): Promise<void> {
     await webViewController?.reloadActive();
+  }
+
+  async function hardReloadActive(): Promise<void> {
+    await reloadActive();
   }
 
   async function stopActive(): Promise<void> {
@@ -210,9 +232,32 @@
     activePanel = null;
   }
 
-  function openHomepageTab(): void {
-    tabsState.openTab(homepageUrl());
+  function openDefaultTab(): void {
+    const activeTab = tabsState.activeTab;
+
     activePanel = null;
+
+    if (!activeTab || activeTab.url === BROWSER_HOME_URL) {
+      focusAddressBar();
+      return;
+    }
+
+    tabsState.openInternalTab(BROWSER_HOME_URL);
+    focusAddressBar();
+  }
+
+  function openVisibleHomepageTab(): void {
+    const url = homepageUrl();
+
+    if (url === BROWSER_HOME_URL) {
+      activePanel = null;
+      focusAddressBar();
+      return;
+    }
+
+    tabsState.openTab(url);
+    activePanel = null;
+    focusAddressBar();
   }
 
   async function openBrowserWindow(incognito = false): Promise<void> {
@@ -237,7 +282,7 @@
     const activeTab = tabsState.activeTab;
 
     if (!activeTab) {
-      openHomepageTab();
+      openVisibleHomepageTab();
       return;
     }
 
@@ -283,6 +328,7 @@
 
   function focusAddressBar(): void {
     addressFocusRequest += 1;
+    focusAddressInput();
   }
 
   function focusFirstToolbarItem(): void {
@@ -335,6 +381,22 @@
       findStepDirection = direction;
       findStepRequest += 1;
     }
+  }
+
+  function openHistoryPanel(): void {
+    activePanel = 'history';
+  }
+
+  function openDownloadsPanel(): void {
+    activePanel = 'downloads';
+  }
+
+  function openBookmarksPanel(): void {
+    activePanel = 'bookmarks';
+  }
+
+  function toggleBookmarksPanel(): void {
+    activePanel = activePanel === 'bookmarks' ? null : 'bookmarks';
   }
 
   function showKeyboardShortcutHelpUnavailable(): void {
@@ -468,6 +530,134 @@
     runShortcut(() => setPageZoom(pageZoom + direction * ZOOM_STEP));
   }
 
+  function handleNativeShortcut(command: NativeShortcutCommand): void {
+    const shortcut = nativeShortcutCommand(command);
+
+    if (shortcut) {
+      runShortcut(shortcut);
+    }
+  }
+
+  function nativeShortcutCommand(command: NativeShortcutCommand): ShortcutCommand | null {
+    if (command.startsWith('tab-')) {
+      const tabIndex = Number(command.slice('tab-'.length)) - 1;
+
+      if (Number.isInteger(tabIndex) && tabsState.tabs[tabIndex]) {
+        return () => {
+          tabsState.tabByIndex(tabIndex);
+        };
+      }
+
+      return null;
+    }
+
+    switch (command) {
+      case 'new-tab':
+        return openDefaultTab;
+      case 'new-window':
+        return () => openBrowserWindow(false);
+      case 'new-incognito-window':
+        return () => openBrowserWindow(true);
+      case 'restore-tab':
+        return restoreClosedTab;
+      case 'close-tab':
+        return tabsState.activeTab ? closeActiveTab : null;
+      case 'close-window':
+        return closeCurrentWindow;
+      case 'quit-browser':
+        return quitBrowser;
+      case 'next-tab':
+        return tabsState.tabs.length > 0 ? tabsState.nextTab : null;
+      case 'previous-tab':
+        return tabsState.tabs.length > 0 ? tabsState.previousTab : null;
+      case 'move-tab-left':
+        return () => tabsState.moveActiveTab(-1);
+      case 'move-tab-right':
+        return () => tabsState.moveActiveTab(1);
+      case 'last-tab':
+        return tabsState.tabs.length > 0 ? tabsState.lastTab : null;
+      case 'focus-address':
+        return focusAddressBar;
+      case 'reload':
+        return tabsState.activeTab ? reloadActive : null;
+      case 'hard-reload':
+        return tabsState.activeTab ? hardReloadActive : null;
+      case 'back':
+        return tabsState.activeTab?.can_go_back ? backActive : null;
+      case 'forward':
+        return tabsState.activeTab?.can_go_forward ? forwardActive : null;
+      case 'home':
+        return openHomepageInCurrentTab;
+      case 'find':
+        return tabsState.activeTab ? () => openFindBar() : null;
+      case 'find-next':
+        return tabsState.activeTab ? () => openFindBar('next', activePanel === 'find') : null;
+      case 'find-previous':
+        return tabsState.activeTab ? () => openFindBar('previous', activePanel === 'find') : null;
+      case 'history':
+        return openHistoryPanel;
+      case 'hide-window':
+        return hideCurrentWindow;
+      case 'minimize-window':
+        return minimizeCurrentWindow;
+      case 'downloads':
+        return openDownloadsPanel;
+      case 'bookmarks':
+        return openBookmarksPanel;
+      case 'toggle-bookmarks':
+        return toggleBookmarksPanel;
+      case 'settings':
+        return openSettingsTab;
+      case 'bookmark-page':
+        return canBookmarkActiveTab() ? toggleActiveBookmark : null;
+      case 'bookmark-all':
+        return bookmarkAllOpenTabs;
+      case 'print':
+        return printActivePage;
+      case 'zoom-in':
+        return () => setPageZoom(pageZoom + ZOOM_STEP);
+      case 'zoom-out':
+        return () => setPageZoom(pageZoom - ZOOM_STEP);
+      case 'zoom-reset':
+        return () => setPageZoom(1);
+      case 'toggle-fullscreen':
+        return toggleFullscreen;
+      case 'focus-web-content':
+        return focusWebContent;
+      case 'focus-next-shell-area':
+        return focusNextShellArea;
+      case 'focus-toolbar-start':
+        return focusFirstToolbarItem;
+      case 'focus-toolbar-end':
+        return focusRightmostToolbarItem;
+      case 'open-browser-menu':
+        return openBrowserMenu;
+      case 'keyboard-help':
+        return showKeyboardShortcutHelpUnavailable;
+      case 'caret-browsing':
+        return () =>
+          showUnsupportedShortcut('caret-browsing', 'Caret browsing is not implemented.');
+      case 'devtools':
+        return () => showUnsupportedShortcut('devtools', 'Developer Tools are not implemented.');
+      case 'save-page':
+        return () =>
+          showUnsupportedShortcut('save-page', 'Saving the current page is not implemented.');
+      case 'open-file':
+        return () =>
+          showUnsupportedShortcut('open-file', 'Opening local files is not implemented.');
+      case 'view-source':
+        return () => showUnsupportedShortcut('view-source', 'Page source view is not implemented.');
+      case 'profile-switcher':
+        return () =>
+          showUnsupportedShortcut(
+            'profile-switcher',
+            'Profiles and guest browsing are not implemented.'
+          );
+    }
+
+    return null;
+  }
+
   function shortcutCommand(event: KeyboardEvent): ShortcutCommand | null {
     const key = shortcutKey(event);
     const primary = isPrimaryShortcut(event);
@@ -522,16 +712,12 @@
       return focusWebContent;
     }
 
-    if (key === 'f5' && primary && !event.shiftKey) {
-      return focusAddressBar;
-    }
-
-    if (key === 'f5' && event.ctrlKey && !event.altKey && !event.metaKey && !event.shiftKey) {
-      return focusAddressBar;
+    if (key === 'f5' && event.ctrlKey && !event.altKey && !event.metaKey && tabsState.activeTab) {
+      return hardReloadActive;
     }
 
     if (key === 'f5' && tabsState.activeTab && !event.altKey && !event.ctrlKey && !event.metaKey) {
-      return reloadActive;
+      return event.shiftKey ? hardReloadActive : reloadActive;
     }
 
     if (key === 'f3' && !event.ctrlKey && !event.metaKey && !event.altKey && tabsState.activeTab) {
@@ -713,7 +899,7 @@
     }
 
     if (key === 't' && !event.shiftKey) {
-      return openHomepageTab;
+      return openDefaultTab;
     }
 
     if (event.shiftKey && key === 'w') {
@@ -741,7 +927,7 @@
     }
 
     if (key === 'r' && tabsState.activeTab) {
-      return reloadActive;
+      return event.shiftKey ? hardReloadActive : reloadActive;
     }
 
     if ((key === '+' || key === '=') && !event.altKey) {
@@ -773,41 +959,27 @@
         return hideCurrentWindow;
       }
 
-      return () => {
-        activePanel = 'history';
-      };
+      return openHistoryPanel;
     }
 
     if (key === 'y' && !event.shiftKey && isApplePlatform) {
-      return () => {
-        activePanel = 'history';
-      };
+      return openHistoryPanel;
     }
 
     if (key === 'j' && !event.shiftKey) {
-      return () => {
-        activePanel = 'downloads';
-      };
+      return openDownloadsPanel;
     }
 
     if (key === 'j' && event.shiftKey) {
-      return isApplePlatform
-        ? () => {
-            activePanel = 'downloads';
-          }
-        : () => showUnsupportedShortcut('devtools', 'Developer Tools are not implemented.');
+      return openDownloadsPanel;
     }
 
     if (key === 'o' && event.shiftKey) {
-      return () => {
-        activePanel = 'bookmarks';
-      };
+      return openBookmarksPanel;
     }
 
     if (key === 'b' && event.shiftKey) {
-      return () => {
-        activePanel = activePanel === 'bookmarks' ? null : 'bookmarks';
-      };
+      return toggleBookmarksPanel;
     }
 
     if (key === 'd' && event.shiftKey) {
@@ -879,7 +1051,10 @@
   }
 
   function runShortcut(command: ShortcutCommand): void {
-    void Promise.resolve(command()).catch((error) => {
+    void (async () => {
+      await focusAppShell();
+      await command();
+    })().catch((error) => {
       toastsState.error(`Shortcut failed: ${errorMessage(error)}`);
     });
   }
@@ -1157,18 +1332,23 @@
 </svelte:head>
 
 <div class="app-shell" data-theme={theme}>
-  <TitleBar />
+  <TitleBar
+    onOpenPanel={openPanel}
+    onOpenTab={openDefaultTab}
+    focusMenuRequest={toolbarEndFocusRequest}
+    openMenuRequest={menuOpenRequest}
+    onMenuOpenChange={(open) => {
+      isChromeOverlayOpen = open;
+    }}
+  />
   <NavigationBar
     onNavigate={navigateActive}
     onReload={reloadActive}
     onStop={stopActive}
     onBack={backActive}
     onForward={forwardActive}
-    onOpenPanel={openPanel}
     focusAddressRequest={addressFocusRequest}
     focusToolbarStartRequest={toolbarStartFocusRequest}
-    focusToolbarEndRequest={toolbarEndFocusRequest}
-    openMenuRequest={menuOpenRequest}
   />
   <div class="findbar-slot">
     <FindBar
@@ -1193,6 +1373,7 @@
           bind:controller={webViewController}
           zoomScale={pageZoom}
           incognito={isIncognitoWindow}
+          chromeOverlayOpen={isChromeOverlayOpen}
         />
       </div>
       {#if isHomeViewVisible}

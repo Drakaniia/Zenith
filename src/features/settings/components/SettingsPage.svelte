@@ -280,7 +280,7 @@
         <label class="setting-row setting-row--stack" for="homepage-url">
           <span class="setting-copy">
             <span class="setting-title">Homepage</span>
-            <span class="setting-detail">Opened for new tabs and app startup</span>
+            <span class="setting-detail">Opened for the default screen and app startup</span>
           </span>
           <span class="homepage-control">
             <Home size={16} strokeWidth={2.25} />

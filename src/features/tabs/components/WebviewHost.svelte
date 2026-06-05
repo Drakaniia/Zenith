@@ -26,6 +26,7 @@
   import { AlertTriangle, PanelTop } from 'lucide-svelte';
   import {
     clearBrowserWebviewFind,
+    closeAllBrowserWebviews,
     closeBrowserWebview,
     createBrowserWebview,
     evalBrowserWebview,
@@ -43,12 +44,14 @@
   import { isTauriRuntime } from '../../../bridge/runtime';
   import { historyState } from '../../history/state/history.svelte';
   import { settingsState } from '../../settings/state/settings.svelte';
+  import { focusAppShell } from '../../../shell/utils/focus';
   import type { FindResult, WebviewBounds } from '../../../shared/types/backend';
   import type {
     BrowserWebviewLoadEvent,
     BrowserWebviewNavigationEvent,
     BrowserWebviewTitleEvent
   } from '../../../shared/types/events';
+  import { isInternalBrowserUrl, titleForInternalUrl } from '../../../shared/utils/internal-urls';
   import { toastsState } from '../../../shell/state/toasts.svelte';
   import { type BrowserTab, tabsState } from '../state/tabs.svelte';
 
@@ -56,6 +59,7 @@
     controller?: WebViewController | null;
     zoomScale?: number;
     incognito?: boolean;
+    chromeOverlayOpen?: boolean;
   }
 
   const EMPTY_FIND_RESULT: FindResult = {
@@ -66,7 +70,8 @@
   let {
     controller = $bindable<WebViewController | null>(null),
     zoomScale = 1,
-    incognito = false
+    incognito = false,
+    chromeOverlayOpen = false
   }: Props = $props();
 
   const nativeRuntime = isTauriRuntime();
@@ -180,8 +185,16 @@
     const bounds = lastBounds;
     const javascriptEnabled = settingsState.settings.javascript_enabled;
     const incognitoMode = incognito;
+    const shellOverlayOpen = chromeOverlayOpen;
 
-    void syncWebviews(tabs, activeTabId, bounds, javascriptEnabled, incognitoMode);
+    void syncWebviews(
+      tabs,
+      activeTabId,
+      bounds,
+      javascriptEnabled,
+      incognitoMode,
+      shellOverlayOpen
+    );
   });
 
   $effect(() => {
@@ -337,17 +350,26 @@
     activeTabId: string | null,
     bounds: WebviewBounds | null,
     javascriptEnabled: boolean,
-    incognitoMode: boolean
+    incognitoMode: boolean,
+    shellOverlayOpen: boolean
   ): Promise<void> {
     const version = ++syncVersion;
     const remoteTabs = tabs.filter((tab) => !tab.isInternal && isBrowserWebviewUrl(tab.url));
     const remoteLabels = new Set<string>(remoteTabs.map((tab) => tab.webviewLabel));
+    const visibleRemoteLabel =
+      remoteTabs.find((tab) => tab.id === activeTabId && !shellOverlayOpen)?.webviewLabel ?? null;
 
     await Promise.all(
       Array.from(createdLabels)
         .filter((label) => !remoteLabels.has(label))
         .map((label) => closeManagedWebview(label))
     );
+
+    if (nativeRuntime && remoteTabs.length === 0) {
+      await closeEveryBrowserWebview();
+      await focusAppShell();
+      return;
+    }
 
     if (!nativeRuntime || !bounds) {
       return;
@@ -369,9 +391,16 @@
 
     await Promise.all(
       remoteTabs.map((tab) =>
-        setWebviewVisibility(tab.webviewLabel, tab.id === activeTabId && !tab.isInternal)
+        setWebviewVisibility(
+          tab.webviewLabel,
+          tab.id === activeTabId && !tab.isInternal && !shellOverlayOpen
+        )
       )
     );
+
+    if (!visibleRemoteLabel) {
+      await focusAppShell();
+    }
   }
 
   async function ensureWebview(
@@ -496,12 +525,33 @@
       return;
     }
 
+    if (isInternalBrowserUrl(url)) {
+      tabsState.updateTab(activeTab.id, {
+        url,
+        title: titleForInternalUrl(url),
+        favicon_url: null,
+        is_loading: false,
+        can_go_back: historyIndex > 0,
+        can_go_forward: historyIndex < activeTab.history.length - 1,
+        isInternal: true,
+        historyIndex
+      });
+      return;
+    }
+
+    if (!isBrowserWebviewUrl(url)) {
+      toastsState.error(`Unsupported history entry: ${url}`);
+      return;
+    }
+
     // Back/forward tracks app-visible navigations and Tauri URL events. It is not the engine's
     // complete internal session history, so redirects and same-document navigations can differ.
     tabsState.updateTab(activeTab.id, {
       url,
       title: url,
+      favicon_url: null,
       is_loading: true,
+      isInternal: false,
       historyIndex,
       can_go_back: historyIndex > 0,
       can_go_forward: historyIndex < activeTab.history.length - 1
@@ -555,7 +605,9 @@
       return;
     }
 
-    const historyPatch = historyPatchFor(tab, payload.url);
+    const historyPatch = historyPatchFor(tab, payload.url, {
+      replaceCurrentLoadingEntry: true
+    });
     tabsState.updateTab(tab.id, {
       ...historyPatch,
       url: payload.url,
@@ -636,15 +688,44 @@
     }
 
     try {
+      await hideBrowserWebview(label);
+    } catch {
+      // The native webview may already be gone after window teardown or hot reload.
+    }
+
+    try {
       await closeBrowserWebview(label);
     } catch {
       // The native webview may already be gone after window teardown or hot reload.
     }
   }
 
-  function historyPatchFor(tab: BrowserTab, url: string): Partial<BrowserTab> {
+  async function closeEveryBrowserWebview(): Promise<void> {
+    createdLabels.clear();
+    creatingLabels.clear();
+    pendingNavigationUrls.clear();
+
+    if (!nativeRuntime) {
+      return;
+    }
+
+    try {
+      await closeAllBrowserWebviews();
+    } catch (error) {
+      reportNativeBridgeIssue(`Failed to close browser webviews: ${errorMessage(error)}`);
+    }
+  }
+
+  function historyPatchFor(
+    tab: BrowserTab,
+    url: string,
+    options: { replaceCurrentLoadingEntry?: boolean } = {}
+  ): Partial<BrowserTab> {
     const history = tab.history.slice(0, tab.historyIndex + 1);
-    if (history.at(-1) !== url) {
+
+    if (shouldReplaceCurrentHistoryEntry(tab, url, options)) {
+      history[tab.historyIndex] = url;
+    } else if (history.at(-1) !== url) {
       history.push(url);
     }
 
@@ -657,25 +738,44 @@
     };
   }
 
+  function shouldReplaceCurrentHistoryEntry(
+    tab: BrowserTab,
+    url: string,
+    options: { replaceCurrentLoadingEntry?: boolean }
+  ): boolean {
+    if (!options.replaceCurrentLoadingEntry || !tab.is_loading) {
+      return false;
+    }
+
+    return tab.history[tab.historyIndex] === tab.url && tab.url !== url;
+  }
+
   function boundsFromElement(element: HTMLElement): WebviewBounds | null {
     const rect = element.getBoundingClientRect();
+    const appContentRect = element.closest('.app-content')?.getBoundingClientRect();
+    const safeTop = appContentRect ? Math.max(rect.top, appContentRect.top) : rect.top;
+    const safeLeft = appContentRect ? Math.max(rect.left, appContentRect.left) : rect.left;
+    const safeRight = appContentRect ? Math.min(rect.right, appContentRect.right) : rect.right;
+    const safeBottom = appContentRect ? Math.min(rect.bottom, appContentRect.bottom) : rect.bottom;
+    const safeWidth = safeRight - safeLeft;
+    const safeHeight = safeBottom - safeTop;
 
     if (
-      !Number.isFinite(rect.left) ||
-      !Number.isFinite(rect.top) ||
-      !Number.isFinite(rect.width) ||
-      !Number.isFinite(rect.height) ||
-      rect.width <= 0 ||
-      rect.height <= 0
+      !Number.isFinite(safeLeft) ||
+      !Number.isFinite(safeTop) ||
+      !Number.isFinite(safeWidth) ||
+      !Number.isFinite(safeHeight) ||
+      safeWidth <= 0 ||
+      safeHeight <= 0
     ) {
       return null;
     }
 
     return {
-      x: roundCoordinate(rect.left),
-      y: roundCoordinate(rect.top),
-      width: roundCoordinate(rect.width),
-      height: roundCoordinate(rect.height)
+      x: roundCoordinate(safeLeft),
+      y: roundCoordinate(safeTop),
+      width: roundCoordinate(safeWidth),
+      height: roundCoordinate(safeHeight)
     };
   }
 

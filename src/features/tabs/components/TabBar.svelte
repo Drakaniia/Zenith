@@ -1,6 +1,7 @@
 <script lang="ts">
   import { Copy, Globe, LoaderCircle, MoreHorizontal, Plus, RotateCw, X } from 'lucide-svelte';
-  import { resolveHomepageUrl, settingsState } from '../../settings/state/settings.svelte';
+  import { focusAddressInput } from '../../../shell/utils/focus';
+  import { BROWSER_HOME_URL } from '../../../shared/utils/internal-urls';
   import { type BrowserTab, tabsState } from '../state/tabs.svelte';
 
   interface ContextMenuState {
@@ -11,17 +12,28 @@
 
   interface Props {
     embedded?: boolean;
+    onOpenTab?: () => void;
   }
 
-  let { embedded = false }: Props = $props();
+  let { embedded = false, onOpenTab }: Props = $props();
 
   let contextMenu = $state<ContextMenuState | null>(null);
+  let visibleTabs = $derived(tabsState.tabs.filter((tab) => tab.url !== BROWSER_HOME_URL));
+  let canOpenTab = $derived(
+    Boolean(tabsState.activeTab && tabsState.activeTab.url !== BROWSER_HOME_URL)
+  );
   let contextTab = $derived(
-    contextMenu ? (tabsState.tabs.find((tab) => tab.id === contextMenu?.tabId) ?? null) : null
+    contextMenu ? (visibleTabs.find((tab) => tab.id === contextMenu?.tabId) ?? null) : null
   );
 
-  function openHomepageTab(): void {
-    tabsState.openTab(resolveHomepageUrl(settingsState.settings.homepage));
+  function openDefaultTab(): void {
+    if (onOpenTab) {
+      onOpenTab();
+    } else if (canOpenTab) {
+      tabsState.openInternalTab(BROWSER_HOME_URL);
+      focusAddressInput();
+    }
+
     closeContextMenu();
   }
 
@@ -150,15 +162,14 @@
   }
 
   function focusAdjacentTab(id: string, direction: -1 | 1): void {
-    const index = tabsState.tabs.findIndex((tab) => tab.id === id);
+    const index = visibleTabs.findIndex((tab) => tab.id === id);
 
     if (index === -1) {
       return;
     }
 
-    const targetIndex =
-      (index + direction + tabsState.tabs.length) % Math.max(tabsState.tabs.length, 1);
-    const targetTab = tabsState.tabs[targetIndex];
+    const targetIndex = (index + direction + visibleTabs.length) % Math.max(visibleTabs.length, 1);
+    const targetTab = visibleTabs[targetIndex];
 
     if (!targetTab) {
       return;
@@ -184,14 +195,14 @@
   data-tauri-drag-region="deep"
 >
   <div class="tab-strip" role="tablist" aria-label="Open tabs" aria-multiselectable="true">
-    {#each tabsState.tabs as tab (tab.id)}
+    {#each visibleTabs as tab (tab.id)}
       <div
         class={`tab ${tab.id === tabsState.activeTabId ? 'tab--active' : ''} ${tabsState.isTabSelected(tab.id) ? 'tab--selected' : ''}`}
         role="tab"
         aria-selected={tab.id === tabsState.activeTabId}
-        aria-label={`${tab.title || 'New Tab'} tab${tabsState.isTabSelected(tab.id) ? ', selected' : ''}`}
+        aria-label={`${tab.title || tab.url || 'Untitled'} tab${tabsState.isTabSelected(tab.id) ? ', selected' : ''}`}
         tabindex={tab.id === tabsState.activeTabId ? 0 : -1}
-        title={tab.title || tab.url || 'New Tab'}
+        title={tab.title || tab.url || 'Untitled'}
         data-tauri-drag-region="false"
         onclick={() => activateTab(tab.id)}
         onkeydown={(event) => handleTabKeydown(event, tab.id)}
@@ -217,7 +228,7 @@
           {/if}
         </span>
 
-        <span class="tab__title">{tab.title || 'New Tab'}</span>
+        <span class="tab__title">{tab.title || tab.url || 'Untitled'}</span>
 
         <button
           class="tab__close"
@@ -231,14 +242,14 @@
         </button>
       </div>
 
-      {#if tab.id === tabsState.activeTabId}
+      {#if tab.id === tabsState.activeTabId && canOpenTab}
         <button
           class="new-tab-button"
           type="button"
-          aria-label="Open new tab"
-          title="New tab"
+          aria-label="Open default screen"
+          title="Default screen"
           data-tauri-drag-region="false"
-          onclick={openHomepageTab}
+          onclick={openDefaultTab}
         >
           <Plus size={17} strokeWidth={2.35} />
         </button>
@@ -285,7 +296,7 @@
       class="tab-menu__item"
       type="button"
       role="menuitem"
-      disabled={tabsState.tabs.length <= 1}
+      disabled={visibleTabs.length <= 1}
       onclick={() => closeOtherTabs(contextTab.id)}
     >
       <MoreHorizontal size={15} strokeWidth={2.25} />

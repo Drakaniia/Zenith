@@ -31,7 +31,7 @@
     const rawInput = query.trim();
 
     if (!rawInput) {
-      validationError = 'Enter a URL or search query';
+      validationError = '';
       searchElement?.focus();
       return;
     }

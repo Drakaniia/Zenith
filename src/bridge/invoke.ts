@@ -6,6 +6,7 @@ export type BackendCommand =
   | 'clear_browser_webview_find'
   | 'clear_completed_downloads'
   | 'clear_history'
+  | 'close_all_browser_webviews'
   | 'close_browser_webview'
   | 'close_window'
   | 'create_browser_webview'

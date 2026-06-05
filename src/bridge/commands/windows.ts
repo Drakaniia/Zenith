@@ -35,6 +35,10 @@ export async function isCurrentWindowFullscreen(): Promise<boolean> {
   return getCurrentWindow().isFullscreen();
 }
 
+export async function isCurrentWindowFocused(): Promise<boolean> {
+  return getCurrentWindow().isFocused();
+}
+
 export function setCurrentWindowFullscreen(fullscreen: boolean): Promise<void> {
   return getCurrentWindow().setFullscreen(fullscreen);
 }

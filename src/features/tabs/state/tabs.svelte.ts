@@ -15,7 +15,6 @@ export interface BrowserTab extends Tab {
   historyIndex: number;
 }
 
-const DEFAULT_TAB_TITLE = 'New Tab';
 const MAX_CLOSED_TABS = 10;
 
 type ClosedTabSnapshot = Omit<BrowserTab, 'id' | 'webviewLabel'>;
@@ -29,7 +28,7 @@ class TabsState {
   activeTab = $derived(this.tabs.find((tab) => tab.id === this.activeTabId) ?? null);
   activeIndex = $derived(this.tabs.findIndex((tab) => tab.id === this.activeTabId));
 
-  openTab = (url = BROWSER_HOME_URL, title = DEFAULT_TAB_TITLE): BrowserTab => {
+  openTab = (url: string, title = url): BrowserTab => {
     if (isInternalBrowserUrl(url)) {
       return this.openInternalTab(url);
     }
@@ -40,7 +39,7 @@ class TabsState {
     return tab;
   };
 
-  openBackgroundTab = (url = BROWSER_HOME_URL, title = DEFAULT_TAB_TITLE): BrowserTab => {
+  openBackgroundTab = (url: string, title = url): BrowserTab => {
     if (isInternalBrowserUrl(url)) {
       const tab = createTab(url, internalTitle(url), true);
       this.tabs = [...this.tabs, tab];
@@ -51,8 +50,6 @@ class TabsState {
     this.tabs = [...this.tabs, tab];
     return tab;
   };
-
-  openHomeTab = (): BrowserTab => this.openInternalTab(BROWSER_HOME_URL);
 
   openInternalTab = (url: InternalUrl): BrowserTab => {
     const tab = createTab(url, internalTitle(url), true);

@@ -47,6 +47,10 @@ export function closeBrowserWebview(label: string): Promise<void> {
   return invokeCommand<void>('close_browser_webview', { label });
 }
 
+export function closeAllBrowserWebviews(): Promise<void> {
+  return invokeCommand<void>('close_all_browser_webviews');
+}
+
 export function showBrowserWebview(label: string): Promise<void> {
   return invokeCommand<void>('show_browser_webview', { label });
 }
