@@ -3007,6 +3007,7 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "dirs 5.0.1",
+ "muda",
  "reqwest",
  "scraper",
  "serde",
@@ -3020,6 +3021,8 @@ dependencies = [
  "tokio",
  "urlencoding",
  "uuid",
+ "webview2-com",
+ "windows-core 0.61.2",
 ]
 
 [[package]]

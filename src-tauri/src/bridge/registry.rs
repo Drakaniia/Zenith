@@ -23,6 +23,7 @@ macro_rules! generate_ampui_handler {
             $crate::features::tabs::commands::navigate_browser_webview,
             $crate::features::tabs::commands::reload_browser_webview,
             $crate::features::tabs::commands::close_browser_webview,
+            $crate::features::tabs::commands::close_all_browser_webviews,
             $crate::features::tabs::commands::show_browser_webview,
             $crate::features::tabs::commands::hide_browser_webview,
             $crate::features::tabs::commands::set_browser_webview_bounds,

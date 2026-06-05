@@ -9,6 +9,7 @@
     "core:app:allow-version",
     "core:window:default",
     "core:window:allow-start-dragging",
+    "core:window:allow-set-focus",
     "core:webview:allow-clear-all-browsing-data",
     "core:webview:allow-create-webview",
     "core:webview:allow-create-webview-window",

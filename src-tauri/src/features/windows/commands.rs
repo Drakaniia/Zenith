@@ -1,5 +1,5 @@
 use crate::bridge::dto::WindowState;
-use tauri::WebviewWindow;
+use tauri::{Webview, Window};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum WindowControlOperation {
@@ -9,12 +9,15 @@ enum WindowControlOperation {
 }
 
 #[tauri::command]
-pub fn get_window_state(window: WebviewWindow) -> Result<WindowState, String> {
+pub fn get_window_state(webview: Webview) -> Result<WindowState, String> {
+    let window = webview.window();
     current_window_state(&window, "get_window_state")
 }
 
 #[tauri::command]
-pub fn minimize_window(window: WebviewWindow) -> Result<WindowState, String> {
+pub fn minimize_window(webview: Webview) -> Result<WindowState, String> {
+    let window = webview.window();
+
     window
         .minimize()
         .map_err(|error| format!("minimize_window: {error}"))?;
@@ -23,7 +26,8 @@ pub fn minimize_window(window: WebviewWindow) -> Result<WindowState, String> {
 }
 
 #[tauri::command]
-pub fn maximize_window(window: WebviewWindow) -> Result<WindowState, String> {
+pub fn maximize_window(webview: Webview) -> Result<WindowState, String> {
+    let window = webview.window();
     let state = current_window_state(&window, "maximize_window")?;
 
     for operation in maximize_window_actions(state.is_minimized, state.is_maximized) {
@@ -34,7 +38,8 @@ pub fn maximize_window(window: WebviewWindow) -> Result<WindowState, String> {
 }
 
 #[tauri::command]
-pub fn restore_window(window: WebviewWindow) -> Result<WindowState, String> {
+pub fn restore_window(webview: Webview) -> Result<WindowState, String> {
+    let window = webview.window();
     let state = current_window_state(&window, "restore_window")?;
 
     for operation in restore_window_actions(state.is_minimized, state.is_maximized) {
@@ -45,13 +50,15 @@ pub fn restore_window(window: WebviewWindow) -> Result<WindowState, String> {
 }
 
 #[tauri::command]
-pub fn close_window(window: WebviewWindow) -> Result<(), String> {
+pub fn close_window(webview: Webview) -> Result<(), String> {
+    let window = webview.window();
+
     window
         .close()
         .map_err(|error| format!("close_window: {error}"))
 }
 
-fn current_window_state(window: &WebviewWindow, command: &str) -> Result<WindowState, String> {
+fn current_window_state(window: &Window, command: &str) -> Result<WindowState, String> {
     Ok(WindowState {
         is_minimized: window
             .is_minimized()
@@ -91,7 +98,7 @@ fn restore_window_actions(is_minimized: bool, is_maximized: bool) -> Vec<WindowC
 }
 
 fn apply_window_operation(
-    window: &WebviewWindow,
+    window: &Window,
     operation: WindowControlOperation,
     command: &str,
 ) -> Result<(), String> {

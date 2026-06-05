@@ -10,7 +10,6 @@ use std::{sync::mpsc, time::Duration};
 use tauri::{
     webview::{PageLoadEvent, WebviewBuilder},
     AppHandle, LogicalPosition, LogicalSize, Manager, Position, Rect, Size, Webview, WebviewUrl,
-    WebviewWindow,
 };
 
 const FIND_CALLBACK_TIMEOUT: Duration = Duration::from_secs(3);
@@ -50,7 +49,7 @@ struct FindScriptResult {
 #[tauri::command]
 pub async fn create_browser_webview(
     app: AppHandle,
-    shell_window: WebviewWindow,
+    shell_webview: Webview,
     label: String,
     url: String,
     bounds: WebviewBounds,
@@ -67,8 +66,8 @@ pub async fn create_browser_webview(
         ));
     }
 
-    let shell_label = shell_window.label().to_string();
-    let parent_window = shell_window.as_ref().window();
+    let shell_label = shell_webview.label().to_string();
+    let parent_window = shell_webview.window();
 
     let navigation_app = app.clone();
     let navigation_shell_label = shell_label.clone();
@@ -137,13 +136,15 @@ pub async fn create_browser_webview(
         builder = builder.disable_javascript();
     }
 
-    parent_window
+    let browser_webview = parent_window
         .add_child(
             builder,
             LogicalPosition::new(bounds.x, bounds.y),
             LogicalSize::new(bounds.width, bounds.height),
         )
         .map_err(|error| format!("create_browser_webview({label}): {error}"))?;
+
+    install_browser_shortcut_bridge(&app, &browser_webview, &shell_label, &label)?;
 
     Ok(())
 }
@@ -173,6 +174,32 @@ pub fn close_browser_webview(app: AppHandle, label: String) -> Result<(), String
     browser_webview(&app, "close_browser_webview", &label)?
         .close()
         .map_err(|error| format!("close_browser_webview({label}): {error}"))
+}
+
+#[tauri::command]
+pub fn close_all_browser_webviews(app: AppHandle) -> Result<(), String> {
+    let browser_webviews = app
+        .webviews()
+        .into_iter()
+        .filter(|(label, _)| label.starts_with(BROWSER_WEBVIEW_LABEL_PREFIX))
+        .collect::<Vec<_>>();
+    let mut errors = Vec::new();
+
+    for (label, webview) in browser_webviews {
+        if let Err(error) = webview.hide() {
+            errors.push(format!("hide_browser_webview({label}): {error}"));
+        }
+
+        if let Err(error) = webview.close() {
+            errors.push(format!("close_browser_webview({label}): {error}"));
+        }
+    }
+
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors.join("; "))
+    }
 }
 
 #[tauri::command]
@@ -330,6 +357,196 @@ fn bounds_to_rect(bounds: WebviewBounds) -> Rect {
         size: Size::Logical(LogicalSize::new(bounds.width, bounds.height)),
     }
 }
+
+#[cfg(target_os = "windows")]
+fn install_browser_shortcut_bridge(
+    app: &AppHandle,
+    webview: &Webview,
+    shell_label: &str,
+    label: &str,
+) -> Result<(), String> {
+    disable_browser_accelerator_keys(webview, label)?;
+    install_browser_accelerator_handler(app, webview, shell_label, label)
+}
+
+#[cfg(not(target_os = "windows"))]
+fn install_browser_shortcut_bridge(
+    _app: &AppHandle,
+    _webview: &Webview,
+    _shell_label: &str,
+    _label: &str,
+) -> Result<(), String> {
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn disable_browser_accelerator_keys(webview: &Webview, label: &str) -> Result<(), String> {
+    use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Settings3;
+    use windows_core::Interface;
+
+    let (sender, receiver) = mpsc::channel();
+    let label_for_webview = label.to_string();
+    let label_for_dispatch = label_for_webview.clone();
+
+    webview
+        .with_webview(move |platform_webview| {
+            let label = label_for_webview;
+            let result = (|| -> Result<(), String> {
+                // SAFETY: WebView2 COM methods must run on the webview thread; Tauri executes
+                // this closure through `with_webview` on that owning thread.
+                unsafe {
+                    let core = platform_webview
+                        .controller()
+                        .CoreWebView2()
+                        .map_err(|error| {
+                            format!("disable_browser_accelerator_keys({label}): {error}")
+                        })?;
+                    let settings = core.Settings().map_err(|error| {
+                        format!("disable_browser_accelerator_keys({label}): {error}")
+                    })?;
+
+                    match settings.cast::<ICoreWebView2Settings3>() {
+                        Ok(settings) => settings
+                            .SetAreBrowserAcceleratorKeysEnabled(false)
+                            .map_err(|error| {
+                                format!("disable_browser_accelerator_keys({label}): {error}")
+                            }),
+                        Err(_) => Ok(()),
+                    }
+                }
+            })();
+
+            let _ = sender.send(result);
+        })
+        .map_err(|error| {
+            format!("disable_browser_accelerator_keys({label_for_dispatch}): {error}")
+        })?;
+
+    receiver
+        .recv_timeout(FIND_CALLBACK_TIMEOUT)
+        .map_err(|error| {
+            format!("disable_browser_accelerator_keys({label_for_dispatch}): {error}")
+        })?
+}
+
+#[cfg(target_os = "windows")]
+fn install_browser_accelerator_handler(
+    app: &AppHandle,
+    webview: &Webview,
+    shell_label: &str,
+    label: &str,
+) -> Result<(), String> {
+    use webview2_com::{
+        AcceleratorKeyPressedEventHandler,
+        Microsoft::Web::WebView2::Win32::{
+            COREWEBVIEW2_KEY_EVENT_KIND, COREWEBVIEW2_KEY_EVENT_KIND_KEY_DOWN,
+            COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_DOWN,
+        },
+    };
+
+    let (sender, receiver) = mpsc::channel();
+    let label_for_webview = label.to_string();
+    let label_for_dispatch = label_for_webview.clone();
+    let shell_label_for_handler = shell_label.to_string();
+    let app_for_handler = app.clone();
+
+    webview
+        .with_webview(move |platform_webview| {
+            let label = label_for_webview;
+            let result = (|| -> Result<(), String> {
+                let controller = platform_webview.controller();
+                let event_handler =
+                    AcceleratorKeyPressedEventHandler::create(Box::new(move |_sender, args| {
+                        let Some(args) = args else {
+                            return Ok(());
+                        };
+
+                        let mut event_kind = COREWEBVIEW2_KEY_EVENT_KIND(0);
+                        let mut virtual_key = 0;
+
+                        unsafe {
+                            if args.KeyEventKind(&mut event_kind).is_err()
+                                || args.VirtualKey(&mut virtual_key).is_err()
+                            {
+                                return Ok(());
+                            }
+                        }
+
+                        if event_kind != COREWEBVIEW2_KEY_EVENT_KIND_KEY_DOWN
+                            && event_kind != COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_DOWN
+                        {
+                            return Ok(());
+                        }
+
+                        let input = crate::runtime::shortcuts::NativeShortcutKey {
+                            virtual_key,
+                            ctrl: is_windows_virtual_key_down(VK_CONTROL),
+                            shift: is_windows_virtual_key_down(VK_SHIFT),
+                            alt: is_windows_virtual_key_down(VK_MENU),
+                            meta: is_windows_virtual_key_down(VK_LWIN)
+                                || is_windows_virtual_key_down(VK_RWIN),
+                        };
+
+                        if let Some(command) =
+                            crate::runtime::shortcuts::command_for_native_key(input)
+                        {
+                            unsafe {
+                                let _ = args.SetHandled(true);
+                            }
+                            let _ = crate::runtime::shortcuts::emit_shortcut_to_shell(
+                                &app_for_handler,
+                                &shell_label_for_handler,
+                                command,
+                            );
+                        }
+
+                        Ok(())
+                    }));
+                let mut token = 0;
+
+                unsafe {
+                    controller
+                        .add_AcceleratorKeyPressed(&event_handler, &mut token)
+                        .map_err(|error| {
+                            format!("install_browser_accelerator_handler({label}): {error}")
+                        })?;
+                }
+
+                Ok(())
+            })();
+
+            let _ = sender.send(result);
+        })
+        .map_err(|error| {
+            format!("install_browser_accelerator_handler({label_for_dispatch}): {error}")
+        })?;
+
+    receiver
+        .recv_timeout(FIND_CALLBACK_TIMEOUT)
+        .map_err(|error| {
+            format!("install_browser_accelerator_handler({label_for_dispatch}): {error}")
+        })?
+}
+
+#[cfg(target_os = "windows")]
+fn is_windows_virtual_key_down(virtual_key: i32) -> bool {
+    extern "system" {
+        fn GetKeyState(n_virt_key: i32) -> i16;
+    }
+
+    unsafe { GetKeyState(virtual_key) < 0 }
+}
+
+#[cfg(target_os = "windows")]
+const VK_SHIFT: i32 = 0x10;
+#[cfg(target_os = "windows")]
+const VK_CONTROL: i32 = 0x11;
+#[cfg(target_os = "windows")]
+const VK_MENU: i32 = 0x12;
+#[cfg(target_os = "windows")]
+const VK_LWIN: i32 = 0x5b;
+#[cfg(target_os = "windows")]
+const VK_RWIN: i32 = 0x5c;
 
 fn validate_browser_webview_label(label: &str) -> Result<(), String> {
     let id = label.strip_prefix(BROWSER_WEBVIEW_LABEL_PREFIX).ok_or_else(|| {

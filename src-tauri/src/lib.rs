@@ -11,6 +11,11 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
         .invoke_handler(generate_ampui_handler!())
+        .setup(|app| {
+            runtime::shortcuts::install(app.handle())?;
+            Ok(())
+        })
+        .on_menu_event(runtime::shortcuts::handle_menu_event)
         .run(tauri::generate_context!())
         .expect("error while running Rust Browser");
 }
