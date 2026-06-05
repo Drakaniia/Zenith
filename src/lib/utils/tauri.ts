@@ -1,4 +1,4 @@
-import { invoke } from '@tauri-apps/api/core';
+import { invoke, isTauri } from '@tauri-apps/api/core';
 
 export interface Tab {
   id: string;
@@ -67,6 +67,27 @@ export interface FindResult {
 }
 
 export type FindDirection = 'next' | 'previous';
+export type BrowserWebviewLoadState = 'started' | 'finished';
+
+export const BROWSER_WEBVIEW_NAVIGATION_EVENT = 'browser-webview-navigation';
+export const BROWSER_WEBVIEW_TITLE_EVENT = 'browser-webview-title';
+export const BROWSER_WEBVIEW_LOAD_EVENT = 'browser-webview-load';
+
+export interface BrowserWebviewNavigationEvent {
+  label: string;
+  url: string;
+}
+
+export interface BrowserWebviewTitleEvent {
+  label: string;
+  title: string;
+}
+
+export interface BrowserWebviewLoadEvent {
+  label: string;
+  url: string;
+  state: BrowserWebviewLoadState;
+}
 
 export interface CreateBrowserWebviewOptions {
   label: string;
@@ -87,6 +108,10 @@ interface WebviewFindRequest {
   query: string;
   direction: FindDirection;
   case_sensitive: boolean;
+}
+
+export function isTauriRuntime(): boolean {
+  return isTauri();
 }
 
 export function getBookmarks(): Promise<Bookmark[]> {
