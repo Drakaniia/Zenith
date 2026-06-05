@@ -54,6 +54,11 @@ class HistoryState {
     }
   };
 
+  suggest = async (query: string, limit = 6): Promise<HistoryEntry[]> => {
+    const results = await this.search(query);
+    return results.slice(0, limit);
+  };
+
   removeEntry = async (id: string): Promise<void> => {
     try {
       await deleteHistoryEntry(id);
@@ -64,14 +69,16 @@ class HistoryState {
     }
   };
 
-  clear = async (): Promise<void> => {
+  clear = async (): Promise<boolean> => {
     try {
       await clearHistory();
       this.entries = [];
       this.searchResults = [];
       this.query = '';
+      return true;
     } catch (error) {
       toastsState.error(`Failed to clear history: ${errorMessage(error)}`);
+      return false;
     }
   };
 }

@@ -49,6 +49,25 @@ class BookmarksState {
     }
   };
 
+  findByUrl = (url: string): Bookmark | null =>
+    this.items.find((bookmark) => bookmark.url === url) ?? null;
+
+  removeBookmarkByUrl = async (url: string): Promise<boolean> => {
+    let bookmark = this.findByUrl(url);
+
+    if (!bookmark) {
+      await this.load();
+      bookmark = this.findByUrl(url);
+    }
+
+    if (!bookmark) {
+      return false;
+    }
+
+    await this.removeBookmark(bookmark.id);
+    return !this.items.some((item) => item.id === bookmark.id);
+  };
+
   checkIsBookmarked = async (url: string): Promise<boolean> => {
     try {
       return await isBookmarked(url);
