@@ -1,6 +1,6 @@
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { getVersion } from '@tauri-apps/api/app';
-import { getCurrentWebview } from '@tauri-apps/api/webview';
+import { getCurrentWebview, Webview } from '@tauri-apps/api/webview';
 
 export interface Tab {
   id: string;
@@ -68,6 +68,11 @@ export interface FindResult {
   total_matches: number;
 }
 
+export interface WindowState {
+  is_minimized: boolean;
+  is_maximized: boolean;
+}
+
 export type FindDirection = 'next' | 'previous';
 export type BrowserWebviewLoadState = 'started' | 'finished';
 
@@ -96,6 +101,7 @@ export interface CreateBrowserWebviewOptions {
   url: string;
   bounds: WebviewBounds;
   javascriptEnabled: boolean;
+  incognito: boolean;
 }
 
 export interface FindInBrowserWebviewOptions {
@@ -130,6 +136,26 @@ export function clearAllBrowsingData(): Promise<void> {
   }
 
   return getCurrentWebview().clearAllBrowsingData();
+}
+
+export function getWindowState(): Promise<WindowState> {
+  return invoke<WindowState>('get_window_state');
+}
+
+export function minimizeWindow(): Promise<WindowState> {
+  return invoke<WindowState>('minimize_window');
+}
+
+export function maximizeWindow(): Promise<WindowState> {
+  return invoke<WindowState>('maximize_window');
+}
+
+export function restoreWindow(): Promise<WindowState> {
+  return invoke<WindowState>('restore_window');
+}
+
+export function closeWindow(): Promise<void> {
+  return invoke<void>('close_window');
 }
 
 export function getBookmarks(): Promise<Bookmark[]> {
@@ -205,7 +231,8 @@ export function createBrowserWebview(options: CreateBrowserWebviewOptions): Prom
     label: options.label,
     url: options.url,
     bounds: options.bounds,
-    javascriptEnabled: options.javascriptEnabled
+    javascriptEnabled: options.javascriptEnabled,
+    incognito: options.incognito
   });
 }
 
@@ -231,6 +258,16 @@ export function hideBrowserWebview(label: string): Promise<void> {
 
 export function setBrowserWebviewBounds(label: string, bounds: WebviewBounds): Promise<void> {
   return invoke<void>('set_browser_webview_bounds', { label, bounds });
+}
+
+export async function setBrowserWebviewZoom(label: string, scaleFactor: number): Promise<void> {
+  const webview = await Webview.getByLabel(label);
+
+  if (!webview) {
+    throw new Error(`Browser webview not found: ${label}`);
+  }
+
+  await webview.setZoom(scaleFactor);
 }
 
 export function getBrowserWebviewUrl(label: string): Promise<string> {
