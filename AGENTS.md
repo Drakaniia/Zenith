@@ -32,3 +32,7 @@
 
 - Root `pnpm format` runs Prettier over the repo; `.prettierignore` excludes `.agents/`, lockfiles, `node_modules`, and Tauri generated/target output.
 - Prettier is configured for 2 spaces, single quotes, no trailing commas, and `printWidth: 100`; Svelte files use `prettier-plugin-svelte`.
+
+## Important
+
+- Always Use skills
