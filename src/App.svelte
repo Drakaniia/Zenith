@@ -1,12 +1,13 @@
 <script lang="ts">
-  import TabBar from './lib/components/TabBar.svelte';
+  import { getAllWindows, getCurrentWindow } from '@tauri-apps/api/window';
+  import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
   import BookmarksPanel from './lib/components/BookmarksPanel.svelte';
   import DownloadManager from './lib/components/DownloadManager.svelte';
   import HistoryPanel from './lib/components/HistoryPanel.svelte';
   import NavigationBar from './lib/components/NavigationBar.svelte';
   import FindBar from './lib/components/FindBar.svelte';
+  import HomePage from './lib/components/HomePage.svelte';
   import SettingsPage from './lib/components/SettingsPage.svelte';
-  import StatusBar from './lib/components/StatusBar.svelte';
   import TitleBar from './lib/components/TitleBar.svelte';
   import Toast from './lib/components/Toast.svelte';
   import WebViewContainer, {
@@ -15,28 +16,59 @@
   import { bookmarksState } from './lib/state/bookmarks.svelte';
   import { downloadsState } from './lib/state/downloads.svelte';
   import { historyState } from './lib/state/history.svelte';
-  import { settingsState } from './lib/state/settings.svelte';
+  import { resolveHomepageUrl, settingsState } from './lib/state/settings.svelte';
   import { tabsState } from './lib/state/tabs.svelte';
   import { toastsState } from './lib/state/toasts.svelte';
-  import { isTauriRuntime, type FindDirection, type FindResult } from './lib/utils/tauri';
+  import {
+    BROWSER_HOME_URL,
+    BROWSER_SETTINGS_URL,
+    titleForInternalUrl
+  } from './lib/utils/internalUrls';
+  import {
+    closeWindow as closeAppWindow,
+    isTauriRuntime,
+    maximizeWindow as maximizeAppWindow,
+    minimizeWindow as minimizeAppWindow,
+    restoreWindow as restoreAppWindow,
+    type FindDirection,
+    type FindResult
+  } from './lib/utils/tauri';
 
   type ChromePanel = 'bookmarks' | 'history' | 'downloads' | 'settings' | 'find';
   type ShortcutCommand = () => void | Promise<void>;
+  type FindStepDirection = 'next' | 'previous';
+  type ShortcutSequence = 'window-menu' | 'browser-menu';
 
-  const DEFAULT_HOME_URL = 'https://yandex.com';
   const nativeRuntime = isTauriRuntime();
+  const isApplePlatform = /Mac|iPhone|iPad|iPod/.test(navigator.userAgent);
+  const ZOOM_STEP = 0.1;
+  const MIN_ZOOM = 0.25;
+  const MAX_ZOOM = 5;
+  const SHORTCUT_SEQUENCE_TIMEOUT_MS = 1400;
+  const BROWSER_WINDOW_LABEL_PREFIX = 'browser_window_';
+  const isIncognitoWindow = new URLSearchParams(window.location.search).get('incognito') === '1';
 
   let activePanel = $state<ChromePanel | null>(null);
   let webViewController = $state<WebViewController | null>(null);
   let addressFocusRequest = $state(0);
+  let findStepRequest = $state(0);
+  let findStepDirection = $state<FindStepDirection>('next');
+  let pageZoom = $state(1);
+  let isFullscreen = $state(false);
   let didStartApp = false;
+  let pendingShortcutSequence: ShortcutSequence | null = null;
+  let pendingShortcutSequenceTimeout = 0;
+  let focusTabsOnNextF6 = false;
+  const reportedUnsupportedShortcuts: string[] = [];
   let theme = $derived(settingsState.settings.theme === 'light' ? 'light' : 'dark');
-  let title = $derived(tabsState.activeTab?.title?.trim() || 'Rust Browser');
-  let showStatusBar = $derived(settingsState.settings.show_status_bar);
   let isSidePanelOpen = $derived(
     activePanel === 'bookmarks' || activePanel === 'history' || activePanel === 'downloads'
   );
-  let isSettingsTabActive = $derived(tabsState.activeTab?.url === 'browser://settings');
+  let isHomeViewVisible = $derived(
+    !tabsState.activeTab || tabsState.activeTab.url === BROWSER_HOME_URL
+  );
+  let isInternalTabActive = $derived(isHomeViewVisible || Boolean(tabsState.activeTab?.isInternal));
+  let isSettingsTabActive = $derived(tabsState.activeTab?.url === BROWSER_SETTINGS_URL);
 
   const EMPTY_FIND_RESULT: FindResult = {
     active_match: 0,
@@ -80,12 +112,25 @@
 
     return () => {
       window.removeEventListener('keydown', handleKeydown);
+      clearPendingShortcutSequence();
     };
   });
 
   async function navigateActive(url: string): Promise<void> {
-    if (url === 'browser://settings') {
+    if (url === BROWSER_SETTINGS_URL) {
       openSettingsTab();
+      return;
+    }
+
+    if (url === BROWSER_HOME_URL) {
+      tabsState.openHomeTab();
+      activePanel = null;
+      return;
+    }
+
+    if (tabsState.activeTab?.url === BROWSER_HOME_URL && isBrowserWebviewUrl(url)) {
+      replaceActiveHomeTab(url);
+      activePanel = null;
       return;
     }
 
@@ -108,10 +153,18 @@
   }
 
   async function backActive(): Promise<void> {
+    if (moveInternalActiveHistory(-1)) {
+      return;
+    }
+
     await webViewController?.backActive();
   }
 
   async function forwardActive(): Promise<void> {
+    if (moveInternalActiveHistory(1)) {
+      return;
+    }
+
     await webViewController?.forwardActive();
   }
 
@@ -125,12 +178,12 @@
   }
 
   function openSettingsTab(): void {
-    const existingSettingsTab = tabsState.tabs.find((tab) => tab.url === 'browser://settings');
+    const existingSettingsTab = tabsState.tabs.find((tab) => tab.url === BROWSER_SETTINGS_URL);
 
     if (existingSettingsTab) {
       tabsState.setActiveTab(existingSettingsTab.id);
     } else {
-      tabsState.openInternalTab('browser://settings');
+      tabsState.openInternalTab(BROWSER_SETTINGS_URL);
     }
 
     activePanel = null;
@@ -149,6 +202,70 @@
     activePanel = null;
   }
 
+  async function openBrowserWindow(incognito = false): Promise<void> {
+    if (!nativeRuntime) {
+      showUnsupportedShortcut(
+        incognito ? 'new-incognito-window-native' : 'new-window-native',
+        'New browser windows are only available in the Tauri app.'
+      );
+      return;
+    }
+
+    const label = createBrowserWindowLabel();
+    const browserWindow = new WebviewWindow(label, {
+      url: incognito ? '/?incognito=1' : '/',
+      title: incognito ? 'Rust Browser - Incognito' : 'Rust Browser',
+      width: 1200,
+      height: 800,
+      minWidth: 800,
+      minHeight: 600,
+      decorations: false,
+      resizable: true,
+      center: true,
+      focus: true,
+      incognito
+    });
+
+    await new Promise<void>((resolve, reject) => {
+      void browserWindow.once('tauri://created', () => {
+        resolve();
+      });
+      void browserWindow.once('tauri://error', (event) => {
+        reject(new Error(String(event.payload || 'Failed to create browser window.')));
+      });
+    });
+  }
+
+  function openHomepageInCurrentTab(): void {
+    const activeTab = tabsState.activeTab;
+
+    if (!activeTab) {
+      openHomepageTab();
+      return;
+    }
+
+    const history = activeTab.history.slice(0, activeTab.historyIndex + 1);
+
+    if (history.at(-1) !== BROWSER_HOME_URL) {
+      history.push(BROWSER_HOME_URL);
+    }
+
+    const historyIndex = history.length - 1;
+
+    tabsState.updateTab(activeTab.id, {
+      url: BROWSER_HOME_URL,
+      title: titleForInternalUrl(BROWSER_HOME_URL),
+      favicon_url: null,
+      is_loading: false,
+      can_go_back: historyIndex > 0,
+      can_go_forward: false,
+      isInternal: true,
+      history,
+      historyIndex
+    });
+    activePanel = null;
+  }
+
   function closeActiveTab(): void {
     const activeTab = tabsState.activeTab;
 
@@ -157,16 +274,116 @@
     }
   }
 
+  function restoreClosedTab(): void {
+    const restored = tabsState.restoreClosedTab();
+
+    if (!restored) {
+      showUnsupportedShortcut('restore-tab', 'There is no closed tab to restore.');
+    }
+
+    activePanel = null;
+  }
+
   function focusAddressBar(): void {
     addressFocusRequest += 1;
   }
 
+  function focusNextChromeArea(): void {
+    if (focusTabsOnNextF6) {
+      focusTabsOnNextF6 = false;
+      focusActiveTabElement();
+      return;
+    }
+
+    focusTabsOnNextF6 = true;
+    focusAddressBar();
+  }
+
+  function focusActiveTabElement(): void {
+    window.requestAnimationFrame(() => {
+      const activeTab = document.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]');
+      activeTab?.focus();
+    });
+  }
+
+  function openFindBar(direction: FindStepDirection = 'next', step = false): void {
+    activePanel = 'find';
+
+    if (step) {
+      findStepDirection = direction;
+      findStepRequest += 1;
+    }
+  }
+
+  function replaceActiveHomeTab(url: string): void {
+    const activeTab = tabsState.activeTab;
+
+    if (!activeTab || activeTab.url !== BROWSER_HOME_URL) {
+      return;
+    }
+
+    tabsState.updateTab(activeTab.id, {
+      url,
+      title: url,
+      favicon_url: null,
+      is_loading: true,
+      can_go_back: false,
+      can_go_forward: false,
+      isInternal: false,
+      history: [url],
+      historyIndex: 0
+    });
+  }
+
   function homepageUrl(): string {
-    return settingsState.settings.homepage.trim() || DEFAULT_HOME_URL;
+    return resolveHomepageUrl(settingsState.settings.homepage);
+  }
+
+  function isBrowserWebviewUrl(url: string): boolean {
+    try {
+      const parsed = new URL(url);
+      return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+    } catch {
+      return false;
+    }
+  }
+
+  function moveInternalActiveHistory(direction: -1 | 1): boolean {
+    const activeTab = tabsState.activeTab;
+
+    if (!activeTab?.isInternal) {
+      return false;
+    }
+
+    const historyIndex = activeTab.historyIndex + direction;
+    const url = activeTab.history[historyIndex];
+
+    if (!url) {
+      return false;
+    }
+
+    tabsState.updateTab(activeTab.id, {
+      url,
+      title: isBrowserWebviewUrl(url) ? url : internalTitleForUrl(url),
+      favicon_url: null,
+      is_loading: isBrowserWebviewUrl(url),
+      can_go_back: historyIndex > 0,
+      can_go_forward: historyIndex < activeTab.history.length - 1,
+      isInternal: !isBrowserWebviewUrl(url),
+      historyIndex
+    });
+
+    return true;
+  }
+
+  function internalTitleForUrl(url: string): string {
+    return url === BROWSER_SETTINGS_URL
+      ? titleForInternalUrl(BROWSER_SETTINGS_URL)
+      : titleForInternalUrl(BROWSER_HOME_URL);
   }
 
   function handleGlobalKeydown(event: KeyboardEvent): void {
-    if (event.defaultPrevented || event.metaKey) {
+    if (event.defaultPrevented) {
       return;
     }
 
@@ -181,13 +398,30 @@
   }
 
   function shortcutCommand(event: KeyboardEvent): ShortcutCommand | null {
-    const key = event.key.toLocaleLowerCase();
+    const key = shortcutKey(event);
+    const primary = isPrimaryShortcut(event);
+    const onlyPrimary = primary && !event.altKey;
+    const ctrlOnly = event.ctrlKey && !event.metaKey && !event.altKey;
+    const noCommandModifier = !event.ctrlKey && !event.metaKey && !event.altKey;
+
+    if (pendingShortcutSequence) {
+      return commandForPendingShortcutSequence(key);
+    }
+
+    if (key === 'escape' && event.shiftKey && noCommandModifier) {
+      return () =>
+        showUnsupportedShortcut('task-manager', 'Chrome Task Manager is not implemented.');
+    }
 
     if (key === 'escape') {
       if (activePanel) {
         return () => {
           activePanel = null;
         };
+      }
+
+      if (isFullscreen) {
+        return exitFullscreen;
       }
 
       if (tabsState.activeTab?.is_loading) {
@@ -197,11 +431,66 @@
       return null;
     }
 
-    if (key === 'f5' && tabsState.activeTab && !event.altKey && !event.shiftKey) {
+    if (event.altKey && !event.ctrlKey && !event.metaKey && key === ' ') {
+      startPendingShortcutSequence('window-menu');
+      return noop;
+    }
+
+    if (event.altKey && !event.ctrlKey && !event.metaKey && key === 'f4') {
+      return closeCurrentWindow;
+    }
+
+    if (key === 'f11' && noCommandModifier && !event.shiftKey) {
+      return toggleFullscreen;
+    }
+
+    if (key === 'f5' && primary && !event.shiftKey) {
+      return focusAddressBar;
+    }
+
+    if (key === 'f5' && tabsState.activeTab && !event.altKey && !event.ctrlKey && !event.metaKey) {
       return reloadActive;
     }
 
+    if (key === 'f3' && !event.ctrlKey && !event.metaKey && !event.altKey && tabsState.activeTab) {
+      return () => {
+        openFindBar(event.shiftKey ? 'previous' : 'next', activePanel === 'find');
+      };
+    }
+
+    if (key === 'f1' && noCommandModifier && !event.shiftKey) {
+      return () =>
+        showUnsupportedShortcut(
+          'help-center',
+          'Opening a Chrome Help Center tab is not implemented.'
+        );
+    }
+
+    if (key === 'f6' && !event.altKey && !event.metaKey) {
+      return focusNextChromeArea;
+    }
+
+    if (key === 'f7' && noCommandModifier && !event.shiftKey) {
+      return () => showUnsupportedShortcut('caret-browsing', 'Caret browsing is not implemented.');
+    }
+
+    if (key === 'f10' && noCommandModifier && !event.shiftKey) {
+      return focusAddressBar;
+    }
+
+    if (key === 'f12' && noCommandModifier && !event.shiftKey) {
+      return () => showUnsupportedShortcut('devtools', 'Developer Tools are not implemented.');
+    }
+
     if (event.altKey && !event.ctrlKey && !event.shiftKey) {
+      if (key === 'd') {
+        return focusAddressBar;
+      }
+
+      if (key === 'home') {
+        return openHomepageInCurrentTab;
+      }
+
       if (event.key === 'ArrowLeft' && tabsState.activeTab?.can_go_back) {
         return backActive;
       }
@@ -210,26 +499,120 @@
         return forwardActive;
       }
 
+      if (key === 'f' || key === 'e') {
+        startPendingShortcutSequence('browser-menu');
+        return noop;
+      }
+
       return null;
     }
 
-    if (!event.ctrlKey || event.altKey) {
+    if (event.altKey && event.shiftKey && !event.ctrlKey && !event.metaKey) {
+      if (key === 't') {
+        return focusAddressBar;
+      }
+
+      if (key === 'i') {
+        return () =>
+          showUnsupportedShortcut('feedback', 'The Chrome feedback form is not implemented.');
+      }
+
+      if (key === 'a') {
+        return () =>
+          showUnsupportedShortcut(
+            'inactive-dialogs',
+            'Inactive dialog focusing is not implemented.'
+          );
+      }
+
+      if (key === 'n') {
+        return () => showUnsupportedShortcut('split-view', 'Split view is not implemented.');
+      }
+
       return null;
     }
 
-    if (key === 'tab' && tabsState.tabs.length > 0) {
-      return event.shiftKey ? tabsState.previousTab : tabsState.nextTab;
+    if (isApplePlatform && event.metaKey && event.altKey && !event.ctrlKey) {
+      if (key === 'arrowright') {
+        return tabsState.nextTab;
+      }
+
+      if (key === 'arrowleft') {
+        return tabsState.previousTab;
+      }
+
+      if (key === 'i' || key === 'j') {
+        return () => showUnsupportedShortcut('devtools', 'Developer Tools are not implemented.');
+      }
+    }
+
+    if (event.metaKey && !event.ctrlKey && !event.altKey) {
+      if (key === '[' || key === 'arrowleft') {
+        return tabsState.activeTab?.can_go_back ? backActive : null;
+      }
+
+      if (key === ']' || key === 'arrowright') {
+        return tabsState.activeTab?.can_go_forward ? forwardActive : null;
+      }
+    }
+
+    if (!onlyPrimary && !(ctrlOnly && (key === 'pageup' || key === 'pagedown'))) {
+      return null;
+    }
+
+    if (ctrlOnly && event.shiftKey && key === 'pageup') {
+      return () => tabsState.moveActiveTab(-1);
+    }
+
+    if (ctrlOnly && event.shiftKey && key === 'pagedown') {
+      return () => tabsState.moveActiveTab(1);
+    }
+
+    if ((key === 'tab' || (ctrlOnly && key === 'pagedown')) && tabsState.tabs.length > 0) {
+      if (key === 'tab' && event.shiftKey) {
+        return tabsState.previousTab;
+      }
+
+      return tabsState.nextTab;
+    }
+
+    if (ctrlOnly && key === 'pageup' && tabsState.tabs.length > 0) {
+      return tabsState.previousTab;
+    }
+
+    if (event.shiftKey && key === 'n') {
+      return () => openBrowserWindow(true);
+    }
+
+    if (event.shiftKey && key === 't') {
+      return restoreClosedTab;
+    }
+
+    if (key === 'n' && !event.shiftKey) {
+      return () => openBrowserWindow(false);
     }
 
     if (key === 't' && !event.shiftKey) {
       return openHomepageTab;
     }
 
-    if (key === 'w' && !event.shiftKey && tabsState.activeTab) {
-      return closeActiveTab;
+    if (event.shiftKey && key === 'w') {
+      return closeCurrentWindow;
     }
 
-    if (key === 'l' && !event.shiftKey) {
+    if (key === 'q' && !event.shiftKey && isApplePlatform) {
+      return quitBrowser;
+    }
+
+    if ((key === 'w' && !event.shiftKey) || (ctrlOnly && key === 'f4')) {
+      return tabsState.activeTab ? closeActiveTab : null;
+    }
+
+    if (key === 'm' && !event.shiftKey && isApplePlatform) {
+      return minimizeCurrentWindow;
+    }
+
+    if ((key === 'l' || key === 'k' || key === 'e') && !event.shiftKey) {
       return focusAddressBar;
     }
 
@@ -237,30 +620,115 @@
       return reloadActive;
     }
 
+    if ((key === '+' || key === '=') && !event.altKey) {
+      return () => setPageZoom(pageZoom + ZOOM_STEP);
+    }
+
+    if (key === '-' && !event.altKey) {
+      return () => setPageZoom(pageZoom - ZOOM_STEP);
+    }
+
+    if (key === '0' && !event.altKey) {
+      return () => setPageZoom(1);
+    }
+
     if (key === 'f' && !event.shiftKey && tabsState.activeTab) {
       return () => {
-        activePanel = 'find';
+        openFindBar();
+      };
+    }
+
+    if (key === 'g' && tabsState.activeTab) {
+      return () => {
+        openFindBar(event.shiftKey ? 'previous' : 'next', true);
       };
     }
 
     if (key === 'h' && !event.shiftKey) {
+      if (isApplePlatform) {
+        return hideCurrentWindow;
+      }
+
       return () => {
         activePanel = 'history';
       };
+    }
+
+    if (key === 'y' && !event.shiftKey && isApplePlatform) {
+      return () => {
+        activePanel = 'history';
+      };
+    }
+
+    if (key === 'j' && !event.shiftKey) {
+      return () => {
+        activePanel = 'downloads';
+      };
+    }
+
+    if (key === 'j' && event.shiftKey) {
+      return isApplePlatform
+        ? () => {
+            activePanel = 'downloads';
+          }
+        : () => showUnsupportedShortcut('devtools', 'Developer Tools are not implemented.');
+    }
+
+    if (key === 'o' && event.shiftKey) {
+      return () => {
+        activePanel = 'bookmarks';
+      };
+    }
+
+    if (key === 'b' && event.shiftKey) {
+      return () => {
+        activePanel = activePanel === 'bookmarks' ? null : 'bookmarks';
+      };
+    }
+
+    if (key === 'd' && event.shiftKey) {
+      return bookmarkAllOpenTabs;
     }
 
     if (key === 'd' && !event.shiftKey && canBookmarkActiveTab()) {
       return toggleActiveBookmark;
     }
 
-    if (event.key === ',' && !event.shiftKey) {
+    if ((event.key === ',' && !event.shiftKey) || (key === 'delete' && event.shiftKey)) {
       return openSettingsTab;
     }
 
-    if (key === 'j' && event.shiftKey) {
-      return () => {
-        activePanel = 'downloads';
-      };
+    if (key === 'p' && !event.shiftKey) {
+      return () => showUnsupportedShortcut('print', 'Print is not implemented.');
+    }
+
+    if (key === 's' && !event.shiftKey) {
+      return () =>
+        showUnsupportedShortcut('save-page', 'Saving the current page is not implemented.');
+    }
+
+    if (key === 'o' && !event.shiftKey) {
+      return () => showUnsupportedShortcut('open-file', 'Opening local files is not implemented.');
+    }
+
+    if (key === 'u' && !event.shiftKey) {
+      return () => showUnsupportedShortcut('view-source', 'Page source view is not implemented.');
+    }
+
+    if ((key === 'i' || key === 'c') && event.shiftKey) {
+      return () => showUnsupportedShortcut('devtools', 'Developer Tools are not implemented.');
+    }
+
+    if (key === 'm' && event.shiftKey) {
+      return () =>
+        showUnsupportedShortcut(
+          'profile-switcher',
+          'Chrome profiles and guest browsing are not implemented.'
+        );
+    }
+
+    if (key === 'tab' && tabsState.tabs.length > 0) {
+      return event.shiftKey ? tabsState.previousTab : tabsState.nextTab;
     }
 
     if (!event.shiftKey && key >= '1' && key <= '8') {
@@ -286,6 +754,129 @@
     void Promise.resolve(command()).catch((error) => {
       toastsState.error(`Shortcut failed: ${errorMessage(error)}`);
     });
+  }
+
+  async function bookmarkAllOpenTabs(): Promise<void> {
+    const bookmarkableTabs = tabsState.tabs.filter((tab) => isBookmarkableUrl(tab.url));
+
+    if (bookmarkableTabs.length === 0) {
+      showUnsupportedShortcut('bookmark-all-tabs-empty', 'No open tabs can be bookmarked.');
+      return;
+    }
+
+    await Promise.all(
+      bookmarkableTabs.map((tab) =>
+        bookmarksState.addBookmark(tab.title.trim() || tab.url, tab.url)
+      )
+    );
+    toastsState.success(`Bookmarked ${bookmarkableTabs.length} open tab(s)`);
+  }
+
+  async function setPageZoom(nextZoom: number): Promise<void> {
+    pageZoom = clampZoom(nextZoom);
+    await webViewController?.setActiveZoom(pageZoom);
+  }
+
+  async function toggleFullscreen(): Promise<void> {
+    const appWindow = getAppWindow();
+
+    if (!appWindow) {
+      showUnsupportedShortcut('fullscreen', 'Fullscreen is only available in the Tauri app.');
+      return;
+    }
+
+    const nextFullscreen = !(await appWindow.isFullscreen());
+    await appWindow.setFullscreen(nextFullscreen);
+    isFullscreen = nextFullscreen;
+  }
+
+  async function exitFullscreen(): Promise<void> {
+    const appWindow = getAppWindow();
+
+    if (!appWindow) {
+      return;
+    }
+
+    await appWindow.setFullscreen(false);
+    isFullscreen = false;
+  }
+
+  async function closeCurrentWindow(): Promise<void> {
+    if (!nativeRuntime) {
+      showUnsupportedShortcut(
+        'close-window',
+        'Window controls are only available in the Tauri app.'
+      );
+      return;
+    }
+
+    await closeAppWindow();
+  }
+
+  async function minimizeCurrentWindow(): Promise<void> {
+    if (!nativeRuntime) {
+      showUnsupportedShortcut(
+        'minimize-window',
+        'Window controls are only available in the Tauri app.'
+      );
+      return;
+    }
+
+    await minimizeAppWindow();
+  }
+
+  async function hideCurrentWindow(): Promise<void> {
+    const appWindow = getAppWindow();
+
+    if (!appWindow) {
+      showUnsupportedShortcut(
+        'hide-window',
+        'Window controls are only available in the Tauri app.'
+      );
+      return;
+    }
+
+    await appWindow.hide();
+  }
+
+  async function maximizeCurrentWindow(): Promise<void> {
+    if (!nativeRuntime) {
+      showUnsupportedShortcut(
+        'maximize-window',
+        'Window controls are only available in the Tauri app.'
+      );
+      return;
+    }
+
+    await maximizeAppWindow();
+  }
+
+  async function restoreCurrentWindow(): Promise<void> {
+    if (!nativeRuntime) {
+      showUnsupportedShortcut(
+        'restore-window',
+        'Window controls are only available in the Tauri app.'
+      );
+      return;
+    }
+
+    await restoreAppWindow();
+  }
+
+  async function quitBrowser(): Promise<void> {
+    if (!nativeRuntime) {
+      showUnsupportedShortcut('quit-browser', 'Quitting is only available in the Tauri app.');
+      return;
+    }
+
+    const windows = await getAllWindows();
+
+    if (windows.length === 0) {
+      await closeCurrentWindow();
+      return;
+    }
+
+    await Promise.all(windows.map((appWindow) => appWindow.close()));
   }
 
   async function toggleActiveBookmark(): Promise<void> {
@@ -330,6 +921,97 @@
     return url.startsWith('http://') || url.startsWith('https://');
   }
 
+  function noop(): void {
+    // Used for shortcut prefixes such as Alt+Space that should be consumed.
+  }
+
+  function shortcutKey(event: KeyboardEvent): string {
+    if (event.key === ' ') {
+      return ' ';
+    }
+
+    return event.key.toLocaleLowerCase();
+  }
+
+  function isPrimaryShortcut(event: KeyboardEvent): boolean {
+    return isApplePlatform ? event.metaKey : event.ctrlKey;
+  }
+
+  function startPendingShortcutSequence(sequence: ShortcutSequence): void {
+    clearPendingShortcutSequence();
+    pendingShortcutSequence = sequence;
+    pendingShortcutSequenceTimeout = window.setTimeout(() => {
+      pendingShortcutSequence = null;
+      pendingShortcutSequenceTimeout = 0;
+    }, SHORTCUT_SEQUENCE_TIMEOUT_MS);
+  }
+
+  function clearPendingShortcutSequence(): void {
+    if (pendingShortcutSequenceTimeout) {
+      window.clearTimeout(pendingShortcutSequenceTimeout);
+    }
+
+    pendingShortcutSequence = null;
+    pendingShortcutSequenceTimeout = 0;
+  }
+
+  function commandForPendingShortcutSequence(key: string): ShortcutCommand | null {
+    const sequence = pendingShortcutSequence;
+    clearPendingShortcutSequence();
+
+    if (sequence === 'window-menu') {
+      if (key === 'r') {
+        return restoreCurrentWindow;
+      }
+
+      if (key === 'n') {
+        return minimizeCurrentWindow;
+      }
+
+      if (key === 'x') {
+        return maximizeCurrentWindow;
+      }
+
+      if (key === 'c') {
+        return closeCurrentWindow;
+      }
+    }
+
+    if (sequence === 'browser-menu' && key === 'x') {
+      return quitBrowser;
+    }
+
+    return null;
+  }
+
+  function clampZoom(value: number): number {
+    return Math.min(Math.max(Math.round(value * 100) / 100, MIN_ZOOM), MAX_ZOOM);
+  }
+
+  function getAppWindow(): ReturnType<typeof getCurrentWindow> | null {
+    try {
+      return getCurrentWindow();
+    } catch {
+      return null;
+    }
+  }
+
+  function createBrowserWindowLabel(): string {
+    const bytes = new Uint8Array(16);
+    crypto.getRandomValues(bytes);
+    const id = Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+    return `${BROWSER_WINDOW_LABEL_PREFIX}${id}`;
+  }
+
+  function showUnsupportedShortcut(key: string, message: string): void {
+    if (reportedUnsupportedShortcuts.includes(key)) {
+      return;
+    }
+
+    reportedUnsupportedShortcuts.push(key);
+    toastsState.info(message);
+  }
+
   async function findActive(
     query: string,
     direction: FindDirection,
@@ -368,8 +1050,7 @@
 </svelte:head>
 
 <div class="app-shell" data-theme={theme}>
-  <TitleBar {title} />
-  <TabBar />
+  <TitleBar />
   <NavigationBar
     onNavigate={navigateActive}
     onReload={reloadActive}
@@ -385,6 +1066,8 @@
       onClose={closeFindBar}
       onFind={findActive}
       onClear={clearFindActive}
+      stepRequest={findStepRequest}
+      stepDirection={findStepDirection}
     />
   </div>
   <main
@@ -392,11 +1075,17 @@
     aria-label="Browser content"
     data-active-panel={activePanel ?? 'none'}
   >
-    <div class={`webview-slot ${isSettingsTabActive ? 'webview-slot--internal' : ''}`}>
-      <div class="webview-host" aria-hidden={isSettingsTabActive}>
-        <WebViewContainer bind:controller={webViewController} />
+    <div class={`webview-slot ${isInternalTabActive ? 'webview-slot--internal' : ''}`}>
+      <div class="webview-host" aria-hidden={isInternalTabActive}>
+        <WebViewContainer
+          bind:controller={webViewController}
+          zoomScale={pageZoom}
+          incognito={isIncognitoWindow}
+        />
       </div>
-      {#if isSettingsTabActive}
+      {#if isHomeViewVisible}
+        <HomePage onNavigate={navigateActive} />
+      {:else if isSettingsTabActive}
         <SettingsPage />
       {/if}
     </div>
@@ -412,9 +1101,6 @@
     />
     <DownloadManager open={activePanel === 'downloads'} onClose={closePanel} />
   </main>
-  {#if showStatusBar}
-    <StatusBar />
-  {/if}
   <Toast />
 </div>
 
@@ -435,11 +1121,6 @@
     --shadow-elevated: 0 16px 48px rgb(0 0 0 / 0.32);
     --chrome-tabbar-height: 36px;
     --chrome-nav-height: 48px;
-    --chrome-statusbar-height: 24px;
-    --chrome-content-height: calc(
-      100vh - var(--chrome-tabbar-height) - var(--chrome-nav-height) -
-        var(--chrome-statusbar-height)
-    );
     --radius-control: 8px;
   }
 
@@ -511,9 +1192,7 @@
     color-scheme: dark;
     position: relative;
     display: grid;
-    grid-template-rows:
-      auto var(--chrome-tabbar-height) var(--chrome-nav-height) auto minmax(0, 1fr)
-      auto;
+    grid-template-rows: var(--chrome-tabbar-height) var(--chrome-nav-height) auto minmax(0, 1fr);
     width: 100%;
     height: 100%;
     min-width: 320px;
