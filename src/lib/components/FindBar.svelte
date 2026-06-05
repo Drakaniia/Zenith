@@ -12,6 +12,8 @@
       caseSensitive: boolean
     ) => Promise<FindResult>;
     onClear: () => Promise<void>;
+    stepRequest?: number;
+    stepDirection?: 'next' | 'previous';
   }
 
   const EMPTY_RESULT: FindResult = {
@@ -19,7 +21,7 @@
     total_matches: 0
   };
 
-  let { open, onClose, onFind, onClear }: Props = $props();
+  let { open, onClose, onFind, onClear, stepRequest = 0, stepDirection = 'next' }: Props = $props();
 
   let query = $state('');
   let caseSensitive = $state(false);
@@ -29,6 +31,7 @@
   let findVersion = 0;
   let wasOpen = false;
   let hasReportedUnavailable = false;
+  let lastStepRequest = 0;
 
   let matchLabel = $derived(formatMatchLabel(query, result));
 
@@ -75,6 +78,17 @@
       cancelled = true;
       window.clearTimeout(timeout);
     };
+  });
+
+  $effect(() => {
+    const request = stepRequest;
+
+    if (!open || request <= 0 || request === lastStepRequest) {
+      return;
+    }
+
+    lastStepRequest = request;
+    void runFind(query.trim(), stepDirection, caseSensitive);
   });
 
   function handleInput(event: Event): void {

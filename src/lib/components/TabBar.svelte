@@ -1,14 +1,6 @@
 <script lang="ts">
-  import {
-    Copy,
-    Globe,
-    LoaderCircle,
-    MoreHorizontal,
-    Plus,
-    RotateCw,
-    X
-  } from 'lucide-svelte';
-  import { settingsState } from '../state/settings.svelte';
+  import { Copy, Globe, LoaderCircle, MoreHorizontal, Plus, RotateCw, X } from 'lucide-svelte';
+  import { resolveHomepageUrl, settingsState } from '../state/settings.svelte';
   import { type BrowserTab, tabsState } from '../state/tabs.svelte';
 
   interface ContextMenuState {
@@ -17,7 +9,11 @@
     tabId: string;
   }
 
-  const DEFAULT_HOME_URL = 'https://yandex.com';
+  interface Props {
+    embedded?: boolean;
+  }
+
+  let { embedded = false }: Props = $props();
 
   let contextMenu = $state<ContextMenuState | null>(null);
   let contextTab = $derived(
@@ -25,7 +21,7 @@
   );
 
   function openHomepageTab(): void {
-    tabsState.openTab(settingsState.settings.homepage.trim() || DEFAULT_HOME_URL);
+    tabsState.openTab(resolveHomepageUrl(settingsState.settings.homepage));
     closeContextMenu();
   }
 
@@ -75,6 +71,31 @@
     };
   }
 
+  function openContextMenuFromKeyboard(event: KeyboardEvent, id: string): void {
+    event.preventDefault();
+    event.stopPropagation();
+    tabsState.setActiveTab(id);
+
+    const target = event.currentTarget;
+
+    if (!(target instanceof HTMLElement)) {
+      return;
+    }
+
+    const rect = target.getBoundingClientRect();
+    const menuWidth = 196;
+    const menuHeight = 164;
+    const margin = 8;
+    const x = Math.min(rect.left, window.innerWidth - menuWidth - margin);
+    const y = Math.min(rect.bottom + 4, window.innerHeight - menuHeight - margin);
+
+    contextMenu = {
+      x: Math.max(margin, x),
+      y: Math.max(margin, y),
+      tabId: id
+    };
+  }
+
   function closeContextMenu(): void {
     contextMenu = null;
   }
@@ -86,31 +107,92 @@
   }
 
   function handleTabKeydown(event: KeyboardEvent, id: string): void {
-    if (event.key !== 'Enter' && event.key !== ' ') {
+    const key = event.key.toLocaleLowerCase();
+
+    if (event.ctrlKey && event.shiftKey && !event.altKey && !event.metaKey && key === 'h') {
+      event.preventDefault();
+      event.stopPropagation();
+      tabsState.toggleTabSelection(id);
       return;
     }
 
-    event.preventDefault();
-    tabsState.setActiveTab(id);
+    if (event.ctrlKey && !event.altKey && !event.metaKey) {
+      if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+        event.preventDefault();
+        event.stopPropagation();
+        tabsState.setActiveTab(id);
+        tabsState.moveActiveTab(event.key === 'ArrowLeft' ? -1 : 1);
+        focusActiveTabAfterReorder();
+        return;
+      }
+    }
+
+    if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+      event.preventDefault();
+      event.stopPropagation();
+      focusAdjacentTab(id, event.key === 'ArrowLeft' ? -1 : 1);
+      return;
+    }
+
+    if (event.key === 'ContextMenu' || event.key === 'Apps') {
+      openContextMenuFromKeyboard(event, id);
+      return;
+    }
+
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      tabsState.setActiveTab(id);
+    }
   }
 
   function handleFaviconError(tab: BrowserTab): void {
     tabsState.updateTab(tab.id, { favicon_url: null });
   }
+
+  function focusAdjacentTab(id: string, direction: -1 | 1): void {
+    const index = tabsState.tabs.findIndex((tab) => tab.id === id);
+
+    if (index === -1) {
+      return;
+    }
+
+    const targetIndex =
+      (index + direction + tabsState.tabs.length) % Math.max(tabsState.tabs.length, 1);
+    const targetTab = tabsState.tabs[targetIndex];
+
+    if (!targetTab) {
+      return;
+    }
+
+    tabsState.setActiveTab(targetTab.id);
+    focusActiveTabAfterReorder();
+  }
+
+  function focusActiveTabAfterReorder(): void {
+    window.requestAnimationFrame(() => {
+      const activeTab = document.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]');
+      activeTab?.focus();
+    });
+  }
 </script>
 
 <svelte:window onclick={closeContextMenu} onkeydown={handleWindowKeydown} />
 
-<nav class="tab-bar" aria-label="Browser tabs">
-  <div class="tab-strip" role="tablist" aria-label="Open tabs">
+<nav
+  class={`tab-bar ${embedded ? 'tab-bar--embedded' : ''}`}
+  aria-label="Browser tabs"
+  data-tauri-drag-region="deep"
+>
+  <div class="tab-strip" role="tablist" aria-label="Open tabs" aria-multiselectable="true">
     {#each tabsState.tabs as tab (tab.id)}
       <div
-        class={`tab ${tab.id === tabsState.activeTabId ? 'tab--active' : ''}`}
+        class={`tab ${tab.id === tabsState.activeTabId ? 'tab--active' : ''} ${tabsState.isTabSelected(tab.id) ? 'tab--selected' : ''}`}
         role="tab"
         aria-selected={tab.id === tabsState.activeTabId}
-        aria-label={`${tab.title || 'New Tab'} tab`}
+        aria-label={`${tab.title || 'New Tab'} tab${tabsState.isTabSelected(tab.id) ? ', selected' : ''}`}
         tabindex={tab.id === tabsState.activeTabId ? 0 : -1}
         title={tab.title || tab.url || 'New Tab'}
+        data-tauri-drag-region="false"
         onclick={() => activateTab(tab.id)}
         onkeydown={(event) => handleTabKeydown(event, tab.id)}
         oncontextmenu={(event) => openContextMenu(event, tab.id)}
@@ -142,17 +224,27 @@
           type="button"
           aria-label={`Close ${tab.title || 'tab'}`}
           title="Close tab"
+          data-tauri-drag-region="false"
           onclick={(event) => closeTab(event, tab.id)}
         >
           <X size={14} strokeWidth={2.3} />
         </button>
       </div>
+
+      {#if tab.id === tabsState.activeTabId}
+        <button
+          class="new-tab-button"
+          type="button"
+          aria-label="Open new tab"
+          title="New tab"
+          data-tauri-drag-region="false"
+          onclick={openHomepageTab}
+        >
+          <Plus size={17} strokeWidth={2.35} />
+        </button>
+      {/if}
     {/each}
   </div>
-
-  <button class="new-tab-button" type="button" aria-label="Open new tab" title="New tab" onclick={openHomepageTab}>
-    <Plus size={17} strokeWidth={2.35} />
-  </button>
 </nav>
 
 {#if contextMenu && contextTab}
@@ -162,15 +254,30 @@
     tabindex="-1"
     style={`left: ${contextMenu.x}px; top: ${contextMenu.y}px;`}
   >
-    <button class="tab-menu__item" type="button" role="menuitem" onclick={() => requestReload(contextTab.id)}>
+    <button
+      class="tab-menu__item"
+      type="button"
+      role="menuitem"
+      onclick={() => requestReload(contextTab.id)}
+    >
       <RotateCw size={15} strokeWidth={2.25} />
       <span>Reload</span>
     </button>
-    <button class="tab-menu__item" type="button" role="menuitem" onclick={() => duplicateTab(contextTab.id)}>
+    <button
+      class="tab-menu__item"
+      type="button"
+      role="menuitem"
+      onclick={() => duplicateTab(contextTab.id)}
+    >
       <Copy size={15} strokeWidth={2.25} />
       <span>Duplicate Tab</span>
     </button>
-    <button class="tab-menu__item" type="button" role="menuitem" onclick={() => tabsState.closeTab(contextTab.id)}>
+    <button
+      class="tab-menu__item"
+      type="button"
+      role="menuitem"
+      onclick={() => tabsState.closeTab(contextTab.id)}
+    >
       <X size={15} strokeWidth={2.25} />
       <span>Close Tab</span>
     </button>
@@ -190,7 +297,7 @@
 <style>
   .tab-bar {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 42px;
+    grid-template-columns: minmax(0, 1fr);
     align-items: center;
     width: 100%;
     height: var(--chrome-tabbar-height);
@@ -202,6 +309,13 @@
       color-mix(in srgb, var(--color-surface) 88%, var(--color-background));
     border-bottom: 1px solid var(--color-border);
     user-select: none;
+  }
+
+  .tab-bar--embedded {
+    height: 100%;
+    min-height: 0;
+    background: transparent;
+    border-bottom: 0;
   }
 
   .tab-strip {
@@ -257,7 +371,11 @@
   .tab--active {
     color: var(--color-text-primary);
     background:
-      linear-gradient(180deg, color-mix(in srgb, var(--color-accent) 16%, transparent), transparent),
+      linear-gradient(
+        180deg,
+        color-mix(in srgb, var(--color-accent) 16%, transparent),
+        transparent
+      ),
       color-mix(in srgb, var(--color-surface-elevated) 92%, var(--color-accent));
     border-color: color-mix(in srgb, var(--color-accent) 46%, var(--color-border));
     box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.06);
@@ -265,6 +383,21 @@
 
   .tab--active::after {
     background: var(--color-accent);
+  }
+
+  .tab--selected {
+    border-color: color-mix(in srgb, var(--color-warning) 62%, var(--color-border));
+  }
+
+  .tab--selected::before {
+    position: absolute;
+    inset: 4px auto auto 8px;
+    width: 6px;
+    height: 6px;
+    content: '';
+    background: var(--color-warning);
+    border-radius: 999px;
+    box-shadow: 0 0 0 2px var(--color-surface-elevated);
   }
 
   .tab__icon,
@@ -335,7 +468,7 @@
   }
 
   .new-tab-button {
-    justify-self: end;
+    flex: 0 0 32px;
     width: 32px;
     height: 30px;
     min-width: 32px;
@@ -408,7 +541,11 @@
 
   :global(.app-shell[data-theme='light']) .tab--active {
     background:
-      linear-gradient(180deg, color-mix(in srgb, var(--color-accent) 10%, transparent), transparent),
+      linear-gradient(
+        180deg,
+        color-mix(in srgb, var(--color-accent) 10%, transparent),
+        transparent
+      ),
       var(--color-surface);
   }
 

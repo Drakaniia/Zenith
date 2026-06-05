@@ -17,9 +17,10 @@
   } from 'lucide-svelte';
   import { bookmarksState } from '../state/bookmarks.svelte';
   import { historyState } from '../state/history.svelte';
-  import { settingsState } from '../state/settings.svelte';
+  import { resolveHomepageUrl, settingsState } from '../state/settings.svelte';
   import { tabsState } from '../state/tabs.svelte';
   import { toastsState } from '../state/toasts.svelte';
+  import { BROWSER_HOME_URL } from '../utils/internalUrls';
   import { normalizeUrl, type HistoryEntry } from '../utils/tauri';
 
   type ChromePanel = 'bookmarks' | 'history' | 'downloads' | 'settings' | 'find';
@@ -59,9 +60,10 @@
 
   let activeTab = $derived(tabsState.activeTab);
   let activeUrl = $derived(activeTab?.url ?? '');
+  let activeDisplayUrl = $derived(activeUrl === BROWSER_HOME_URL ? '' : activeUrl);
   let activeTabId = $derived(activeTab?.id ?? null);
   let canBookmark = $derived(isBookmarkableUrl(activeUrl));
-  let addressIcon = $derived(iconKindForUrl(addressInput || activeUrl));
+  let addressIcon = $derived(iconKindForUrl(addressInput || activeDisplayUrl));
 
   $effect(() => {
     const tabId = activeTabId;
@@ -69,14 +71,14 @@
 
     if (tabId !== lastActiveTabId) {
       lastActiveTabId = tabId;
-      addressInput = url;
+      addressInput = url === BROWSER_HOME_URL ? '' : url;
       validationError = '';
       isSuggestionsOpen = false;
       return;
     }
 
     if (!isFocused) {
-      addressInput = url;
+      addressInput = url === BROWSER_HOME_URL ? '' : url;
       validationError = '';
     }
   });
@@ -164,7 +166,7 @@
 
   function prepareAddressFocus(): void {
     isFocused = true;
-    addressInput = activeUrl;
+    addressInput = activeUrl === BROWSER_HOME_URL ? '' : activeUrl;
     validationError = '';
   }
 
@@ -184,6 +186,22 @@
   function handleAddressKeydown(event: KeyboardEvent): void {
     if (event.key === 'Enter') {
       event.preventDefault();
+
+      if (event.ctrlKey && event.shiftKey) {
+        toastsState.error('Opening the address in a new window is not implemented.');
+        return;
+      }
+
+      if (event.ctrlKey) {
+        void submitNavigation(siteNameShortcutUrl(addressInput));
+        return;
+      }
+
+      if (event.altKey) {
+        void submitNavigationInNewTab(addressInput);
+        return;
+      }
+
       void submitNavigation(addressInput);
       return;
     }
@@ -193,6 +211,30 @@
       validationError = '';
       isSuggestionsOpen = false;
       addressElement?.blur();
+    }
+  }
+
+  async function submitNavigationInNewTab(rawInput: string): Promise<void> {
+    const rawUrl = rawInput.trim();
+
+    if (!rawUrl) {
+      validationError = 'Enter a URL or search query';
+      return;
+    }
+
+    isSubmitting = true;
+    validationError = '';
+
+    try {
+      const normalizedUrl = await normalizeUrl(rawUrl);
+      tabsState.openTab(normalizedUrl, normalizedUrl);
+      addressInput = normalizedUrl;
+      isSuggestionsOpen = false;
+      addressElement?.blur();
+    } catch (error) {
+      validationError = errorMessage(error);
+    } finally {
+      isSubmitting = false;
     }
   }
 
@@ -263,7 +305,7 @@
   }
 
   function openNewTab(): void {
-    tabsState.openTab(settingsState.settings.homepage.trim() || 'https://yandex.com');
+    tabsState.openTab(resolveHomepageUrl(settingsState.settings.homepage));
     isMenuOpen = false;
   }
 
@@ -299,6 +341,22 @@
     }
 
     return 'search';
+  }
+
+  function siteNameShortcutUrl(rawInput: string): string {
+    const trimmed = rawInput.trim();
+
+    if (!trimmed || trimmed.includes('://') || /\s/.test(trimmed)) {
+      return trimmed;
+    }
+
+    const siteName = trimmed.replace(/^www\./i, '').replace(/\.com$/i, '');
+
+    if (!siteName) {
+      return trimmed;
+    }
+
+    return `https://www.${siteName}.com`;
   }
 
   function errorMessage(error: unknown): string {

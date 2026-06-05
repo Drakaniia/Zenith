@@ -1,78 +1,87 @@
 <script lang="ts">
-  import { getCurrentWindow } from '@tauri-apps/api/window';
+  import { onMount } from 'svelte';
   import { Maximize2, Minimize2, Minus, X } from 'lucide-svelte';
+  import TabBar from './TabBar.svelte';
   import { toastsState } from '../state/toasts.svelte';
-
-  interface Props {
-    title: string;
-  }
-
-  let { title }: Props = $props();
+  import {
+    closeWindow as closeAppWindow,
+    getWindowState,
+    isTauriRuntime,
+    maximizeWindow as maximizeAppWindow,
+    minimizeWindow as minimizeAppWindow,
+    restoreWindow as restoreAppWindow,
+    type WindowState
+  } from '../utils/tauri';
 
   const controlsSide = /Mac|iPhone|iPad|iPod/.test(navigator.userAgent) ? 'left' : 'right';
+  const nativeRuntime = isTauriRuntime();
 
   let isMaximized = $state(false);
-  let displayTitle = $derived(title.trim() || 'Rust Browser');
 
-  $effect(() => {
-    void refreshMaximizedState();
+  onMount(() => {
+    void refreshWindowState();
   });
 
-  async function refreshMaximizedState(): Promise<void> {
-    const appWindow = getAppWindow();
-    if (!appWindow) {
+  async function refreshWindowState(): Promise<void> {
+    if (!nativeRuntime) {
       isMaximized = false;
       return;
     }
 
     try {
-      isMaximized = await appWindow.isMaximized();
+      applyWindowState(await getWindowState());
     } catch {
       isMaximized = false;
     }
   }
 
   async function minimizeWindow(): Promise<void> {
-    const appWindow = getAppWindow();
-    if (!appWindow) {
+    if (!nativeRuntime) {
       showUnavailableWindowApi('Minimize');
       return;
     }
 
     try {
-      await appWindow.minimize();
+      applyWindowState(await minimizeAppWindow());
     } catch (error) {
       showWindowError('Minimize', error);
     }
   }
 
   async function toggleMaximizeWindow(): Promise<void> {
-    const appWindow = getAppWindow();
-    if (!appWindow) {
+    const action = isMaximized ? 'Restore' : 'Maximize';
+
+    if (!nativeRuntime) {
       showUnavailableWindowApi(isMaximized ? 'Restore' : 'Maximize');
       return;
     }
 
     try {
-      await appWindow.toggleMaximize();
-      await refreshMaximizedState();
+      applyWindowState(await (isMaximized ? restoreAppWindow() : maximizeAppWindow()));
     } catch (error) {
-      showWindowError(isMaximized ? 'Restore' : 'Maximize', error);
+      showWindowError(action, error);
     }
   }
 
   async function closeWindow(): Promise<void> {
-    const appWindow = getAppWindow();
-    if (!appWindow) {
+    if (!nativeRuntime) {
       showUnavailableWindowApi('Close');
       return;
     }
 
     try {
-      await appWindow.close();
+      await closeAppWindow();
     } catch (error) {
       showWindowError('Close', error);
     }
+  }
+
+  function refreshWindowStateFromEvent(): void {
+    void refreshWindowState();
+  }
+
+  function applyWindowState(state: WindowState): void {
+    isMaximized = state.is_maximized;
   }
 
   function showWindowError(action: string, error: unknown): void {
@@ -83,15 +92,9 @@
   function showUnavailableWindowApi(action: string): void {
     toastsState.error(`${action} window failed: Tauri window API is unavailable.`);
   }
-
-  function getAppWindow(): ReturnType<typeof getCurrentWindow> | null {
-    try {
-      return getCurrentWindow();
-    } catch {
-      return null;
-    }
-  }
 </script>
+
+<svelte:window onresize={refreshWindowStateFromEvent} onfocus={refreshWindowStateFromEvent} />
 
 <header class="title-bar" data-controls-side={controlsSide}>
   {#if controlsSide === 'left'}
@@ -130,9 +133,8 @@
     </div>
   {/if}
 
-  <div class="title-region" data-tauri-drag-region>
-    <span class="app-mark" aria-hidden="true"></span>
-    <span class="title-text">{displayTitle}</span>
+  <div class="tab-region">
+    <TabBar embedded />
   </div>
 
   {#if controlsSide === 'right'}
@@ -175,11 +177,11 @@
 <style>
   .title-bar {
     display: grid;
-    grid-template-columns: minmax(96px, auto) minmax(0, 1fr) minmax(96px, auto);
+    grid-template-columns: minmax(0, 1fr) minmax(96px, auto);
     align-items: center;
     width: 100%;
-    height: 36px;
-    min-height: 36px;
+    height: var(--chrome-tabbar-height);
+    min-height: var(--chrome-tabbar-height);
     user-select: none;
     color: var(--color-text-primary);
     background:
@@ -194,56 +196,27 @@
     padding-left: 8px;
   }
 
-  .title-bar[data-controls-side='left'] .title-region {
-    grid-column: 2 / 4;
-    padding-right: 104px;
+  .title-bar[data-controls-side='left'] {
+    grid-template-columns: minmax(96px, auto) minmax(0, 1fr);
   }
 
-  .title-bar[data-controls-side='right'] .title-region {
-    grid-column: 1 / 3;
-    padding-left: 104px;
+  .title-bar[data-controls-side='left'] .tab-region {
+    grid-column: 2;
+  }
+
+  .title-bar[data-controls-side='right'] .tab-region {
+    grid-column: 1;
   }
 
   .title-bar[data-controls-side='right'] .window-controls {
-    grid-column: 3;
+    grid-column: 2;
     justify-content: end;
     padding-right: 4px;
   }
 
-  .title-region {
-    display: grid;
-    grid-template-columns: 12px minmax(0, auto);
-    gap: 9px;
-    align-items: center;
-    justify-content: center;
+  .tab-region {
     min-width: 0;
     height: 100%;
-    padding-inline: 12px;
-    cursor: default;
-  }
-
-  .app-mark {
-    width: 10px;
-    height: 10px;
-    border: 1px solid color-mix(in srgb, var(--color-accent) 74%, white);
-    border-radius: 3px;
-    background:
-      linear-gradient(135deg, color-mix(in srgb, var(--color-accent) 92%, white), transparent 58%),
-      var(--color-surface-elevated);
-    box-shadow: 0 0 16px color-mix(in srgb, var(--color-accent) 38%, transparent);
-  }
-
-  .title-text {
-    min-width: 0;
-    max-width: min(58vw, 680px);
-    overflow: hidden;
-    color: var(--color-text-secondary);
-    font-size: 12px;
-    font-weight: 600;
-    letter-spacing: 0;
-    line-height: 1;
-    text-overflow: ellipsis;
-    white-space: nowrap;
   }
 
   .window-controls {

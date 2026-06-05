@@ -11,13 +11,10 @@
     ShieldCheck,
     Trash2
   } from 'lucide-svelte';
-  import {
-    settingsState,
-    type SearchEngine,
-    type ThemePreference
-  } from '../state/settings.svelte';
+  import { settingsState, type SearchEngine, type ThemePreference } from '../state/settings.svelte';
   import { historyState } from '../state/history.svelte';
   import { toastsState } from '../state/toasts.svelte';
+  import { BROWSER_HOME_URL } from '../utils/internalUrls';
   import { clearAllBrowsingData, getAppVersion, isTauriRuntime } from '../utils/tauri';
 
   const AUTO_SAVE_DELAY_MS = 450;
@@ -112,6 +109,7 @@
   function handleHomepageBlur(): void {
     homepageDraft = homepageDraft.trim();
     settingsState.update({ homepage: homepageDraft });
+    homepageDraft = settingsState.settings.homepage;
   }
 
   function setTheme(value: ThemePreference): void {
@@ -188,6 +186,10 @@
       return 'Homepage cannot be empty';
     }
 
+    if (trimmed === BROWSER_HOME_URL) {
+      return '';
+    }
+
     try {
       const url = new URL(trimmed);
       if (url.protocol === 'http:' || url.protocol === 'https:') {
@@ -197,7 +199,7 @@
       return 'Homepage must be a valid URL';
     }
 
-    return 'Homepage must use http or https';
+    return 'Homepage must use http, https, or browser://home';
   }
 
   function searchEngineFromValue(value: string): SearchEngine {
@@ -269,7 +271,7 @@
             <span class="setting-detail">Used for address bar searches</span>
           </span>
           <select id="search-engine" value={searchEngine} onchange={handleSearchEngineChange}>
-            {#each SEARCH_ENGINES as option}
+            {#each SEARCH_ENGINES as option (option.value)}
               <option value={option.value}>{option.label}</option>
             {/each}
           </select>
@@ -278,13 +280,13 @@
         <label class="setting-row setting-row--stack" for="homepage-url">
           <span class="setting-copy">
             <span class="setting-title">Homepage</span>
-            <span class="setting-detail">Opened for new tabs from the browser menu</span>
+            <span class="setting-detail">Opened for new tabs and app startup</span>
           </span>
           <span class="homepage-control">
             <Home size={16} strokeWidth={2.25} />
             <input
               id="homepage-url"
-              type="url"
+              type="text"
               inputmode="url"
               value={homepageDraft}
               autocomplete="off"
@@ -318,7 +320,7 @@
             <span class="setting-detail">Applies to trusted browser chrome</span>
           </span>
           <div class="segmented-control" role="group" aria-label="Theme">
-            {#each THEMES as option}
+            {#each THEMES as option (option.value)}
               <button
                 class:segmented-control__item--active={theme === option.value}
                 class="segmented-control__item"
@@ -430,7 +432,11 @@
       </div>
     </section>
 
-    <section class="settings-section settings-section--last" id="about" aria-labelledby="about-title">
+    <section
+      class="settings-section settings-section--last"
+      id="about"
+      aria-labelledby="about-title"
+    >
       <div class="section-heading">
         <BadgeInfo size={18} strokeWidth={2.25} />
         <div>
@@ -476,8 +482,7 @@
     min-height: 0;
     color: var(--color-text-primary);
     background:
-      linear-gradient(180deg, rgb(255 255 255 / 0.035), transparent 260px),
-      var(--color-background);
+      linear-gradient(180deg, rgb(255 255 255 / 0.035), transparent 260px), var(--color-background);
   }
 
   .settings-rail {
@@ -928,8 +933,7 @@
 
   :global(.app-shell[data-theme='light']) .settings-page {
     background:
-      linear-gradient(180deg, rgb(255 255 255 / 0.82), transparent 260px),
-      var(--color-background);
+      linear-gradient(180deg, rgb(255 255 255 / 0.82), transparent 260px), var(--color-background);
   }
 
   :global(.app-shell[data-theme='light']) .settings-rail {

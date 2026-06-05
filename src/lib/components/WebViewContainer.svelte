@@ -15,6 +15,7 @@
     forwardActive: () => Promise<void>;
     findActive: (request: WebViewFindRequest) => Promise<TauriFindResult>;
     clearFindActive: () => Promise<void>;
+    setActiveZoom: (scaleFactor: number) => Promise<void>;
   }
 </script>
 
@@ -40,6 +41,7 @@
     navigateBrowserWebview,
     reloadBrowserWebview,
     setBrowserWebviewBounds,
+    setBrowserWebviewZoom,
     showBrowserWebview,
     type BrowserWebviewLoadEvent,
     type BrowserWebviewNavigationEvent,
@@ -50,6 +52,8 @@
 
   interface Props {
     controller?: WebViewController | null;
+    zoomScale?: number;
+    incognito?: boolean;
   }
 
   const EMPTY_FIND_RESULT: FindResult = {
@@ -57,7 +61,11 @@
     total_matches: 0
   };
 
-  let { controller = $bindable<WebViewController | null>(null) }: Props = $props();
+  let {
+    controller = $bindable<WebViewController | null>(null),
+    zoomScale = 1,
+    incognito = false
+  }: Props = $props();
 
   const nativeRuntime = isTauriRuntime();
   const createdLabels = new Set<string>();
@@ -79,7 +87,8 @@
       backActive,
       forwardActive,
       findActive,
-      clearFindActive
+      clearFindActive,
+      setActiveZoom
     };
 
     return () => {
@@ -172,8 +181,9 @@
     const activeTabId = tabsState.activeTabId;
     const bounds = lastBounds;
     const javascriptEnabled = settingsState.settings.javascript_enabled;
+    const incognitoMode = incognito;
 
-    void syncWebviews(tabs, activeTabId, bounds, javascriptEnabled);
+    void syncWebviews(tabs, activeTabId, bounds, javascriptEnabled, incognitoMode);
   });
 
   $effect(() => {
@@ -197,6 +207,19 @@
         lastReloadRequests.delete(tabId);
       }
     }
+  });
+
+  $effect(() => {
+    const activeTabId = tabsState.activeTabId;
+    const scaleFactor = zoomScale;
+
+    if (!activeTabId) {
+      return;
+    }
+
+    void setActiveZoom(scaleFactor).catch((error) => {
+      toastsState.error(`Failed to zoom page: ${errorMessage(error)}`);
+    });
   });
 
   async function navigateActive(url: string): Promise<void> {
@@ -269,11 +292,26 @@
     await clearBrowserWebviewFind(activeTab.webviewLabel);
   }
 
+  async function setActiveZoom(scaleFactor: number): Promise<void> {
+    const activeTab = tabsState.activeTab;
+
+    if (!activeTab || activeTab.isInternal || !nativeRuntime) {
+      return;
+    }
+
+    if (!createdLabels.has(activeTab.webviewLabel)) {
+      return;
+    }
+
+    await setBrowserWebviewZoom(activeTab.webviewLabel, scaleFactor);
+  }
+
   async function syncWebviews(
     tabs: BrowserTab[],
     activeTabId: string | null,
     bounds: WebviewBounds | null,
-    javascriptEnabled: boolean
+    javascriptEnabled: boolean,
+    incognitoMode: boolean
   ): Promise<void> {
     const version = ++syncVersion;
     const remoteTabs = tabs.filter((tab) => !tab.isInternal && isBrowserWebviewUrl(tab.url));
@@ -294,7 +332,7 @@
         return;
       }
 
-      await ensureWebview(tab, bounds, javascriptEnabled);
+      await ensureWebview(tab, bounds, javascriptEnabled, incognitoMode);
     }
 
     if (version !== syncVersion) {
@@ -313,7 +351,8 @@
   async function ensureWebview(
     tab: BrowserTab,
     bounds: WebviewBounds,
-    javascriptEnabled: boolean
+    javascriptEnabled: boolean,
+    incognitoMode: boolean
   ): Promise<void> {
     if (createdLabels.has(tab.webviewLabel) || creatingLabels.has(tab.webviewLabel)) {
       return;
@@ -329,7 +368,8 @@
         label: tab.webviewLabel,
         url: tab.url,
         bounds,
-        javascriptEnabled
+        javascriptEnabled,
+        incognito: incognitoMode
       });
 
       if (!isTabOpen(tab.id)) {
@@ -338,6 +378,7 @@
       }
 
       createdLabels.add(tab.webviewLabel);
+      await setBrowserWebviewZoom(tab.webviewLabel, zoomScale);
 
       const pendingUrl = pendingNavigationUrls.get(tab.webviewLabel);
       if (pendingUrl && pendingUrl !== tab.url) {
@@ -476,7 +517,7 @@
       is_loading: false
     });
 
-    if (addHistoryEntry) {
+    if (addHistoryEntry && !incognito) {
       await historyState.addEntry(title, url);
     }
   }
