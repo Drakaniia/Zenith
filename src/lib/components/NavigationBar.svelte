@@ -31,9 +31,18 @@
     onBack: () => Promise<void>;
     onForward: () => Promise<void>;
     onOpenPanel: (panel: ChromePanel) => void;
+    focusAddressRequest?: number;
   }
 
-  let { onNavigate, onReload, onStop, onBack, onForward, onOpenPanel }: Props = $props();
+  let {
+    onNavigate,
+    onReload,
+    onStop,
+    onBack,
+    onForward,
+    onOpenPanel,
+    focusAddressRequest = 0
+  }: Props = $props();
 
   let addressInput = $state('');
   let addressElement: HTMLInputElement | undefined = $state();
@@ -45,19 +54,42 @@
   let isBookmarkChecked = $state(false);
   let isBookmarkBusy = $state(false);
   let isMenuOpen = $state(false);
+  let lastFocusAddressRequest = 0;
+  let lastActiveTabId: string | null = null;
 
   let activeTab = $derived(tabsState.activeTab);
   let activeUrl = $derived(activeTab?.url ?? '');
+  let activeTabId = $derived(activeTab?.id ?? null);
   let canBookmark = $derived(isBookmarkableUrl(activeUrl));
   let addressIcon = $derived(iconKindForUrl(addressInput || activeUrl));
 
   $effect(() => {
+    const tabId = activeTabId;
     const url = activeUrl;
+
+    if (tabId !== lastActiveTabId) {
+      lastActiveTabId = tabId;
+      addressInput = url;
+      validationError = '';
+      isSuggestionsOpen = false;
+      return;
+    }
 
     if (!isFocused) {
       addressInput = url;
       validationError = '';
     }
+  });
+
+  $effect(() => {
+    const request = focusAddressRequest;
+
+    if (request <= 0 || request === lastFocusAddressRequest) {
+      return;
+    }
+
+    lastFocusAddressRequest = request;
+    focusAddressInput();
   });
 
   $effect(() => {
@@ -114,13 +146,26 @@
   });
 
   function handleAddressFocus(): void {
-    isFocused = true;
-    addressInput = activeUrl;
-    validationError = '';
+    prepareAddressFocus();
 
     window.setTimeout(() => {
       addressElement?.select();
     }, 0);
+  }
+
+  function focusAddressInput(): void {
+    prepareAddressFocus();
+
+    window.setTimeout(() => {
+      addressElement?.focus();
+      addressElement?.select();
+    }, 0);
+  }
+
+  function prepareAddressFocus(): void {
+    isFocused = true;
+    addressInput = activeUrl;
+    validationError = '';
   }
 
   function handleAddressBlur(): void {
