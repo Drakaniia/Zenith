@@ -16,6 +16,8 @@
     findActive: (request: WebViewFindRequest) => Promise<TauriFindResult>;
     clearFindActive: () => Promise<void>;
     setActiveZoom: (scaleFactor: number) => Promise<void>;
+    focusActive: () => Promise<void>;
+    printActive: () => Promise<void>;
   }
 </script>
 
@@ -36,6 +38,7 @@
     evalBrowserWebview,
     fetchPageMetadata,
     findInBrowserWebview,
+    focusBrowserWebview,
     hideBrowserWebview,
     isTauriRuntime,
     navigateBrowserWebview,
@@ -88,7 +91,9 @@
       forwardActive,
       findActive,
       clearFindActive,
-      setActiveZoom
+      setActiveZoom,
+      focusActive,
+      printActive
     };
 
     return () => {
@@ -304,6 +309,34 @@
     }
 
     await setBrowserWebviewZoom(activeTab.webviewLabel, scaleFactor);
+  }
+
+  async function focusActive(): Promise<void> {
+    const activeTab = tabsState.activeTab;
+
+    if (!activeTab || activeTab.isInternal || !nativeRuntime) {
+      return;
+    }
+
+    if (!createdLabels.has(activeTab.webviewLabel)) {
+      return;
+    }
+
+    await focusBrowserWebview(activeTab.webviewLabel);
+  }
+
+  async function printActive(): Promise<void> {
+    const activeTab = tabsState.activeTab;
+
+    if (!activeTab || activeTab.isInternal || !nativeRuntime) {
+      return;
+    }
+
+    if (!createdLabels.has(activeTab.webviewLabel)) {
+      return;
+    }
+
+    await evalBrowserWebview(activeTab.webviewLabel, 'window.print();');
   }
 
   async function syncWebviews(
