@@ -1,17 +1,20 @@
 # Rust Browser
 
-Rust Browser is a Tauri 2 desktop browser shell. The package and Rust crate are named
-`rust-browser`; the product name in Tauri config is `Rust Browser`.
+Rust Browser is a desktop browser shell with a Svelte 5 browser chrome. The package and Rust crate
+are named `rust-browser`; the app now has an Electron runtime alongside the existing Tauri 2
+runtime.
 
-The frontend uses Svelte 5, TypeScript, and Vite. The trusted browser chrome runs in the main Tauri
-webview labeled `main`; remote pages are isolated in child webviews managed by Rust.
+The frontend uses Svelte 5, TypeScript, and Vite. In Electron, the trusted browser chrome runs in a
+frameless `BrowserWindow` and remote pages are isolated in Electron `<webview>` elements. In Tauri,
+the trusted browser chrome runs in the main Tauri webview labeled `main`; remote pages are isolated
+in child webviews managed by Rust.
 
 ## Prerequisites
 
 - Node.js 20 or newer.
 - pnpm. This repo declares `packageManager: pnpm@10.0.0`.
 - Rust stable compatible with the crate's `rust-version = "1.77.2"` in
-  `src-tauri/Cargo.toml`.
+  `src-tauri/Cargo.toml` if you are building or checking the Tauri runtime.
 - Windows: Microsoft Edge WebView2 Runtime.
 - Linux: WebKitGTK and the other system libraries required by Tauri 2 for Linux builds. Follow
   Tauri's distro-specific Linux prerequisites; on Debian/Ubuntu this includes
@@ -51,9 +54,24 @@ cargo test
 cargo check
 ```
 
-Available root scripts are `pnpm dev`, `pnpm build`, `pnpm preview`, `pnpm check`, `pnpm tauri`,
-`pnpm tauri:dev`, `pnpm tauri:build`, and `pnpm format`. There is no `pnpm test` or `pnpm lint`
-script.
+Run Electron development mode:
+
+```powershell
+pnpm electron:dev
+```
+
+`pnpm electron:dev` starts Vite at `http://localhost:1420`, waits for that server, and then launches
+Electron through `electron/main.mjs`.
+
+Electron backend tests:
+
+```powershell
+pnpm electron:test
+```
+
+Available root scripts are `pnpm dev`, `pnpm build`, `pnpm preview`, `pnpm check`,
+`pnpm electron:dev`, `pnpm electron:start`, `pnpm electron:test`, `pnpm tauri`, `pnpm tauri:dev`,
+`pnpm tauri:build`, and `pnpm format`. There is no `pnpm test` or `pnpm lint` script.
 
 ## Builds
 
@@ -63,28 +81,39 @@ Create a Tauri bundle:
 pnpm tauri:build
 ```
 
+Start Electron from a production renderer build:
+
+```powershell
+pnpm electron:start
+```
+
 Platform bundles must be built and tested on their target operating system or on CI runners for that
 operating system. Do not treat a bundle produced on one OS as verification for another OS.
 
 ## Architecture
 
-- Trusted Svelte chrome: the application UI runs in the main Tauri webview labeled `main`. The
-  default capability file scopes Tauri permissions to that trusted webview.
+- Trusted Svelte chrome: the application UI runs in the Electron `BrowserWindow` or the main Tauri
+  webview labeled `main`. The Tauri default capability file scopes Tauri permissions to that trusted
+  webview.
+- Electron bridge: `electron/preload.cjs` exposes `window.ampuiElectron`; renderer code calls it
+  through `src/bridge/*` adapters. Electron command handlers live under `electron/backend`.
 - Untrusted remote pages: browser tabs are child webviews created by Rust commands in
-  `src-tauri/src/commands/webviews.rs`. Browser child webview labels use `tab_` followed by 32
-  lowercase hex characters, and remote page URLs are limited to `http` and `https`.
+  `src-tauri/src/commands/webviews.rs` for Tauri and Electron `<webview>` elements in
+  `src/features/tabs/components/WebviewHost.svelte` for Electron. Browser child webview labels use
+  `tab_` followed by 32 lowercase hex characters, and remote page URLs are limited to `http` and
+  `https`.
 - Rust command layer: shared serializable payloads live in `src-tauri/src/models.rs`. Command modules
   are exported from `src-tauri/src/commands/mod.rs`, and command registration is centralized in
   `src-tauri/src/lib.rs` inside `tauri::generate_handler!`.
 - JSON persistence: settings, bookmarks, and history are stored as `settings.json`,
-  `bookmarks.json`, and `history.json` under Tauri `app_data_dir()`. URL normalization defaults
-  search queries to Yandex; setting `default_search_engine` to `google` switches search URLs to
-  Google.
+  `bookmarks.json`, and `history.json` under Electron `app.getPath('userData')` or Tauri
+  `app_data_dir()`. URL normalization defaults search queries to Yandex; setting
+  `default_search_engine` to `google` switches search URLs to Google.
 - Download event flow: downloads are in-memory process state in
   `src-tauri/src/commands/downloads.rs`. Files are written to the system Downloads directory, and
   progress updates are emitted to the frontend as `download-progress`.
 
-The main Tauri window has a minimum size of 800x600.
+The main desktop window has a minimum size of 800x600.
 
 ## Adding a Command
 
