@@ -3,6 +3,7 @@ import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { open as openExternal } from '@tauri-apps/plugin-shell';
 import type { WindowState } from '../../shared/types/backend';
 import { invokeCommand } from '../invoke';
+import { isElectronRuntime } from '../runtime';
 
 export interface ShellWindowOptions {
   label: string;
@@ -32,6 +33,10 @@ export function closeWindow(): Promise<void> {
 }
 
 export async function isCurrentWindowFullscreen(): Promise<boolean> {
+  if (isElectronRuntime()) {
+    return invokeCommand<boolean>('is_window_fullscreen');
+  }
+
   return getCurrentWindow().isFullscreen();
 }
 
@@ -40,14 +45,27 @@ export async function isCurrentWindowFocused(): Promise<boolean> {
 }
 
 export function setCurrentWindowFullscreen(fullscreen: boolean): Promise<void> {
+  if (isElectronRuntime()) {
+    return invokeCommand<void>('set_window_fullscreen', { fullscreen });
+  }
+
   return getCurrentWindow().setFullscreen(fullscreen);
 }
 
 export function hideCurrentWindow(): Promise<void> {
+  if (isElectronRuntime()) {
+    return invokeCommand<void>('hide_window');
+  }
+
   return getCurrentWindow().hide();
 }
 
 export async function closeAllShellWindows(): Promise<void> {
+  if (isElectronRuntime()) {
+    await invokeCommand<void>('close_all_shell_windows');
+    return;
+  }
+
   const windows = await getAllWindows();
 
   if (windows.length === 0) {
@@ -59,6 +77,11 @@ export async function closeAllShellWindows(): Promise<void> {
 }
 
 export async function createShellWindow(options: ShellWindowOptions): Promise<void> {
+  if (isElectronRuntime()) {
+    await invokeCommand<void>('create_shell_window', { options });
+    return;
+  }
+
   const shellWindow = new WebviewWindow(options.label, {
     url: options.url,
     title: options.title,
@@ -84,5 +107,9 @@ export async function createShellWindow(options: ShellWindowOptions): Promise<vo
 }
 
 export function openExternalUrl(url: string): Promise<void> {
+  if (isElectronRuntime()) {
+    return invokeCommand<void>('open_external_url', { url });
+  }
+
   return openExternal(url);
 }
