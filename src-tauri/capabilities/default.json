@@ -23,6 +23,8 @@
     "core:webview:allow-webview-show",
     "core:webview:allow-webview-position",
     "core:webview:allow-webview-size",
+    "devtools:default",
+    "devtools-app:default",
     "shell:allow-open",
     "dialog:default"
   ]

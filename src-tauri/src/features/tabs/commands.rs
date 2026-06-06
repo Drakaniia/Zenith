@@ -365,7 +365,7 @@ fn install_browser_shortcut_bridge(
     shell_label: &str,
     label: &str,
 ) -> Result<(), String> {
-    disable_browser_accelerator_keys(webview, label)?;
+    configure_browser_webview_settings(webview, label)?;
     install_browser_accelerator_handler(app, webview, shell_label, label)
 }
 
@@ -380,7 +380,7 @@ fn install_browser_shortcut_bridge(
 }
 
 #[cfg(target_os = "windows")]
-fn disable_browser_accelerator_keys(webview: &Webview, label: &str) -> Result<(), String> {
+fn configure_browser_webview_settings(webview: &Webview, label: &str) -> Result<(), String> {
     use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Settings3;
     use windows_core::Interface;
 
@@ -399,17 +399,21 @@ fn disable_browser_accelerator_keys(webview: &Webview, label: &str) -> Result<()
                         .controller()
                         .CoreWebView2()
                         .map_err(|error| {
-                            format!("disable_browser_accelerator_keys({label}): {error}")
+                            format!("configure_browser_webview_settings({label}): {error}")
                         })?;
                     let settings = core.Settings().map_err(|error| {
-                        format!("disable_browser_accelerator_keys({label}): {error}")
+                        format!("configure_browser_webview_settings({label}): {error}")
+                    })?;
+
+                    settings.SetAreDevToolsEnabled(false).map_err(|error| {
+                        format!("configure_browser_webview_settings({label}): {error}")
                     })?;
 
                     match settings.cast::<ICoreWebView2Settings3>() {
                         Ok(settings) => settings
                             .SetAreBrowserAcceleratorKeysEnabled(false)
                             .map_err(|error| {
-                                format!("disable_browser_accelerator_keys({label}): {error}")
+                                format!("configure_browser_webview_settings({label}): {error}")
                             }),
                         Err(_) => Ok(()),
                     }
@@ -419,13 +423,13 @@ fn disable_browser_accelerator_keys(webview: &Webview, label: &str) -> Result<()
             let _ = sender.send(result);
         })
         .map_err(|error| {
-            format!("disable_browser_accelerator_keys({label_for_dispatch}): {error}")
+            format!("configure_browser_webview_settings({label_for_dispatch}): {error}")
         })?;
 
     receiver
         .recv_timeout(FIND_CALLBACK_TIMEOUT)
         .map_err(|error| {
-            format!("disable_browser_accelerator_keys({label_for_dispatch}): {error}")
+            format!("configure_browser_webview_settings({label_for_dispatch}): {error}")
         })?
 }
 
