@@ -19,6 +19,7 @@
     setActiveZoom: (scaleFactor: number) => Promise<void>;
     focusActive: () => Promise<void>;
     printActive: () => Promise<void>;
+    openDevtoolsActive: () => Promise<boolean>;
   }
 </script>
 
@@ -39,6 +40,7 @@
     setBrowserWebviewZoom,
     showBrowserWebview
   } from '../../../bridge/commands/tabs';
+  import { toggleNativeDevtools } from '../../../bridge/commands/devtools';
   import { fetchPageMetadata } from '../../../bridge/commands/navigation';
   import { listenBrowserWebviewEvents } from '../../../bridge/events/browser-webviews';
   import { isDesktopRuntime, isElectronRuntime, isTauriRuntime } from '../../../bridge/runtime';
@@ -85,6 +87,7 @@
     executeJavaScript?: <T = unknown>(script: string) => Promise<T>;
     findInPage?: (text: string, options?: { forward?: boolean; matchCase?: boolean }) => number;
     stopFindInPage?: (action?: 'clearSelection' | 'keepSelection' | 'activateSelection') => void;
+    openDevTools?: () => void;
     getURL?: () => string;
     getTitle?: () => string;
   };
@@ -124,7 +127,8 @@
       clearFindActive,
       setActiveZoom,
       focusActive,
-      printActive
+      printActive,
+      openDevtoolsActive
     };
 
     return () => {
@@ -396,6 +400,32 @@
     }
 
     await evalBrowserWebview(activeTab.webviewLabel, 'window.print();');
+  }
+
+  async function openDevtoolsActive(): Promise<boolean> {
+    const activeTab = tabsState.activeTab;
+
+    if (!activeTab || activeTab.isInternal || !nativeRuntime) {
+      return false;
+    }
+
+    if (electronRuntime) {
+      const webview = electronWebviews.get(activeTab.webviewLabel);
+
+      if (!webview?.openDevTools) {
+        return false;
+      }
+
+      webview.openDevTools();
+      return true;
+    }
+
+    if (!tauriRuntime || !createdLabels.has(activeTab.webviewLabel)) {
+      return false;
+    }
+
+    await toggleNativeDevtools(activeTab.webviewLabel);
+    return true;
   }
 
   async function syncWebviews(

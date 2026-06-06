@@ -6,6 +6,7 @@ macro_rules! generate_ampui_handler {
             $crate::features::bookmarks::commands::save_bookmark,
             $crate::features::bookmarks::commands::delete_bookmark,
             $crate::features::bookmarks::commands::is_bookmarked,
+            $crate::features::devtools::commands::toggle_devtools,
             $crate::features::downloads::commands::get_downloads,
             $crate::features::downloads::commands::start_download,
             $crate::features::downloads::commands::cancel_download,

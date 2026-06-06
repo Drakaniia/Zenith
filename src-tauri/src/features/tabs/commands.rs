@@ -405,10 +405,6 @@ fn configure_browser_webview_settings(webview: &Webview, label: &str) -> Result<
                         format!("configure_browser_webview_settings({label}): {error}")
                     })?;
 
-                    settings.SetAreDevToolsEnabled(false).map_err(|error| {
-                        format!("configure_browser_webview_settings({label}): {error}")
-                    })?;
-
                     match settings.cast::<ICoreWebView2Settings3>() {
                         Ok(settings) => settings
                             .SetAreBrowserAcceleratorKeysEnabled(false)

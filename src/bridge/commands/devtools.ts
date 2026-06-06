@@ -1,13 +1,12 @@
-import { invoke } from '@tauri-apps/api/core';
 import { invokeCommand } from '../invoke';
 import { isElectronRuntime } from '../runtime';
 
-export function toggleNativeDevtools(): Promise<void> {
+export function toggleNativeDevtools(label?: string): Promise<void> {
+  const args = label ? { label } : undefined;
+
   if (isElectronRuntime()) {
-    return invokeCommand<void>('toggle_devtools');
+    return invokeCommand<void>('toggle_devtools', args);
   }
 
-  return invoke<void>('plugin:devtools-app|toggle');
+  return invokeCommand<void>('toggle_devtools', args);
 }
-
-export const toggleCrabNebulaDevtools = toggleNativeDevtools;

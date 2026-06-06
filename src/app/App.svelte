@@ -1070,6 +1070,12 @@
     }
 
     try {
+      const openedPageDevtools = await webViewController?.openDevtoolsActive();
+
+      if (openedPageDevtools) {
+        return;
+      }
+
       await toggleNativeDevtools();
     } catch (error) {
       toastsState.error(`Failed to toggle developer tools: ${errorMessage(error)}`);
