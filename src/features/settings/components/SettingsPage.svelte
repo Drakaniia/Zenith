@@ -11,7 +11,7 @@
     ShieldCheck,
     Trash2
   } from 'lucide-svelte';
-  import { clearAllBrowsingData, getAppVersion, isTauriRuntime } from '../../../bridge/runtime';
+  import { clearAllBrowsingData, getAppVersion, isDesktopRuntime } from '../../../bridge/runtime';
   import { BROWSER_HOME_URL } from '../../../shared/utils/internal-urls';
   import { toastsState } from '../../../shell/state/toasts.svelte';
   import { historyState } from '../../history/state/history.svelte';
@@ -27,7 +27,7 @@
     { value: 'light', label: 'Light' }
   ];
 
-  const nativeRuntime = isTauriRuntime();
+  const nativeRuntime = isDesktopRuntime();
 
   let homepageDraft = $state(settingsState.settings.homepage);
   let appVersion = $state<string | null>(null);
@@ -394,7 +394,7 @@
             class="danger-button"
             type="button"
             disabled={!nativeRuntime || isClearingHistory}
-            title={nativeRuntime ? 'Clear history' : 'Available in the Tauri app'}
+            title={nativeRuntime ? 'Clear history' : 'Available in the desktop app'}
             onclick={clearHistoryFromSettings}
           >
             {#if isClearingHistory}
@@ -418,7 +418,7 @@
             class="danger-button"
             type="button"
             disabled={!nativeRuntime || isClearingBrowsingData}
-            title={nativeRuntime ? 'Clear browsing data' : 'Available in the Tauri app'}
+            title={nativeRuntime ? 'Clear browsing data' : 'Available in the desktop app'}
             onclick={clearBrowsingDataFromSettings}
           >
             {#if isClearingBrowsingData}

@@ -9,7 +9,7 @@
     X
   } from 'lucide-svelte';
   import { listenDownloadProgress } from '../../../bridge/events/downloads';
-  import { isTauriRuntime } from '../../../bridge/runtime';
+  import { isDesktopRuntime } from '../../../bridge/runtime';
   import type { DownloadItem } from '../../../shared/types/backend';
   import { displayUrl } from '../../../shared/utils/url';
   import { toastsState } from '../../../shell/state/toasts.svelte';
@@ -22,7 +22,7 @@
 
   let { open, onClose }: Props = $props();
 
-  const nativeRuntime = isTauriRuntime();
+  const nativeRuntime = isDesktopRuntime();
 
   let wasOpen = false;
   let cancellingId = $state<string | null>(null);

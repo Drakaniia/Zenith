@@ -1,8 +1,14 @@
 import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { isTauriRuntime } from '../../bridge/runtime';
+import { invokeCommand } from '../../bridge/invoke';
+import { isElectronRuntime, isTauriRuntime } from '../../bridge/runtime';
 
 export async function focusAppShell(): Promise<void> {
+  if (isElectronRuntime()) {
+    await invokeCommand<void>('focus_shell');
+    return;
+  }
+
   if (!isTauriRuntime()) {
     return;
   }

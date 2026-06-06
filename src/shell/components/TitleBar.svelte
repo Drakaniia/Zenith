@@ -23,7 +23,7 @@
     minimizeWindow as minimizeAppWindow,
     restoreWindow as restoreAppWindow
   } from '../../bridge/commands/windows';
-  import { isTauriRuntime } from '../../bridge/runtime';
+  import { isDesktopRuntime } from '../../bridge/runtime';
   import type { WindowState } from '../../shared/types/backend';
   import { BROWSER_HOME_URL } from '../../shared/utils/internal-urls';
 
@@ -46,7 +46,7 @@
   }: Props = $props();
 
   const controlsSide = /Mac|iPhone|iPad|iPod/.test(navigator.userAgent) ? 'left' : 'right';
-  const nativeRuntime = isTauriRuntime();
+  const nativeRuntime = isDesktopRuntime();
 
   let isMaximized = $state(false);
   let isMenuOpen = $state(false);
@@ -193,7 +193,7 @@
   }
 
   function showUnavailableWindowApi(action: string): void {
-    toastsState.error(`${action} window failed: Tauri window API is unavailable.`);
+    toastsState.error(`${action} window failed: desktop window API is unavailable.`);
   }
 </script>
 

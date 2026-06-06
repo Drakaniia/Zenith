@@ -35,8 +35,9 @@
     restoreWindow as restoreAppWindow,
     setCurrentWindowFullscreen
   } from '../bridge/commands/windows';
+  import { toggleNativeDevtools } from '../bridge/commands/devtools';
   import { listenNativeShortcutEvents } from '../bridge/events/shortcuts';
-  import { isTauriRuntime } from '../bridge/runtime';
+  import { isDesktopRuntime } from '../bridge/runtime';
   import type { FindResult } from '../shared/types/backend';
   import type { FindDirection, NativeShortcutCommand } from '../shared/types/events';
 
@@ -45,7 +46,7 @@
   type FindStepDirection = 'next' | 'previous';
   type ShortcutSequence = 'window-menu' | 'browser-menu';
 
-  const nativeRuntime = isTauriRuntime();
+  const nativeRuntime = isDesktopRuntime();
   const isApplePlatform = /Mac|iPhone|iPad|iPod/.test(navigator.userAgent);
   const ZOOM_STEP = 0.1;
   const MIN_ZOOM = 0.25;
@@ -264,7 +265,7 @@
     if (!nativeRuntime) {
       showUnsupportedShortcut(
         incognito ? 'new-incognito-window-native' : 'new-window-native',
-        'New browser windows are only available in the Tauri app.'
+        'New browser windows are only available in the desktop app.'
       );
       return;
     }
@@ -428,7 +429,7 @@
     if (!nativeRuntime) {
       showUnsupportedShortcut(
         'email-page-native',
-        'Emailing the current page is only available in the Tauri app.'
+        'Emailing the current page is only available in the desktop app.'
       );
       return;
     }
@@ -638,7 +639,7 @@
         return () =>
           showUnsupportedShortcut('caret-browsing', 'Caret browsing is not implemented.');
       case 'devtools':
-        return () => showUnsupportedShortcut('devtools', 'Developer Tools are not implemented.');
+        return toggleDevtools;
       case 'save-page':
         return () =>
           showUnsupportedShortcut('save-page', 'Saving the current page is not implemented.');
@@ -743,7 +744,7 @@
     }
 
     if (key === 'f12' && noCommandModifier && !event.shiftKey) {
-      return () => showUnsupportedShortcut('devtools', 'Developer Tools are not implemented.');
+      return toggleDevtools;
     }
 
     if (event.altKey && !event.ctrlKey && !event.shiftKey) {
@@ -848,7 +849,7 @@
       }
 
       if (key === 'i' || key === 'j') {
-        return () => showUnsupportedShortcut('devtools', 'Developer Tools are not implemented.');
+        return toggleDevtools;
       }
     }
 
@@ -1016,7 +1017,7 @@
     }
 
     if ((key === 'i' || key === 'c') && event.shiftKey) {
-      return () => showUnsupportedShortcut('devtools', 'Developer Tools are not implemented.');
+      return toggleDevtools;
     }
 
     if (key === 'm' && event.shiftKey) {
@@ -1059,6 +1060,22 @@
     });
   }
 
+  async function toggleDevtools(): Promise<void> {
+    if (!nativeRuntime) {
+      showUnsupportedShortcut(
+        'devtools-runtime',
+        'Developer tools are only available in the desktop app.'
+      );
+      return;
+    }
+
+    try {
+      await toggleNativeDevtools();
+    } catch (error) {
+      toastsState.error(`Failed to toggle developer tools: ${errorMessage(error)}`);
+    }
+  }
+
   async function bookmarkAllOpenTabs(): Promise<void> {
     const bookmarkableTabs = tabsState.tabs.filter((tab) => isBookmarkableUrl(tab.url));
 
@@ -1082,7 +1099,7 @@
 
   async function toggleFullscreen(): Promise<void> {
     if (!nativeRuntime) {
-      showUnsupportedShortcut('fullscreen', 'Fullscreen is only available in the Tauri app.');
+      showUnsupportedShortcut('fullscreen', 'Fullscreen is only available in the desktop app.');
       return;
     }
 
@@ -1104,7 +1121,7 @@
     if (!nativeRuntime) {
       showUnsupportedShortcut(
         'close-window',
-        'Window controls are only available in the Tauri app.'
+        'Window controls are only available in the desktop app.'
       );
       return;
     }
@@ -1116,7 +1133,7 @@
     if (!nativeRuntime) {
       showUnsupportedShortcut(
         'minimize-window',
-        'Window controls are only available in the Tauri app.'
+        'Window controls are only available in the desktop app.'
       );
       return;
     }
@@ -1128,7 +1145,7 @@
     if (!nativeRuntime) {
       showUnsupportedShortcut(
         'hide-window',
-        'Window controls are only available in the Tauri app.'
+        'Window controls are only available in the desktop app.'
       );
       return;
     }
@@ -1140,7 +1157,7 @@
     if (!nativeRuntime) {
       showUnsupportedShortcut(
         'maximize-window',
-        'Window controls are only available in the Tauri app.'
+        'Window controls are only available in the desktop app.'
       );
       return;
     }
@@ -1152,7 +1169,7 @@
     if (!nativeRuntime) {
       showUnsupportedShortcut(
         'restore-window',
-        'Window controls are only available in the Tauri app.'
+        'Window controls are only available in the desktop app.'
       );
       return;
     }
@@ -1162,7 +1179,7 @@
 
   async function quitBrowser(): Promise<void> {
     if (!nativeRuntime) {
-      showUnsupportedShortcut('quit-browser', 'Quitting is only available in the Tauri app.');
+      showUnsupportedShortcut('quit-browser', 'Quitting is only available in the desktop app.');
       return;
     }
 
