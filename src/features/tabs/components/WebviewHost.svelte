@@ -41,7 +41,7 @@
   } from '../../../bridge/commands/tabs';
   import { fetchPageMetadata } from '../../../bridge/commands/navigation';
   import { listenBrowserWebviewEvents } from '../../../bridge/events/browser-webviews';
-  import { isTauriRuntime } from '../../../bridge/runtime';
+  import { isDesktopRuntime, isElectronRuntime, isTauriRuntime } from '../../../bridge/runtime';
   import { historyState } from '../../history/state/history.svelte';
   import { settingsState } from '../../settings/state/settings.svelte';
   import { focusAppShell } from '../../../shell/utils/focus';
@@ -74,9 +74,36 @@
     chromeOverlayOpen = false
   }: Props = $props();
 
-  const nativeRuntime = isTauriRuntime();
+  type ElectronWebviewElement = HTMLElement & {
+    src: string;
+    partition: string;
+    reload: () => void;
+    stop: () => void;
+    focus: () => void;
+    print?: () => void;
+    setZoomFactor?: (factor: number) => void;
+    executeJavaScript?: <T = unknown>(script: string) => Promise<T>;
+    findInPage?: (text: string, options?: { forward?: boolean; matchCase?: boolean }) => number;
+    stopFindInPage?: (action?: 'clearSelection' | 'keepSelection' | 'activateSelection') => void;
+    getURL?: () => string;
+    getTitle?: () => string;
+  };
+  type ElectronWebviewEvent = Event & {
+    url?: string;
+    title?: string;
+    result?: {
+      activeMatchOrdinal?: number;
+      matches?: number;
+      finalUpdate?: boolean;
+    };
+  };
+
+  const electronRuntime = isElectronRuntime();
+  const tauriRuntime = isTauriRuntime();
+  const nativeRuntime = isDesktopRuntime();
   const createdLabels = new Set<string>();
   const creatingLabels = new Set<string>();
+  const electronWebviews = new Map<string, ElectronWebviewElement>();
   const pendingNavigationUrls = new Map<string, string>();
   const metadataTokens = new Map<string, number>();
   const lastReloadRequests = new Map<string, number>();
@@ -106,7 +133,7 @@
   });
 
   $effect(() => {
-    if (!nativeRuntime) {
+    if (!tauriRuntime) {
       return;
     }
 
@@ -260,7 +287,9 @@
     }
 
     try {
-      if (nativeRuntime && createdLabels.has(activeTab.webviewLabel)) {
+      if (electronRuntime) {
+        electronWebviews.get(activeTab.webviewLabel)?.stop();
+      } else if (tauriRuntime && createdLabels.has(activeTab.webviewLabel)) {
         await evalBrowserWebview(activeTab.webviewLabel, 'window.stop();');
       }
     } catch (error) {
@@ -285,6 +314,10 @@
       return EMPTY_FIND_RESULT;
     }
 
+    if (electronRuntime) {
+      return findInElectronWebview(activeTab.webviewLabel, request);
+    }
+
     return findInBrowserWebview({
       label: activeTab.webviewLabel,
       query: request.query,
@@ -300,6 +333,11 @@
       return;
     }
 
+    if (electronRuntime) {
+      electronWebviews.get(activeTab.webviewLabel)?.stopFindInPage?.('clearSelection');
+      return;
+    }
+
     await clearBrowserWebviewFind(activeTab.webviewLabel);
   }
 
@@ -307,6 +345,11 @@
     const activeTab = tabsState.activeTab;
 
     if (!activeTab || activeTab.isInternal || !nativeRuntime) {
+      return;
+    }
+
+    if (electronRuntime) {
+      electronWebviews.get(activeTab.webviewLabel)?.setZoomFactor?.(scaleFactor);
       return;
     }
 
@@ -324,6 +367,11 @@
       return;
     }
 
+    if (electronRuntime) {
+      electronWebviews.get(activeTab.webviewLabel)?.focus();
+      return;
+    }
+
     if (!createdLabels.has(activeTab.webviewLabel)) {
       return;
     }
@@ -335,6 +383,11 @@
     const activeTab = tabsState.activeTab;
 
     if (!activeTab || activeTab.isInternal || !nativeRuntime) {
+      return;
+    }
+
+    if (electronRuntime) {
+      electronWebviews.get(activeTab.webviewLabel)?.print?.();
       return;
     }
 
@@ -365,13 +418,33 @@
         .map((label) => closeManagedWebview(label))
     );
 
-    if (nativeRuntime && remoteTabs.length === 0) {
+    if (electronRuntime) {
+      if (!containerElement) {
+        return;
+      }
+
+      await syncElectronWebviews(
+        remoteTabs,
+        activeTabId,
+        javascriptEnabled,
+        incognitoMode,
+        shellOverlayOpen
+      );
+
+      if (!visibleRemoteLabel) {
+        await focusAppShell();
+      }
+
+      return;
+    }
+
+    if (tauriRuntime && remoteTabs.length === 0) {
       await closeEveryBrowserWebview();
       await focusAppShell();
       return;
     }
 
-    if (!nativeRuntime || !bounds) {
+    if (!tauriRuntime || !bounds) {
       return;
     }
 
@@ -403,6 +476,92 @@
     }
   }
 
+  async function syncElectronWebviews(
+    remoteTabs: BrowserTab[],
+    activeTabId: string | null,
+    javascriptEnabled: boolean,
+    incognitoMode: boolean,
+    shellOverlayOpen: boolean
+  ): Promise<void> {
+    for (const tab of remoteTabs) {
+      await ensureElectronWebview(tab, javascriptEnabled, incognitoMode);
+    }
+
+    await Promise.all(
+      remoteTabs.map((tab) =>
+        setWebviewVisibility(
+          tab.webviewLabel,
+          tab.id === activeTabId && !tab.isInternal && !shellOverlayOpen
+        )
+      )
+    );
+  }
+
+  async function ensureElectronWebview(
+    tab: BrowserTab,
+    javascriptEnabled: boolean,
+    incognitoMode: boolean
+  ): Promise<void> {
+    if (!containerElement || createdLabels.has(tab.webviewLabel)) {
+      return;
+    }
+
+    const webview = document.createElement('webview') as ElectronWebviewElement;
+    webview.className = 'electron-webview';
+    webview.setAttribute('data-label', tab.webviewLabel);
+    webview.partition = incognitoMode ? `ampui-private-${tab.webviewLabel}` : 'persist:ampui';
+    webview.setAttribute('partition', webview.partition);
+
+    if (!javascriptEnabled) {
+      webview.setAttribute('webpreferences', 'javascript=no');
+    }
+
+    attachElectronWebviewEvents(tab.webviewLabel, webview);
+    containerElement.append(webview);
+    electronWebviews.set(tab.webviewLabel, webview);
+    createdLabels.add(tab.webviewLabel);
+
+    webview.src = tab.url;
+    tabsState.updateTab(tab.id, { is_loading: true });
+    await setActiveZoom(zoomScale);
+    await completeNavigation(tab.id, tab.url, true);
+  }
+
+  function attachElectronWebviewEvents(label: string, webview: ElectronWebviewElement): void {
+    webview.addEventListener('did-start-loading', () => {
+      handleWebviewLoad({ label, url: electronWebviewUrl(webview), state: 'started' });
+    });
+    webview.addEventListener('did-stop-loading', () => {
+      handleWebviewLoad({ label, url: electronWebviewUrl(webview), state: 'finished' });
+    });
+    webview.addEventListener('did-navigate', (event) => {
+      const url = (event as ElectronWebviewEvent).url;
+      if (url) {
+        handleWebviewNavigation({ label, url });
+      }
+    });
+    webview.addEventListener('did-navigate-in-page', (event) => {
+      const url = (event as ElectronWebviewEvent).url;
+      if (url) {
+        handleWebviewNavigation({ label, url });
+      }
+    });
+    webview.addEventListener('page-title-updated', (event) => {
+      const title = (event as ElectronWebviewEvent).title;
+      if (title) {
+        handleWebviewTitle({ label, title });
+      }
+    });
+    webview.addEventListener('new-window', (event) => {
+      event.preventDefault();
+
+      const url = (event as ElectronWebviewEvent).url;
+      if (url && isBrowserWebviewUrl(url)) {
+        tabsState.openBackgroundTab(url, url);
+      }
+    });
+  }
+
   async function ensureWebview(
     tab: BrowserTab,
     bounds: WebviewBounds,
@@ -417,8 +576,8 @@
     tabsState.updateTab(tab.id, { is_loading: true });
 
     try {
-      // Remote pages live in child webviews. Only the trusted "main" shell webview imports and
-      // invokes Tauri command wrappers; remote labels are not granted capabilities.
+      // Remote pages live in child webviews. Only the trusted shell imports and invokes desktop
+      // command wrappers; remote labels are not granted capabilities.
       await createBrowserWebview({
         label: tab.webviewLabel,
         url: tab.url,
@@ -479,7 +638,15 @@
     });
 
     try {
-      if (nativeRuntime) {
+      if (electronRuntime) {
+        const webview = electronWebviews.get(tab.webviewLabel);
+
+        if (webview) {
+          webview.src = url;
+        } else if (creatingLabels.has(tab.webviewLabel)) {
+          pendingNavigationUrls.set(tab.webviewLabel, url);
+        }
+      } else if (tauriRuntime) {
         if (createdLabels.has(tab.webviewLabel)) {
           await navigateBrowserWebview(tab.webviewLabel, url);
         } else if (creatingLabels.has(tab.webviewLabel)) {
@@ -501,7 +668,9 @@
     tabsState.updateTab(tab.id, { is_loading: true });
 
     try {
-      if (nativeRuntime && createdLabels.has(tab.webviewLabel)) {
+      if (electronRuntime) {
+        electronWebviews.get(tab.webviewLabel)?.reload();
+      } else if (tauriRuntime && createdLabels.has(tab.webviewLabel)) {
         await reloadBrowserWebview(tab.webviewLabel);
       }
 
@@ -544,7 +713,7 @@
       return;
     }
 
-    // Back/forward tracks app-visible navigations and Tauri URL events. It is not the engine's
+    // Back/forward tracks app-visible navigations and webview URL events. It is not the engine's
     // complete internal session history, so redirects and same-document navigations can differ.
     tabsState.updateTab(activeTab.id, {
       url,
@@ -558,7 +727,13 @@
     });
 
     try {
-      if (nativeRuntime && createdLabels.has(activeTab.webviewLabel)) {
+      if (electronRuntime) {
+        const webview = electronWebviews.get(activeTab.webviewLabel);
+
+        if (webview) {
+          webview.src = url;
+        }
+      } else if (tauriRuntime && createdLabels.has(activeTab.webviewLabel)) {
         await navigateBrowserWebview(activeTab.webviewLabel, url);
       }
 
@@ -647,7 +822,7 @@
   }
 
   async function syncCreatedBounds(bounds: WebviewBounds): Promise<void> {
-    if (!nativeRuntime || createdLabels.size === 0) {
+    if (!tauriRuntime || createdLabels.size === 0) {
       return;
     }
 
@@ -663,7 +838,17 @@
   }
 
   async function setWebviewVisibility(label: string, visible: boolean): Promise<void> {
-    if (!nativeRuntime || !createdLabels.has(label)) {
+    if (electronRuntime) {
+      const webview = electronWebviews.get(label);
+
+      if (webview) {
+        webview.hidden = !visible;
+      }
+
+      return;
+    }
+
+    if (!tauriRuntime || !createdLabels.has(label)) {
       return;
     }
 
@@ -683,7 +868,14 @@
     creatingLabels.delete(label);
     pendingNavigationUrls.delete(label);
 
-    if (!nativeRuntime) {
+    if (electronRuntime) {
+      const webview = electronWebviews.get(label);
+      webview?.remove();
+      electronWebviews.delete(label);
+      return;
+    }
+
+    if (!tauriRuntime) {
       return;
     }
 
@@ -705,7 +897,13 @@
     creatingLabels.clear();
     pendingNavigationUrls.clear();
 
-    if (!nativeRuntime) {
+    if (electronRuntime) {
+      electronWebviews.forEach((webview) => webview.remove());
+      electronWebviews.clear();
+      return;
+    }
+
+    if (!tauriRuntime) {
       return;
     }
 
@@ -714,6 +912,58 @@
     } catch (error) {
       reportNativeBridgeIssue(`Failed to close browser webviews: ${errorMessage(error)}`);
     }
+  }
+
+  async function findInElectronWebview(
+    label: string,
+    request: WebViewFindRequest
+  ): Promise<FindResult> {
+    const webview = electronWebviews.get(label);
+
+    if (!webview?.findInPage) {
+      return EMPTY_FIND_RESULT;
+    }
+
+    const findInPage = webview.findInPage.bind(webview);
+
+    return new Promise((resolve) => {
+      let settled = false;
+      const timeout = window.setTimeout(() => {
+        finish(EMPTY_FIND_RESULT);
+      }, 1200);
+      const handleFoundInPage = (event: Event) => {
+        const result = (event as ElectronWebviewEvent).result;
+
+        if (!result?.finalUpdate) {
+          return;
+        }
+
+        finish({
+          active_match: result.activeMatchOrdinal ?? 0,
+          total_matches: result.matches ?? 0
+        });
+      };
+      const finish = (result: FindResult) => {
+        if (settled) {
+          return;
+        }
+
+        settled = true;
+        window.clearTimeout(timeout);
+        webview.removeEventListener('found-in-page', handleFoundInPage);
+        resolve(result);
+      };
+
+      webview.addEventListener('found-in-page', handleFoundInPage);
+      findInPage(request.query, {
+        forward: request.direction === 'next',
+        matchCase: request.caseSensitive
+      });
+    });
+  }
+
+  function electronWebviewUrl(webview: ElectronWebviewElement): string {
+    return webview.getURL?.() || webview.src;
   }
 
   function historyPatchFor(
@@ -847,7 +1097,7 @@
   {#if !nativeRuntime}
     <div class="webview-empty" role="status">
       <AlertTriangle size={22} strokeWidth={2.1} />
-      <span>Open in Tauri to show native webviews</span>
+      <span>Open in the desktop app to show native webviews</span>
     </div>
   {:else if !tabsState.activeTab}
     <div class="webview-empty" role="status">
@@ -870,6 +1120,20 @@
     min-height: 0;
     overflow: hidden;
     background: var(--color-background);
+  }
+
+  :global(.electron-webview) {
+    position: absolute;
+    inset: 0;
+    display: block;
+    width: 100%;
+    height: 100%;
+    border: 0;
+    background: #ffffff;
+  }
+
+  :global(.electron-webview[hidden]) {
+    display: none;
   }
 
   .webview-empty {
