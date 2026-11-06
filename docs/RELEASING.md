@@ -24,8 +24,9 @@ git push origin v0.2.0      # the tag starts the release build
 The tag starts `.github/workflows/release.yml` on GitHub Actions (Windows):
 
 1. Checks that the tag matches the version in all four files.
-2. Runs `pnpm check`, `pnpm test` and `pnpm test:rust`.
-3. Builds the NSIS installer, signs the update, and publishes the GitHub Release with the installer, its `.sig` and `latest.json`.
+2. Builds the NSIS installer, signs the update, and publishes the GitHub Release with the installer, its `.sig` and `latest.json`.
+
+A separate CI workflow runs frontend checks and tests, builds the frontend, and runs Rust tests on pushes to `main` and pull requests.
 
 A failed build can be re-run from the Actions tab (**Release › Run workflow** with the tag).
 

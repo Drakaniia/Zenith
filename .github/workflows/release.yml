@@ -50,11 +50,6 @@ jobs:
       - name: Check that the tag matches the app version
         run: node scripts/release.mjs --check "$env:TAG"
 
-      - name: Check and test
-        run: |
-          pnpm check
-          pnpm test
-          pnpm test:rust
 
       - name: Check the updater key secrets
         shell: bash
