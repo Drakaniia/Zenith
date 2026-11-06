@@ -1,0 +1,6 @@
+# Make this project its own pnpm root. A parent directory defines another workspace,
+# and without this file pnpm would install into that workspace instead.
+packages:
+  - "."
+minimumReleaseAgeExclude:
+  - vite@8.3.6

@@ -1,0 +1,626 @@
+//! Persistence.
+//!
+//! - Session and settings: JSON snapshots written atomically (temp file + rename), so an abrupt
+//!   exit always leaves the last complete snapshot on disk.
+//! - History, bookmarks and download records: SQLite (WAL) owned by one worker thread, so the
+//!   UI thread never blocks on disk I/O.
+
+use std::fs;
+use std::io::Write;
+use std::path::{Path, PathBuf};
+use std::sync::mpsc;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use rusqlite::{params, Connection, OptionalExtension};
+use serde::{Deserialize, Serialize};
+
+#[derive(Clone, Debug)]
+pub struct Paths {
+    /// %APPDATA%\<id>: session, settings, database.
+    pub roaming: PathBuf,
+    /// %LOCALAPPDATA%\<id>: WebView2 profile, extensions, filter lists.
+    pub local: PathBuf,
+}
+
+impl Paths {
+    pub fn session(&self) -> PathBuf {
+        self.roaming.join("session.json")
+    }
+    pub fn settings(&self) -> PathBuf {
+        self.roaming.join("settings.json")
+    }
+    pub fn db(&self) -> PathBuf {
+        self.roaming.join("zenith.db")
+    }
+    pub fn webview_data(&self) -> PathBuf {
+        self.local.join("WebView2")
+    }
+    pub fn extensions(&self) -> PathBuf {
+        self.local.join("extensions")
+    }
+    pub fn filters(&self) -> PathBuf {
+        self.local.join("filters")
+    }
+}
+
+pub fn now_ms() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
+}
+
+/// Writes `data` to `path` atomically: write + flush a sibling temp file, then rename over.
+pub fn write_atomic(path: &Path, data: &[u8]) -> std::io::Result<()> {
+    if let Some(dir) = path.parent() {
+        fs::create_dir_all(dir)?;
+    }
+    let tmp = path.with_extension("tmp");
+    {
+        let mut file = fs::File::create(&tmp)?;
+        file.write_all(data)?;
+        file.sync_all()?;
+    }
+    fs::rename(&tmp, path)
+}
+
+pub fn read_text(path: &Path) -> Option<String> {
+    fs::read_to_string(path)
+        .ok()
+        // Tolerate a UTF-8 byte-order mark (files edited by hand or written by Windows tools).
+        .map(|s| s.strip_prefix('\u{feff}').map(str::to_string).unwrap_or(s))
+        .filter(|s| !s.trim().is_empty())
+}
+
+// ---------------------------------------------------------------------------------------------
+// Database worker
+
+type Job = Box<dyn FnOnce(&mut Connection) + Send>;
+
+#[derive(Clone)]
+pub struct Db {
+    tx: mpsc::Sender<Job>,
+}
+
+impl Db {
+    pub fn open(path: PathBuf) -> Self {
+        let (tx, rx) = mpsc::channel::<Job>();
+        std::thread::Builder::new()
+            .name("zenith-db".into())
+            .spawn(move || {
+                let mut conn = match open_connection(&path) {
+                    Ok(c) => c,
+                    Err(e) => {
+                        eprintln!("[zenith] database unavailable ({e}); using in-memory store");
+                        let c = Connection::open_in_memory().expect("in-memory sqlite");
+                        migrate(&c).expect("migrate in-memory sqlite");
+                        c
+                    }
+                };
+                while let Ok(job) = rx.recv() {
+                    job(&mut conn);
+                }
+            })
+            .expect("spawn db thread");
+        Self { tx }
+    }
+
+    /// Fire-and-forget write.
+    pub fn exec(&self, f: impl FnOnce(&mut Connection) + Send + 'static) {
+        let _ = self.tx.send(Box::new(f));
+    }
+
+    /// Waits (up to `timeout`) until every write queued so far is done. Used before the process
+    /// exits abruptly (the update installer ends the app with `process::exit`).
+    pub fn flush(&self, timeout: std::time::Duration) {
+        let (tx, rx) = mpsc::channel();
+        let _ = self.tx.send(Box::new(move |_| {
+            let _ = tx.send(());
+        }));
+        let _ = rx.recv_timeout(timeout);
+    }
+
+    pub async fn call<T: Send + 'static>(
+        &self,
+        f: impl FnOnce(&mut Connection) -> rusqlite::Result<T> + Send + 'static,
+    ) -> Result<T, String> {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        self.exec(move |c| {
+            let _ = tx.send(f(c));
+        });
+        rx.await
+            .map_err(|_| "database worker stopped".to_string())?
+            .map_err(|e| e.to_string())
+    }
+}
+
+fn open_connection(path: &Path) -> rusqlite::Result<Connection> {
+    if let Some(dir) = path.parent() {
+        let _ = fs::create_dir_all(dir);
+    }
+    let conn = Connection::open(path)?;
+    // An incognito window writes bookmarks to the same database from another process.
+    conn.busy_timeout(std::time::Duration::from_secs(3))?;
+    conn.pragma_update(None, "journal_mode", "WAL")?;
+    conn.pragma_update(None, "synchronous", "NORMAL")?;
+    conn.pragma_update(None, "temp_store", "MEMORY")?;
+    migrate(&conn)?;
+    Ok(conn)
+}
+
+fn migrate(conn: &Connection) -> rusqlite::Result<()> {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS history (
+            id INTEGER PRIMARY KEY,
+            url TEXT NOT NULL UNIQUE,
+            title TEXT NOT NULL DEFAULT '',
+            visit_count INTEGER NOT NULL DEFAULT 1,
+            last_visit INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS history_last_visit ON history(last_visit DESC);
+        CREATE TABLE IF NOT EXISTS bookmarks (
+            id INTEGER PRIMARY KEY,
+            url TEXT NOT NULL,
+            title TEXT NOT NULL DEFAULT '',
+            folder TEXT NOT NULL DEFAULT '',
+            position INTEGER NOT NULL DEFAULT 0,
+            created INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS bookmarks_url ON bookmarks(url);
+        CREATE TABLE IF NOT EXISTS downloads (
+            id INTEGER PRIMARY KEY,
+            url TEXT NOT NULL,
+            path TEXT NOT NULL,
+            mime TEXT NOT NULL DEFAULT '',
+            total INTEGER NOT NULL DEFAULT 0,
+            received INTEGER NOT NULL DEFAULT 0,
+            state TEXT NOT NULL,
+            started INTEGER NOT NULL,
+            ended INTEGER
+        );",
+    )
+}
+
+// ---------------------------------------------------------------------------------------------
+// History
+
+#[derive(Serialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct HistoryEntry {
+    pub id: i64,
+    pub url: String,
+    pub title: String,
+    pub visit_count: i64,
+    pub last_visit: i64,
+}
+
+fn history_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<HistoryEntry> {
+    Ok(HistoryEntry {
+        id: r.get(0)?,
+        url: r.get(1)?,
+        title: r.get(2)?,
+        visit_count: r.get(3)?,
+        last_visit: r.get(4)?,
+    })
+}
+
+pub fn history_add_visit(conn: &mut Connection, url: &str, title: &str) -> rusqlite::Result<()> {
+    conn.execute(
+        "INSERT INTO history (url, title, visit_count, last_visit) VALUES (?1, ?2, 1, ?3)
+         ON CONFLICT(url) DO UPDATE SET visit_count = visit_count + 1, last_visit = ?3,
+           title = CASE WHEN ?2 <> '' THEN ?2 ELSE title END",
+        params![url, title, now_ms()],
+    )?;
+    Ok(())
+}
+
+pub fn history_set_title(conn: &mut Connection, url: &str, title: &str) -> rusqlite::Result<()> {
+    conn.execute("UPDATE history SET title = ?2 WHERE url = ?1", params![url, title])?;
+    Ok(())
+}
+
+/// Searches history. Every whitespace-separated term must match the URL or the title.
+/// Ranked by "frecency": frequent and recent entries first, URL-prefix matches boosted.
+pub fn history_search(
+    conn: &mut Connection,
+    text: &str,
+    limit: i64,
+    offset: i64,
+) -> rusqlite::Result<Vec<HistoryEntry>> {
+    let terms: Vec<String> = text
+        .split_whitespace()
+        .take(6)
+        .map(|t| format!("%{}%", t.replace('%', "").replace('_', "")))
+        .collect();
+    if terms.is_empty() {
+        let mut stmt = conn.prepare_cached(
+            "SELECT id, url, title, visit_count, last_visit FROM history
+             ORDER BY last_visit DESC LIMIT ?1 OFFSET ?2",
+        )?;
+        let rows = stmt.query_map(params![limit, offset], history_row)?;
+        return rows.collect();
+    }
+    let mut sql = String::from("SELECT id, url, title, visit_count, last_visit FROM history WHERE 1=1");
+    for i in 0..terms.len() {
+        sql.push_str(&format!(" AND (url LIKE ?{n} OR title LIKE ?{n})", n = i + 1));
+    }
+    let first = terms.len() + 1;
+    sql.push_str(&format!(
+        " ORDER BY (CASE WHEN url LIKE ?{p1} OR url LIKE ?{p2} OR url LIKE ?{p3} THEN 0 ELSE 1 END),
+           (visit_count * 3 + (last_visit / 86400000)) DESC
+         LIMIT ?{l} OFFSET ?{o}",
+        p1 = first,
+        p2 = first + 1,
+        p3 = first + 2,
+        l = first + 3,
+        o = first + 4
+    ));
+    let head = text.split_whitespace().next().unwrap_or("").to_lowercase();
+    let mut values: Vec<rusqlite::types::Value> =
+        terms.into_iter().map(rusqlite::types::Value::from).collect();
+    values.push(format!("https://{head}%").into());
+    values.push(format!("https://www.{head}%").into());
+    values.push(format!("http://{head}%").into());
+    values.push(limit.into());
+    values.push(offset.into());
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt.query_map(rusqlite::params_from_iter(values), history_row)?;
+    rows.collect()
+}
+
+/// Most visited pages (for the new-tab page).
+pub fn history_top(conn: &mut Connection, limit: i64) -> rusqlite::Result<Vec<HistoryEntry>> {
+    let mut stmt = conn.prepare_cached(
+        "SELECT id, url, title, visit_count, last_visit FROM history
+         ORDER BY visit_count DESC, last_visit DESC LIMIT ?1",
+    )?;
+    let rows = stmt.query_map(params![limit], history_row)?;
+    rows.collect()
+}
+
+pub fn history_delete(conn: &mut Connection, ids: &[i64]) -> rusqlite::Result<usize> {
+    let tx = conn.transaction()?;
+    let mut n = 0;
+    for id in ids {
+        n += tx.execute("DELETE FROM history WHERE id = ?1", params![id])?;
+    }
+    tx.commit()?;
+    Ok(n)
+}
+
+pub fn history_clear(conn: &mut Connection, since_ms: Option<i64>) -> rusqlite::Result<usize> {
+    match since_ms {
+        Some(since) => conn.execute("DELETE FROM history WHERE last_visit >= ?1", params![since]),
+        None => conn.execute("DELETE FROM history", []),
+    }
+}
+
+/// Applies the retention policy: drop entries older than `days`, keep at most `max_rows`.
+pub fn history_prune(conn: &mut Connection, days: i64, max_rows: i64) -> rusqlite::Result<()> {
+    if days > 0 {
+        let cutoff = now_ms() - days * 86_400_000;
+        conn.execute("DELETE FROM history WHERE last_visit < ?1", params![cutoff])?;
+    }
+    conn.execute(
+        "DELETE FROM history WHERE id NOT IN (SELECT id FROM history ORDER BY last_visit DESC LIMIT ?1)",
+        params![max_rows],
+    )?;
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------------------------
+// Bookmarks
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct Bookmark {
+    #[serde(default)]
+    pub id: i64,
+    pub url: String,
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub folder: String,
+    #[serde(default)]
+    pub position: i64,
+    #[serde(default)]
+    pub created: i64,
+}
+
+pub fn bookmarks_list(conn: &mut Connection) -> rusqlite::Result<Vec<Bookmark>> {
+    let mut stmt = conn.prepare_cached(
+        "SELECT id, url, title, folder, position, created FROM bookmarks
+         ORDER BY folder COLLATE NOCASE, position, id",
+    )?;
+    let rows = stmt.query_map([], |r| {
+        Ok(Bookmark {
+            id: r.get(0)?,
+            url: r.get(1)?,
+            title: r.get(2)?,
+            folder: r.get(3)?,
+            position: r.get(4)?,
+            created: r.get(5)?,
+        })
+    })?;
+    rows.collect()
+}
+
+pub fn bookmark_add(conn: &mut Connection, b: &Bookmark) -> rusqlite::Result<i64> {
+    if let Some(id) = conn
+        .query_row(
+            "SELECT id FROM bookmarks WHERE url = ?1 AND folder = ?2",
+            params![b.url, b.folder],
+            |r| r.get::<_, i64>(0),
+        )
+        .optional()?
+    {
+        return Ok(id);
+    }
+    let position: i64 = conn.query_row(
+        "SELECT COALESCE(MAX(position), -1) + 1 FROM bookmarks WHERE folder = ?1",
+        params![b.folder],
+        |r| r.get(0),
+    )?;
+    conn.execute(
+        "INSERT INTO bookmarks (url, title, folder, position, created) VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![b.url, b.title, b.folder, position, now_ms()],
+    )?;
+    Ok(conn.last_insert_rowid())
+}
+
+pub fn bookmark_update(conn: &mut Connection, b: &Bookmark) -> rusqlite::Result<()> {
+    conn.execute(
+        "UPDATE bookmarks SET url = ?2, title = ?3, folder = ?4 WHERE id = ?1",
+        params![b.id, b.url, b.title, b.folder],
+    )?;
+    Ok(())
+}
+
+pub fn bookmark_remove(conn: &mut Connection, id: i64) -> rusqlite::Result<()> {
+    conn.execute("DELETE FROM bookmarks WHERE id = ?1", params![id])?;
+    Ok(())
+}
+
+pub fn bookmark_remove_url(conn: &mut Connection, url: &str) -> rusqlite::Result<()> {
+    conn.execute("DELETE FROM bookmarks WHERE url = ?1", params![url])?;
+    Ok(())
+}
+
+fn html_escape(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+}
+
+fn html_unescape(s: &str) -> String {
+    s.replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
+        .replace("&amp;", "&")
+}
+
+/// Exports bookmarks in the Netscape bookmark file format understood by every browser.
+pub fn bookmarks_to_html(items: &[Bookmark]) -> String {
+    let mut out = String::from(
+        "<!DOCTYPE NETSCAPE-Bookmark-file-1>\n<META HTTP-EQUIV=\"Content-Type\" CONTENT=\"text/html; charset=UTF-8\">\n<TITLE>Bookmarks</TITLE>\n<H1>Bookmarks</H1>\n<DL><p>\n",
+    );
+    let mut current: Option<&str> = None;
+    for b in items {
+        let folder = b.folder.as_str();
+        if current != Some(folder) {
+            if current.is_some_and(|f| !f.is_empty()) {
+                out.push_str("    </DL><p>\n");
+            }
+            if !folder.is_empty() {
+                out.push_str(&format!("    <DT><H3>{}</H3>\n    <DL><p>\n", html_escape(folder)));
+            }
+            current = Some(folder);
+        }
+        let indent = if folder.is_empty() { "    " } else { "        " };
+        out.push_str(&format!(
+            "{indent}<DT><A HREF=\"{}\" ADD_DATE=\"{}\">{}</A>\n",
+            html_escape(&b.url),
+            b.created / 1000,
+            html_escape(&b.title)
+        ));
+    }
+    if current.is_some_and(|f| !f.is_empty()) {
+        out.push_str("    </DL><p>\n");
+    }
+    out.push_str("</DL><p>\n");
+    out
+}
+
+/// Parses a Netscape bookmark file. Nested folders are flattened to "Parent / Child".
+pub fn bookmarks_from_html(html: &str) -> Vec<Bookmark> {
+    let mut out = Vec::new();
+    let mut folders: Vec<String> = Vec::new();
+    let mut pending_folder: Option<String> = None;
+    let lower = html.to_ascii_lowercase();
+    let mut i = 0;
+    while i < html.len() {
+        let Some(rel) = lower[i..].find('<') else { break };
+        let start = i + rel;
+        let tag_end = match lower[start..].find('>') {
+            Some(e) => start + e + 1,
+            None => break,
+        };
+        let tag = &lower[start..tag_end];
+        if tag.starts_with("<h3") {
+            if let Some(close) = lower[tag_end..].find("</h3>") {
+                pending_folder = Some(html_unescape(html[tag_end..tag_end + close].trim()));
+                i = tag_end + close + 5;
+                continue;
+            }
+        } else if tag.starts_with("<dl") {
+            folders.push(pending_folder.take().unwrap_or_default());
+        } else if tag.starts_with("</dl") {
+            folders.pop();
+        } else if tag.starts_with("<a ") {
+            let raw_tag = &html[start..tag_end];
+            let href = attr(raw_tag, "href");
+            if let (Some(href), Some(close)) = (href, lower[tag_end..].find("</a>")) {
+                let title = html_unescape(html[tag_end..tag_end + close].trim());
+                let folder = folders
+                    .iter()
+                    .filter(|f| !f.is_empty())
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .join(" / ");
+                if href.starts_with("http://") || href.starts_with("https://") {
+                    out.push(Bookmark {
+                        id: 0,
+                        url: html_unescape(&href),
+                        title,
+                        folder,
+                        position: 0,
+                        created: 0,
+                    });
+                }
+                i = tag_end + close + 4;
+                continue;
+            }
+        }
+        i = tag_end;
+    }
+    out
+}
+
+fn attr(tag: &str, name: &str) -> Option<String> {
+    let lower = tag.to_ascii_lowercase();
+    let key = format!("{name}=\"");
+    let pos = lower.find(&key)? + key.len();
+    let end = tag[pos..].find('"')? + pos;
+    Some(tag[pos..end].to_string())
+}
+
+// ---------------------------------------------------------------------------------------------
+// Download records
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct DownloadRecord {
+    pub id: i64,
+    pub url: String,
+    pub path: String,
+    pub mime: String,
+    pub total: i64,
+    pub received: i64,
+    pub state: String,
+    pub started: i64,
+    pub ended: Option<i64>,
+}
+
+pub fn download_upsert(conn: &mut Connection, d: &DownloadRecord) -> rusqlite::Result<()> {
+    conn.execute(
+        "INSERT INTO downloads (id, url, path, mime, total, received, state, started, ended)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+         ON CONFLICT(id) DO UPDATE SET path = ?3, total = ?5, received = ?6, state = ?7, ended = ?9",
+        params![d.id, d.url, d.path, d.mime, d.total, d.received, d.state, d.started, d.ended],
+    )?;
+    Ok(())
+}
+
+pub fn downloads_list(conn: &mut Connection, limit: i64) -> rusqlite::Result<Vec<DownloadRecord>> {
+    let mut stmt = conn.prepare_cached(
+        "SELECT id, url, path, mime, total, received, state, started, ended FROM downloads
+         ORDER BY started DESC LIMIT ?1",
+    )?;
+    let rows = stmt.query_map(params![limit], |r| {
+        Ok(DownloadRecord {
+            id: r.get(0)?,
+            url: r.get(1)?,
+            path: r.get(2)?,
+            mime: r.get(3)?,
+            total: r.get(4)?,
+            received: r.get(5)?,
+            state: r.get(6)?,
+            started: r.get(7)?,
+            ended: r.get(8)?,
+        })
+    })?;
+    rows.collect()
+}
+
+
+pub fn downloads_remove(conn: &mut Connection, id: Option<i64>) -> rusqlite::Result<()> {
+    match id {
+        Some(id) => conn.execute("DELETE FROM downloads WHERE id = ?1", params![id])?,
+        None => conn.execute("DELETE FROM downloads WHERE state <> 'progress'", [])?,
+    };
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn mem() -> Connection {
+        let c = Connection::open_in_memory().unwrap();
+        migrate(&c).unwrap();
+        c
+    }
+
+    #[test]
+    fn history_roundtrip_and_search() {
+        let mut c = mem();
+        history_add_visit(&mut c, "https://example.com/", "Example Domain").unwrap();
+        history_add_visit(&mut c, "https://example.com/", "").unwrap();
+        history_add_visit(&mut c, "https://rust-lang.org/learn", "Learn Rust").unwrap();
+        let all = history_search(&mut c, "", 10, 0).unwrap();
+        assert_eq!(all.len(), 2);
+        let ex = history_search(&mut c, "example", 10, 0).unwrap();
+        assert_eq!(ex.len(), 1);
+        assert_eq!(ex[0].visit_count, 2);
+        assert_eq!(ex[0].title, "Example Domain");
+        let multi = history_search(&mut c, "learn rust", 10, 0).unwrap();
+        assert_eq!(multi.len(), 1);
+        assert_eq!(history_search(&mut c, "learn zzz", 10, 0).unwrap().len(), 0);
+        history_clear(&mut c, None).unwrap();
+        assert!(history_search(&mut c, "", 10, 0).unwrap().is_empty());
+    }
+
+    #[test]
+    fn bookmarks_html_roundtrip() {
+        let mut c = mem();
+        for (url, title, folder) in [
+            ("https://a.example/", "A & B", ""),
+            ("https://b.example/", "B", "Work"),
+            ("https://c.example/", "C \"quoted\"", "Work"),
+        ] {
+            bookmark_add(
+                &mut c,
+                &Bookmark {
+                    id: 0,
+                    url: url.into(),
+                    title: title.into(),
+                    folder: folder.into(),
+                    position: 0,
+                    created: 0,
+                },
+            )
+            .unwrap();
+        }
+        let list = bookmarks_list(&mut c).unwrap();
+        assert_eq!(list.len(), 3);
+        let html = bookmarks_to_html(&list);
+        let parsed = bookmarks_from_html(&html);
+        assert_eq!(parsed.len(), 3);
+        assert_eq!(parsed[0].title, "A & B");
+        assert_eq!(parsed[1].folder, "Work");
+        assert_eq!(parsed[2].title, "C \"quoted\"");
+    }
+
+    #[test]
+    fn atomic_write_replaces_file() {
+        let dir = std::env::temp_dir().join(format!("zenith-test-{}", now_ms()));
+        let file = dir.join("s.json");
+        write_atomic(&file, b"{\"a\":1}").unwrap();
+        write_atomic(&file, b"{\"a\":2}").unwrap();
+        assert_eq!(read_text(&file).unwrap(), "{\"a\":2}");
+        assert!(!file.with_extension("tmp").exists());
+        let _ = fs::remove_dir_all(dir);
+    }
+}

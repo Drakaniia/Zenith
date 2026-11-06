@@ -1,0 +1,75 @@
+[package]
+name = "zenith"
+version = "0.1.0"
+description = "Zenith: a lightweight Zen-style web browser for Windows"
+edition = "2021"
+# 1.90: required by tauri-plugin-updater.
+rust-version = "1.90"
+publish = false
+default-run = "zenith"
+
+[[bin]]
+name = "zenith"
+path = "src/main.rs"
+
+[features]
+# Honour ZENITH_REMOTE_DEBUG_PORT in release builds (always honoured in debug builds).
+remote-debug = []
+
+[build-dependencies]
+tauri-build = { version = "2.7", features = [] }
+
+[dependencies]
+# Pin the Tauri/wry minor versions: tab webviews are built directly on wry and WebView2,
+# and the multi-webview surface has no semver guarantees.
+tauri = { version = "~2.12.5", features = [] }
+wry = { version = "~0.57.1", default-features = false }
+webview2-com = "0.39"
+windows-core = "0.62"
+windows-version = "0.1"
+tauri-plugin-single-instance = "2.4"
+tauri-plugin-dialog = "2.8"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["sync"] }
+rusqlite = { version = "0.32", features = ["bundled"] }
+base64 = "0.22"
+tauri-plugin-updater = "2"
+
+[dependencies.windows]
+version = "0.62"
+features = [
+  "Win32_Foundation",
+  "Win32_Graphics_Gdi",
+  "Win32_Graphics_Dwm",
+  "Win32_Networking_WinHttp",
+  "Win32_Security",
+  "Win32_Storage_FileSystem",
+  "Win32_System_Com",
+  "Win32_System_DataExchange",
+  "Win32_System_Memory",
+  "Win32_System_Diagnostics_ToolHelp",
+  "Win32_System_LibraryLoader",
+  "Win32_System_ProcessStatus",
+  "Win32_System_Registry",
+  "Win32_System_SystemInformation",
+  "Win32_System_Threading",
+  "Win32_UI_HiDpi",
+  "Win32_UI_Input_KeyboardAndMouse",
+  "Win32_UI_Shell",
+  "Win32_UI_Shell_Common",
+  "Win32_UI_WindowsAndMessaging",
+]
+
+[profile.dev]
+incremental = true
+
+[profile.dev.package."*"]
+opt-level = 1
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
