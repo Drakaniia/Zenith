@@ -1,0 +1,87 @@
+# Publishes a release when a version tag is pushed (cut one with `pnpm release <version>`).
+# Builds the NSIS installer on Windows, signs the update with the updater key, and creates the
+# GitHub Release with the installer, its signature and `latest.json`, the feed installed copies of
+# Zenith check (see docs/RELEASING.md).
+name: Release
+
+on:
+  push:
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to (re)build, e.g. v0.2.0"
+        required: true
+
+concurrency:
+  group: release-${{ github.event.inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    env:
+      TAG: ${{ github.event.inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Check that the tag matches the app version
+        run: node scripts/release.mjs --check "$env:TAG"
+
+      - name: Check and test
+        run: |
+          pnpm check
+          pnpm test
+          pnpm test:rust
+
+      - name: Check the updater key secrets
+        shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          if [ -z "$TAURI_SIGNING_PRIVATE_KEY" ] || [ -z "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD" ]; then
+            echo "::error::The TAURI_SIGNING_PRIVATE_KEY and TAURI_SIGNING_PRIVATE_KEY_PASSWORD secrets are required. See docs/RELEASING.md (one-time setup)."
+            exit 1
+          fi
+
+      - name: Build, sign and publish
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: ${{ env.TAG }}
+          releaseName: Zenith ${{ env.TAG }}
+          releaseBody: |
+            Install with `Zenith_*_x64-setup.exe` (per-user, no administrator rights). Installed copies update themselves: the new version downloads in the background and installs when Zenith closes.
+
+            The installer is not code-signed yet, so Windows SmartScreen may say "Windows protected your PC". Choose **More info › Run anyway**. Updates are verified with Zenith's own signing key.
+          generateReleaseNotes: true
+          releaseDraft: false
+          prerelease: ${{ contains(env.TAG, '-') }}
+          updaterJsonPreferNsis: true
+          tauriScript: pnpm tauri
