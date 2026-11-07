@@ -84,46 +84,76 @@ function rectOf(el: HTMLElement, id: string, dx = 0, dy = 0): PaneSpec | null {
   return { id, x, y, w: right - x, h: bottom - y };
 }
 
-/** While the chrome animates the page's left/top edge (sidebar, toolbars, compact mode), the page
- *  webview would be resized on every frame: its right edge stays put but the page reflows and its
- *  centred content drifts toward the middle. Instead the webview takes its final rectangle as the
- *  animation starts (right/bottom edges fixed), so the page lays out once and then stays still.
- *  When the page grows, the part the chrome hasn't uncovered yet is clipped away by the backend,
- *  so the page is revealed with the sliding edge. Returns how far the page's left/top edges are
- *  from their final position (positive: the final edge is further in). */
-function layoutHold(): { dx: number; dy: number } {
+/** How far the page's left/top edges travel during a layout animation (sidebar, toolbars,
+ *  compact mode), relative to where they are now: `out` reaches the furthest-out edge of the
+ *  animation (<= 0), `in` the furthest-in one (>= 0). All zero when nothing animates.
+ *
+ *  Resizing a page webview shows its old frame pinned to the new top-left corner for a frame, with
+ *  an unpainted strip beside it: a blink, and on every frame if the webview followed the edge. So
+ *  during the animation the webview keeps the largest size it reaches, anchored where it is, and
+ *  only moves with the edge (a move repaints nothing); the backend hides the part that sticks out
+ *  past the page's right/bottom edge. The page lays out once, its content travels with the edge,
+ *  and the real resize happens where nothing new is exposed: growing at the start (the new strip
+ *  is hidden), shrinking at the end. */
+interface Hold {
+  outX: number;
+  inX: number;
+  outY: number;
+  inY: number;
+}
+const NO_HOLD: Hold = { outX: 0, inX: 0, outY: 0, inY: 0 };
+
+function layoutHold(): Hold {
   const app = document.querySelector<HTMLElement>(".app");
-  if (!app) return { dx: 0, dy: 0 };
-  let dx = 0;
-  let dy = 0;
+  if (!app) return NO_HOLD;
+  const hold = { ...NO_HOLD };
   for (const a of app.getAnimations()) {
     if (!(a instanceof CSSTransition)) continue;
     const prop = a.transitionProperty;
     if (prop !== "--lay-left" && prop !== "--lay-top") continue;
     const frames = (a.effect as KeyframeEffect | null)?.getKeyframes() ?? [];
     if (frames.length < 2) continue;
+    const from = parseFloat(String(frames[0][prop]));
     const to = parseFloat(String(frames[frames.length - 1][prop]));
     const cur = parseFloat(getComputedStyle(app).getPropertyValue(prop));
-    if (!Number.isFinite(to) || !Number.isFinite(cur)) continue;
-    if (prop === "--lay-left") dx = to - cur;
-    else dy = to - cur;
+    if (![from, to, cur].every(Number.isFinite)) continue;
+    const out = Math.min(0, from - cur, to - cur);
+    const inn = Math.max(0, from - cur, to - cur);
+    if (prop === "--lay-left") {
+      hold.outX = out;
+      hold.inX = inn;
+    } else {
+      hold.outY = out;
+      hold.inY = inn;
+    }
   }
-  return { dx, dy };
+  return hold;
 }
 
 async function flush() {
   const live = [...panes].filter(([el, id]) => el.isConnected && registry.isLive(id));
   // (Split view keeps following the layout frame by frame: its panes share the width.)
-  const hold = live.length === 1 ? layoutHold() : { dx: 0, dy: 0 };
+  const hold = live.length === 1 ? layoutHold() : NO_HOLD;
   const list: PaneSpec[] = [];
+  // Where the window tint is cut out: the part of each page that shows for the whole animation.
+  // It changes only as an animation starts and ends, never trailing the moving edge (the chrome
+  // paints a frame after the page webview moves, which would flash the bare window material).
+  const cutouts: Rect[] = [];
   for (const [el, id] of live) {
-    const r = rectOf(el, id, hold.dx, hold.dy);
-    if (!r) continue;
-    // The part of a growing page the chrome still covers.
     const shown = rectOf(el, id);
-    if (shown && shown.x > r.x) r.clipX = shown.x - r.x;
-    if (shown && shown.y > r.y) r.clipY = shown.y - r.y;
+    if (!shown) continue;
+    const r: PaneSpec = { ...shown };
+    const big = rectOf(el, id, hold.outX, hold.outY);
+    if (big && (big.w > shown.w || big.h > shown.h)) {
+      // The largest size, anchored at the current edge; only `shown` of it is visible.
+      r.w = Math.max(big.w, shown.w);
+      r.h = Math.max(big.h, shown.h);
+      r.visW = shown.w;
+      r.visH = shown.h;
+    }
     list.push(r);
+    const core = rectOf(el, id, hold.inX, hold.inY) ?? shown;
+    cutouts.push({ x: core.x, y: core.y, w: core.w, h: core.h });
   }
   const glance =
     glanceEl && glanceEl.el.isConnected && registry.isLive(glanceEl.id)
@@ -139,9 +169,7 @@ async function flush() {
   const key = JSON.stringify(spec);
   if (key !== lastSent) {
     lastSent = key;
-    // The window tint is cut out where the page shows, not under its clipped part.
-    const shownPanes = list.map(({ x, y, w, h, clipX = 0, clipY = 0 }) => ({ x: x + clipX, y: y + clipY, w: w - clipX, h: h - clipY }));
-    if (JSON.stringify(shownPanes) !== JSON.stringify(overlay.panes)) overlay.panes = shownPanes;
+    if (JSON.stringify(cutouts) !== JSON.stringify(overlay.panes)) overlay.panes = cutouts;
     try {
       await api.setLayout(spec);
     } catch (e) {

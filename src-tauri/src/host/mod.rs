@@ -245,13 +245,14 @@ pub struct PaneSpec {
     pub y: f64,
     pub w: f64,
     pub h: f64,
-    /// While the chrome animates the page's left/top edge outward, the webview already has its
-    /// final size and this much of its left/top is hidden (logical px), so the page is revealed
-    /// with the sliding edge instead of being resized on every frame.
+    /// While the chrome animates the page's left/top edge, the webview keeps the largest size it
+    /// has during the animation and only moves with the edge; this is the part of it that shows
+    /// (logical px from its top-left), the rest is hidden by a window region. Resizing a WebView2
+    /// shows its old frame pinned to the new corner for a frame, moving it repaints nothing.
     #[serde(default)]
-    pub clip_x: f64,
+    pub vis_w: Option<f64>,
     #[serde(default)]
-    pub clip_y: f64,
+    pub vis_h: Option<f64>,
 }
 
 #[derive(Deserialize, Clone, Debug, Default)]
@@ -708,34 +709,60 @@ pub(crate) fn logical_rect(p: &PaneSpec) -> Rect {
     }
 }
 
-/// Places a tab's webview. Unlike wry's `set_bounds`, the size comes from the rounded edges (so
-/// the right and bottom edges never wobble by a pixel as the left edge moves), and the container
-/// window is moved synchronously, in step with the page inside it: wry moves it asynchronously
-/// after resizing the page, which shows the page shifted for a frame on every layout change.
-fn place_view(view: &wry::WebView, p: &PaneSpec, scale: f64) {
-    let left = (p.x * scale).round() as i32;
-    let top = (p.y * scale).round() as i32;
-    let w = (((p.x + p.w) * scale).round() as i32 - left).max(1);
-    let h = (((p.y + p.h) * scale).round() as i32 - top).max(1);
+/// A logical rectangle in window pixels. The size comes from the rounded edges, so the right and
+/// bottom edges never wobble by a pixel as the left edge moves.
+fn px_rect(x: f64, y: f64, w: f64, h: f64, scale: f64) -> (i32, i32, i32, i32) {
+    let left = (x * scale).round() as i32;
+    let top = (y * scale).round() as i32;
+    let pw = (((x + w) * scale).round() as i32 - left).max(1);
+    let ph = (((y + h) * scale).round() as i32 - top).max(1);
+    (left, top, pw, ph)
+}
+
+/// Places a tab's webview. The container window is moved synchronously, in step with the page
+/// inside it (wry moves it asynchronously after resizing the page, which shows the page shifted
+/// for a frame). A move that keeps the size leaves the page alone, so nothing is repainted.
+fn place_view(view: &wry::WebView, p: &PaneSpec, prev: Option<(f64, f64, f64, f64)>, scale: f64) {
+    let (left, top, w, h) = px_rect(p.x, p.y, p.w, p.h, scale);
+    let same_size = prev.is_some_and(|(x, y, pw, ph)| {
+        let (_, _, ow, oh) = px_rect(x, y, pw, ph, scale);
+        (ow, oh) == (w, h)
+    });
     unsafe {
-        let _ = SetWindowPos(view.hwnd(), None, left, top, w, h, SWP_NOACTIVATE | SWP_NOZORDER);
-        let _ = view.controller().SetBounds(RECT { left: 0, top: 0, right: w, bottom: h });
+        if same_size {
+            let flags = SWP_NOACTIVATE | SWP_NOZORDER | SWP_NOSIZE;
+            let _ = SetWindowPos(view.hwnd(), None, left, top, 0, 0, flags);
+        } else {
+            let _ = SetWindowPos(view.hwnd(), None, left, top, w, h, SWP_NOACTIVATE | SWP_NOZORDER);
+            let _ = view.controller().SetBounds(RECT { left: 0, top: 0, right: w, bottom: h });
+        }
     }
 }
 
-/// Hides the left/top `clip` (logical px) of a webview with a window region; (0, 0) removes it.
-fn clip_view(view: &wry::WebView, clip: (f64, f64), scale: f64) {
+/// The window region (pixels from the webview's top-left) that shows only `vis_w`/`vis_h` of a
+/// pane; None when the whole webview shows.
+fn clip_of(p: &PaneSpec, scale: f64) -> Option<(i32, i32)> {
+    if p.vis_w.is_none() && p.vis_h.is_none() {
+        return None;
+    }
+    let (_, _, w, h) = px_rect(p.x, p.y, p.vis_w.unwrap_or(p.w), p.vis_h.unwrap_or(p.h), scale);
+    Some((w, h))
+}
+
+/// Shows only the top-left `clip` pixels of a webview with a window region; None removes it.
+fn clip_view(view: &wry::WebView, clip: Option<(i32, i32)>) {
     unsafe {
         let hwnd = view.hwnd();
-        if clip == (0.0, 0.0) {
-            let _ = SetWindowRgn(hwnd, None, true);
-            return;
+        match clip {
+            None => {
+                let _ = SetWindowRgn(hwnd, None, true);
+            }
+            Some((w, h)) => {
+                // The window owns the region from here on.
+                let rgn = CreateRectRgn(0, 0, w, h);
+                let _ = SetWindowRgn(hwnd, Some(rgn), true);
+            }
         }
-        let x = (clip.0 * scale).round() as i32;
-        let y = (clip.1 * scale).round() as i32;
-        // The window owns the region from here on.
-        let rgn = CreateRectRgn(x, y, 1 << 15, 1 << 15);
-        let _ = SetWindowRgn(hwnd, Some(rgn), true);
     }
 }
 
@@ -802,18 +829,23 @@ impl Host {
             }
             match visible.get(id) {
                 Some(p) => {
-                    // The clip goes first: a webview that grows under the sliding chrome must
-                    // not cover it for a frame.
-                    let clip = (p.clip_x.max(0.0), p.clip_y.max(0.0));
-                    if tab.last_clip != clip {
-                        clip_view(&tab.view, clip, scale);
-                        tab.last_clip = clip;
+                    // A region that is set or changed goes on before the webview grows or moves,
+                    // so its hidden part never shows past the page edge; a region that comes off
+                    // comes off after the webview has its final size.
+                    let clip = clip_of(p, scale);
+                    let clip_changed = tab.last_clip != clip;
+                    if clip_changed && clip.is_some() {
+                        clip_view(&tab.view, clip);
                     }
                     let rect = (p.x, p.y, p.w, p.h);
                     if tab.last_rect != Some(rect) {
-                        place_view(&tab.view, p, scale);
+                        place_view(&tab.view, p, tab.last_rect, scale);
                         tab.last_rect = Some(rect);
                     }
+                    if clip_changed && clip.is_none() {
+                        clip_view(&tab.view, None);
+                    }
+                    tab.last_clip = clip;
                     if !tab.visible {
                         let _ = tab.view.set_visible(true);
                         tab.visible = true;

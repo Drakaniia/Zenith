@@ -265,8 +265,8 @@ pub struct Tab {
     pub shared: Rc<TabShared>,
     pub visible: bool,
     pub last_rect: Option<(f64, f64, f64, f64)>,
-    /// Left/top of the webview hidden by a window region (logical px), see `PaneSpec::clip_x`.
-    pub last_clip: (f64, f64),
+    /// The window region showing only the top-left of the webview (pixels), see `PaneSpec::vis_w`.
+    pub last_clip: Option<(i32, i32)>,
     pub find: Option<ICoreWebView2Find>,
 }
 
@@ -522,7 +522,7 @@ pub fn create(opts: CreateOptions) -> Result<ICoreWebView2, String> {
         shared,
         visible: false,
         last_rect: None,
-        last_clip: (0.0, 0.0),
+        last_clip: None,
         find: None,
     };
     with_host(move |h| {

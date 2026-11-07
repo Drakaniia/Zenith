@@ -33,9 +33,10 @@ export interface PaneSpec {
   y: number;
   w: number;
   h: number;
-  /** Hidden left/top part of the page while the chrome slides off it (see layout.svelte.ts). */
-  clipX?: number;
-  clipY?: number;
+  /** During a layout animation the webview keeps its largest size and only this much of it, from
+   *  its top-left, shows (see `layoutHold` in layout.svelte.ts). */
+  visW?: number;
+  visH?: number;
 }
 
 export interface LayoutSpec {
