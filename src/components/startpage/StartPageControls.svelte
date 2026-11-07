@@ -6,11 +6,11 @@
   import { startPage } from '../../lib/startpage.svelte';
   import { HOVER_HIDE_MS } from '../../lib/startpage';
 
-  // The start page's small settings button. Holding the pointer over it for 3 s clears the page
-  // (a ring fills while it waits); clicking it opens the settings panel, or brings the page back.
+  // Hovering for 1 s clears the page until the pointer leaves the button.
+  // Clicking opens the settings panel.
   let open = $state(false);
-  let holding = $state(false);
-  let hint = $state(false);
+
+
   let root: HTMLDivElement | undefined = $state();
   let button: HTMLButtonElement | undefined = $state();
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -18,22 +18,19 @@
   function startHold(e: PointerEvent) {
     if (e.pointerType === 'touch' || !startPage.prefs.hoverToHide || open) return;
     clearTimeout(timer);
-    holding = true;
     timer = setTimeout(() => {
-      holding = false;
-      startPage.cleared = !startPage.cleared;
+      startPage.cleared = true;
     }, HOVER_HIDE_MS);
   }
 
   function stopHold() {
     clearTimeout(timer);
-    holding = false;
+    startPage.cleared = false;
   }
 
   function onclick() {
     stopHold();
-    if (startPage.cleared) startPage.cleared = false;
-    else open = !open;
+    open = !open;
   }
 
   function close(refocus = true) {
@@ -60,19 +57,10 @@
     };
   });
 
-  // After the page clears, say once how to bring it back.
-  $effect(() => {
-    if (!startPage.cleared) {
-      hint = false;
-      return;
-    }
-    hint = true;
-    const t = setTimeout(() => (hint = false), 3800);
-    return () => clearTimeout(t);
-  });
-
-  $effect(() => () => clearTimeout(timer));
+  $effect(() => () => stopHold());
 </script>
+
+<svelte:window onblur={stopHold} />
 
 <div class="sp-controls" bind:this={root}>
   {#if open}
@@ -80,28 +68,22 @@
       <StartPagePanel onclose={() => close()} />
     </div>
   {/if}
-  {#if hint}
-    <p class="hint" role="status" in:scale={{ start: 0.97, duration: 180, easing: cubicOut }} out:scale={{ start: 0.98, duration: 160 }}>
-      Click anywhere or press Esc to bring everything back
-    </p>
-  {/if}
+
   <button
     bind:this={button}
     type="button"
     class="fab"
-    class:holding
     class:open
-    class:quiet={startPage.cleared}
-    aria-label={startPage.cleared ? 'Show search and sites' : 'Customize start page'}
+    aria-label="Customize start page"
     aria-expanded={open}
     aria-haspopup="dialog"
-    title={startPage.cleared ? 'Show search and sites' : 'Customize start page'}
+    title="Customize start page"
     onpointerenter={startHold}
     onpointerleave={stopHold}
+    onpointercancel={stopHold}
     {onclick}
   >
-    <svg class="ring" viewBox="0 0 40 40" aria-hidden="true"><circle cx="20" cy="20" r="18.25" /></svg>
-    <Icon name={startPage.cleared ? 'eye' : 'sliders'} size={16} />
+    <Icon name="sliders" size={16} />
   </button>
 </div>
 
@@ -127,9 +109,9 @@
     place-items: center;
     border-radius: 50%;
     color: var(--text-2);
-    background: color-mix(in srgb, var(--dialog-bg) 78%, transparent);
-    border: 1px solid var(--line-strong);
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.16);
+    background: transparent;
+    border: none;
+    box-shadow: none;
     opacity: 0.72;
     transition:
       opacity 160ms ease,
@@ -145,58 +127,10 @@
   .fab:active {
     transform: scale(0.94);
   }
-  .fab.quiet:not(:hover):not(:focus-visible) {
-    opacity: 0.45;
-  }
+
   .fab:focus-visible {
     outline: 2px solid var(--accent-button);
     outline-offset: 2px;
   }
-  /* Progress ring for the 3 s hold. It starts after a short pause so passing over the button
-   * doesn't flash it, fills linearly (it measures time), and snaps back fast on leave. */
-  .ring {
-    position: absolute;
-    inset: -3px;
-    width: calc(100% + 6px);
-    height: calc(100% + 6px);
-    rotate: -90deg;
-    pointer-events: none;
-  }
-  .ring circle {
-    fill: none;
-    stroke: var(--accent-button);
-    stroke-width: 2;
-    stroke-linecap: round;
-    stroke-dasharray: 114.7;
-    stroke-dashoffset: 114.7;
-    opacity: 0;
-    transition:
-      stroke-dashoffset 180ms var(--ease-out),
-      opacity 120ms ease;
-  }
-  .fab.holding .ring circle {
-    stroke-dashoffset: 0;
-    opacity: 1;
-    transition:
-      stroke-dashoffset 2600ms linear 400ms,
-      opacity 120ms ease 400ms;
-  }
-  .hint {
-    margin: 0;
-    padding: 7px 12px;
-    border-radius: 9px;
-    font-size: 12px;
-    color: var(--text-2);
-    background: color-mix(in srgb, var(--dialog-bg) 86%, transparent);
-    border: 1px solid var(--line);
-    box-shadow: var(--zen-big-shadow);
-    transform-origin: bottom right;
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .fab.holding .ring circle {
-      transition: opacity 120ms ease 400ms;
-      stroke-dasharray: none;
-      stroke-dashoffset: 0;
-    }
-  }
+
 </style>

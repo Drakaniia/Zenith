@@ -1,13 +1,15 @@
 <script lang="ts">
   import { fade } from 'svelte/transition';
+  import { flip } from 'svelte/animate';
   import { cubicOut } from 'svelte/easing';
   import Icon from '../Icon.svelte';
   import Favicon from '../Favicon.svelte';
   import StartPageControls from '../startpage/StartPageControls.svelte';
+  import SiteEditor from '../startpage/SiteEditor.svelte';
   import { browser } from '../../lib/browser.svelte';
   import { settings } from '../../lib/settings.svelte';
   import { startPage } from '../../lib/startpage.svelte';
-  import { TILE_METRICS, greetingFor, textTone } from '../../lib/startpage';
+  import { MAX_SAVED_SITES, TILE_METRICS, composeTiles, greetingFor, textTone, type SavedSite } from '../../lib/startpage';
   import { ui } from '../../lib/ui.svelte';
   import { api } from '../../lib/ipc';
   import { incognito } from '../../lib/app.svelte';
@@ -25,14 +27,56 @@
   const metrics = $derived(TILE_METRICS[p.tileSize]);
   const greeting = greetingFor(new Date().getHours());
 
-  type Tile = { key: string; essential: Tab; site?: undefined } | { key: string; essential?: undefined; site: HistoryEntry };
+  // The Tableau: the user's saved sites, then Essentials and most visited sites.
+  type Tile =
+    | { key: string; kind: 'saved'; site: SavedSite }
+    | { key: string; kind: 'essential'; tab: Tab }
+    | { key: string; kind: 'top'; entry: HistoryEntry };
   const tiles = $derived.by(() => {
-    const list: Tile[] = [];
-    if (p.showEssentials) for (const e of essentials) list.push({ key: `e-${e.id}`, essential: e });
-    // Incognito windows record no history, so there are no most visited sites to show.
-    if (settings.value.showTopSites && !incognito) for (const t of top) list.push({ key: `h-${t.id}`, site: t });
-    return list.slice(0, p.tileCount);
+    const c = composeTiles(
+      p.showSaved ? p.sites : [],
+      p.showEssentials ? essentials : [],
+      // Incognito windows record no history, so there are no most visited sites to show.
+      settings.value.showTopSites && !incognito ? top : [],
+      p.hiddenSites,
+      p.tileCount,
+    );
+    return [
+      ...c.saved.map((site): Tile => ({ key: `s-${site.id}`, kind: 'saved', site })),
+      ...c.essentials.map((tab): Tile => ({ key: `e-${tab.id}`, kind: 'essential', tab })),
+      ...c.top.map((entry): Tile => ({ key: `h-${entry.id}`, kind: 'top', entry })),
+    ];
   });
+  // Incognito windows show the saved sites but don't change them.
+  const canEdit = !incognito;
+  const canAdd = $derived(canEdit && p.showSaved && p.sites.length < MAX_SAVED_SITES);
+
+  // Saved sites are reordered by dragging one onto another.
+  let dragId = $state<string | null>(null);
+  let dropId = $state<string | null>(null);
+  function onDragStart(e: DragEvent, site: SavedSite) {
+    dragId = site.id;
+    if (e.dataTransfer) {
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/uri-list', site.url);
+      e.dataTransfer.setData('text/plain', site.url);
+    }
+  }
+  function onDragOver(e: DragEvent, site: SavedSite) {
+    if (!dragId) return;
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+    dropId = site.id;
+  }
+  function onDrop(e: DragEvent, index: number) {
+    if (!dragId) return;
+    e.preventDefault();
+    startPage.moveSite(dragId, index);
+    dragId = dropId = null;
+  }
+  function onDragEnd() {
+    dragId = dropId = null;
+  }
 
   const background = $derived(startPage.resolve(p.background));
   const text = $derived(background ? textTone(background.tone, p.dim) : null);
@@ -54,7 +98,7 @@
             seen.add(h);
             return true;
           })
-          .slice(0, 16);
+          .slice(0, 40);
       })
       .catch(() => {});
   });
@@ -90,18 +134,8 @@
     };
   }
 
-  // A cleared page comes back with any click on it or Escape.
-  function restore(e: PointerEvent) {
-    if (!startPage.cleared || (e.target as Element).closest('.sp-controls')) return;
-    startPage.cleared = false;
-  }
 </script>
 
-<svelte:window
-  onkeydown={(e) => {
-    if (e.key === 'Escape' && startPage.cleared) startPage.cleared = false;
-  }}
-/>
 
 <div
   class="ntp"
@@ -114,7 +148,7 @@
   style:--tile-icon="{metrics.icon}px"
   style:--tile-r="{metrics.radius}px"
   style:--tile-letter="{metrics.letter}px"
-  onpointerdown={restore}
+
 >
   {#if background}
     {#key background.url}
@@ -165,23 +199,74 @@
       </button>
     {/if}
 
-    {#if p.showTiles && tiles.length}
-      <div class="block tiles" class:no-labels={!p.tileLabels} transition:reveal>
-        {#each tiles as t (t.key)}
-          {#if t.essential}
-            {@const e = t.essential}
-            <button class="tile" onclick={() => browser.activate(e.id)} title={titleFor(e.url, e.title)}>
-              <span class="tile-icon"><Favicon url={e.url} favicon={e.favicon} size={metrics.favicon} /></span>
-              {#if p.tileLabels}<span class="tile-label ellipsis">{titleFor(e.url, e.title)}</span>{/if}
-            </button>
-          {:else}
-            {@const s = t.site}
-            <button class="tile" onclick={() => open(s.url)} title={s.title || s.url}>
-              <span class="tile-icon letter" style:--h={hue(hostOf(s.url))}>{displayHost(s.url)[0]?.toUpperCase()}</span>
-              {#if p.tileLabels}<span class="tile-label ellipsis">{displayHost(s.url)}</span>{/if}
-            </button>
-          {/if}
+    {#if p.showTiles && (tiles.length || canAdd)}
+      <div class="block tiles" class:no-labels={!p.tileLabels} role="list" aria-label="Tableau" transition:reveal>
+        {#each tiles as t, i (t.key)}
+          <div
+            class="tile-wrap"
+            class:dragging={t.kind === 'saved' && dragId === t.site.id}
+            class:drop={t.kind === 'saved' && dropId === t.site.id && dragId !== t.site.id}
+            role="listitem"
+            draggable={t.kind === 'saved' && canEdit}
+            ondragstart={(e) => t.kind === 'saved' && canEdit && onDragStart(e, t.site)}
+            ondragover={(e) => t.kind === 'saved' && onDragOver(e, t.site)}
+            ondrop={(e) => t.kind === 'saved' && onDrop(e, i)}
+            ondragend={onDragEnd}
+            animate:flip={{ duration: reduced ? 0 : 220, easing: cubicOut }}
+          >
+            {#if t.kind === 'saved'}
+              {@const s = t.site}
+              {@const name = s.title || displayHost(s.url)}
+              <button class="tile" onclick={() => open(s.url)} title={`${name}\n${s.url}`}>
+                <span class="tile-icon letter" style:--h={hue(hostOf(s.url))}>{name[0]?.toUpperCase()}</span>
+                {#if p.tileLabels}<span class="tile-label ellipsis">{name}</span>{/if}
+              </button>
+              {#if canEdit}
+                <span class="tile-actions">
+                  <button type="button" aria-label="Edit {name}" title="Edit" onclick={() => (startPage.editing = { id: s.id, url: s.url, title: s.title })}>
+                    <Icon name="edit" size={11} stroke={2.4} />
+                  </button>
+                  <button type="button" aria-label="Remove {name}" title="Remove" onclick={() => startPage.removeSite(s.id)}>
+                    <Icon name="close" size={11} stroke={2.6} />
+                  </button>
+                </span>
+              {/if}
+            {:else if t.kind === 'essential'}
+              {@const e = t.tab}
+              <button class="tile" onclick={() => browser.activate(e.id)} title={titleFor(e.url, e.title)}>
+                <span class="tile-icon"><Favicon url={e.url} favicon={e.favicon} size={metrics.favicon} /></span>
+                {#if p.tileLabels}<span class="tile-label ellipsis">{titleFor(e.url, e.title)}</span>{/if}
+              </button>
+            {:else}
+              {@const s = t.entry}
+              {@const name = displayHost(s.url)}
+              <button class="tile" onclick={() => open(s.url)} title={s.title || s.url}>
+                <span class="tile-icon letter" style:--h={hue(hostOf(s.url))}>{name[0]?.toUpperCase()}</span>
+                {#if p.tileLabels}<span class="tile-label ellipsis">{name}</span>{/if}
+              </button>
+              {#if canEdit}
+                <span class="tile-actions">
+                  {#if canAdd}
+                    <button type="button" aria-label="Save {name} to Tableau" title="Save to Tableau" onclick={() => (startPage.editing = { url: s.url, title: '' })}>
+                      <Icon name="pin" size={11} stroke={2.4} />
+                    </button>
+                  {/if}
+                  <button type="button" aria-label="Hide {name}" title="Don't show this site" onclick={() => startPage.hideSite(s.url)}>
+                    <Icon name="close" size={11} stroke={2.6} />
+                  </button>
+                </span>
+              {/if}
+            {/if}
+          </div>
         {/each}
+        {#if canAdd}
+          <div class="tile-wrap" role="listitem">
+            <button class="tile add" onclick={() => (startPage.editing = { url: '', title: '' })} title="Add a site">
+              <span class="tile-icon add-icon"><Icon name="plus" size={Math.round(metrics.icon * 0.4)} /></span>
+              {#if p.tileLabels}<span class="tile-label ellipsis">Add site</span>{/if}
+            </button>
+          </div>
+        {/if}
       </div>
     {/if}
   </div>
@@ -196,6 +281,10 @@
 
   {#if !incognito}
     <StartPageControls />
+  {/if}
+
+  {#if startPage.editing}
+    <SiteEditor />
   {/if}
 </div>
 
@@ -349,7 +438,21 @@
     width: min(calc(var(--tile-w) * 8 + 70px), 100%);
     margin-top: 19px;
   }
+  .tile-wrap {
+    position: relative;
+    border-radius: var(--radius-lg);
+    transition:
+      opacity 140ms ease,
+      box-shadow 140ms ease;
+  }
+  .tile-wrap.dragging {
+    opacity: 0.4;
+  }
+  .tile-wrap.drop {
+    box-shadow: inset 0 0 0 2px var(--accent-button);
+  }
   .tile {
+    width: 100%;
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -397,6 +500,60 @@
     font-size: 12px;
     color: var(--text-2);
   }
+  .tile-icon.add-icon {
+    color: var(--text-2);
+    background: transparent;
+    border: 1.5px dashed var(--line-strong);
+    transition:
+      color var(--fast),
+      border-color var(--fast),
+      width 200ms var(--ease-out),
+      height 200ms var(--ease-out);
+  }
+  .tile.add:hover .add-icon {
+    color: var(--text);
+    border-color: var(--text-3);
+  }
+
+  /* Edit / remove buttons in the tile's corner, shown on hover or keyboard focus. */
+  .tile-actions {
+    position: absolute;
+    top: 3px;
+    right: 3px;
+    display: flex;
+    gap: 2px;
+    opacity: 0;
+    transform: scale(0.9);
+    transition:
+      opacity 120ms ease,
+      transform 120ms var(--ease-out);
+  }
+  .tile-wrap:hover .tile-actions,
+  .tile-actions:focus-within {
+    opacity: 1;
+    transform: none;
+  }
+  .tile-wrap.dragging .tile-actions {
+    opacity: 0;
+  }
+  .tile-actions button {
+    width: 20px;
+    height: 20px;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+    color: var(--text-2);
+    background: var(--dialog-bg);
+    border: 1px solid var(--line-strong);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18);
+  }
+  .tile-actions button:hover {
+    color: var(--text);
+  }
+  .tile-actions button:focus-visible {
+    outline: 2px solid var(--accent-button);
+    outline-offset: 1px;
+  }
 
   .foot {
     position: relative;
@@ -437,6 +594,14 @@
   }
   .ntp[data-text='light'] .tile:hover {
     background: rgba(255, 255, 255, 0.14);
+  }
+  .ntp[data-text='light'] .add-icon {
+    color: rgba(255, 255, 255, 0.9);
+    border-color: rgba(255, 255, 255, 0.55);
+  }
+  .ntp[data-text='dark'] .add-icon {
+    color: rgba(16, 16, 22, 0.75);
+    border-color: rgba(16, 16, 22, 0.35);
   }
   .ntp[data-text='dark'] .tile:hover {
     background: rgba(0, 0, 0, 0.07);

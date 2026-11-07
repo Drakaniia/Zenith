@@ -12,18 +12,31 @@ export interface CustomWallpaper {
   tone: Tone;
 }
 
+/** A website the user saved to the Tableau (the start page's site tiles). */
+export interface SavedSite {
+  id: string;
+  url: string;
+  /** Empty: the tile shows the site's host. */
+  title: string;
+}
+
 export interface StartPageSettings {
   showGreeting: boolean;
   showSearch: boolean;
-  /** The site tiles: Essentials and most visited sites. */
+  /** The Tableau: saved sites, Essentials and most visited sites. */
   showTiles: boolean;
+  /** The user's own saved sites, in their order. */
+  showSaved: boolean;
+  sites: SavedSite[];
+  /** Sites (siteKey) removed from the most visited tiles. */
+  hiddenSites: string[];
   showEssentials: boolean;
   tileLabels: boolean;
   tileSize: TileSize;
   /** Most tiles shown at once. */
   tileCount: number;
   showHints: boolean;
-  /** Holding the pointer over the settings button for 3 s clears the page. */
+  /** Holding the pointer over the settings button for 1 s clears the page. */
   hoverToHide: boolean;
   align: StartAlign;
   searchWidth: SearchWidth;
@@ -42,11 +55,14 @@ export interface StartPageSettings {
 
 export const TILE_COUNTS = [4, 8, 12, 16] as const;
 export const MAX_CUSTOM_IMAGES = 12;
+export const MAX_SAVED_SITES = 24;
+export const MAX_HIDDEN_SITES = 200;
+export const SITE_TITLE_MAX = 60;
 export const DIM_MAX = 70;
 export const BLUR_MAX = 20;
 /** Longest side of an uploaded background after downscaling. */
 export const UPLOAD_MAX_SIDE = 2560;
-export const HOVER_HIDE_MS = 3000;
+export const HOVER_HIDE_MS = 1000;
 
 /** Tile geometry per size, in px. */
 export const TILE_METRICS: Record<TileSize, { tile: number; icon: number; favicon: number; radius: number; letter: number }> = {
@@ -60,6 +76,9 @@ export function defaultStartPage(): StartPageSettings {
     showGreeting: true,
     showSearch: true,
     showTiles: true,
+    showSaved: true,
+    sites: [],
+    hiddenSites: [],
     showEssentials: true,
     tileLabels: true,
     tileSize: "medium",
@@ -100,10 +119,32 @@ export function normalizeStartPage(raw: unknown, galleryIds: readonly string[]):
       if (customImages.length >= MAX_CUSTOM_IMAGES) break;
     }
   }
+  const sites: SavedSite[] = [];
+  if (Array.isArray(r.sites)) {
+    for (const s of r.sites as unknown[]) {
+      const site = s as Partial<SavedSite> | null;
+      if (!site || typeof site.id !== "string" || !CUSTOM_ID.test(site.id)) continue;
+      const url = typeof site.url === "string" ? siteUrl(site.url) : null;
+      if (!url || sites.some((x) => x.id === site.id)) continue;
+      sites.push({ id: site.id, url, title: cleanTitle(site.title) });
+      if (sites.length >= MAX_SAVED_SITES) break;
+    }
+  }
+  const hiddenSites: string[] = [];
+  if (Array.isArray(r.hiddenSites)) {
+    for (const h of r.hiddenSites as unknown[]) {
+      if (typeof h !== "string" || !/^[a-z0-9.\-\[\]:]{1,253}$/.test(h) || hiddenSites.includes(h)) continue;
+      hiddenSites.push(h);
+      if (hiddenSites.length >= MAX_HIDDEN_SITES) break;
+    }
+  }
   const out: StartPageSettings = {
     showGreeting: bool(r.showGreeting, d.showGreeting),
     showSearch: bool(r.showSearch, d.showSearch),
     showTiles: bool(r.showTiles, d.showTiles),
+    showSaved: bool(r.showSaved, d.showSaved),
+    sites,
+    hiddenSites,
     showEssentials: bool(r.showEssentials, d.showEssentials),
     tileLabels: bool(r.tileLabels, d.tileLabels),
     tileSize: oneOf(r.tileSize, ["small", "medium", "large"] as const, d.tileSize),
@@ -121,6 +162,83 @@ export function normalizeStartPage(raw: unknown, galleryIds: readonly string[]):
   };
   out.background = backgroundExists(r.background, galleryIds, customImages) ? (r.background as string) : "";
   return out;
+}
+
+/** A web address typed for a saved site ("example.com" or a full http(s) URL), or null. */
+export function siteUrl(raw: string): string | null {
+  const input = raw.trim();
+  if (!input || /\s/.test(input)) return null;
+  const withScheme = /^[a-z][a-z0-9+.-]*:/i.test(input) && !/^[^/]+:\d+(\/|$)/.test(input) ? input : `https://${input}`;
+  let u: URL;
+  try {
+    u = new URL(withScheme);
+  } catch {
+    return null;
+  }
+  if (u.protocol !== "http:" && u.protocol !== "https:") return null;
+  const host = u.hostname;
+  if (!host || (!host.includes(".") && host !== "localhost" && !host.startsWith("["))) return null;
+  if (host.startsWith(".") || host.endsWith(".") || host.includes("..")) return null;
+  return u.href;
+}
+
+function cleanTitle(v: unknown): string {
+  return typeof v === "string" ? v.replace(/\s+/g, " ").trim().slice(0, SITE_TITLE_MAX) : "";
+}
+
+/** What identifies a site for hiding and duplicates: its host without "www.". */
+export function siteKey(url: string): string {
+  try {
+    return new URL(url).hostname.toLowerCase().replace(/^www\./, "");
+  } catch {
+    return "";
+  }
+}
+
+export function newSiteId(now: number, random: number): string {
+  return `s-${now.toString(36)}-${Math.floor(random * 36 ** 4)
+    .toString(36)
+    .padStart(4, "0")}`;
+}
+
+/** Checks a saved-site form. Returns the cleaned site fields or the problem to show. */
+export function validateSite(
+  input: { url: string; title: string },
+  sites: readonly SavedSite[],
+  editingId?: string,
+): { url: string; title: string } | { error: string } {
+  const url = siteUrl(input.url);
+  if (!url) return { error: "Enter a web address, like example.com." };
+  if (sites.some((s) => s.id !== editingId && s.url === url)) return { error: "This site is already on your Tableau." };
+  if (!editingId && sites.length >= MAX_SAVED_SITES)
+    return { error: `You can save up to ${MAX_SAVED_SITES} sites. Remove one to add another.` };
+  return { url, title: cleanTitle(input.title) };
+}
+
+/** `list` with the item at `from` moved to `to`. */
+export function moveItem<T>(list: readonly T[], from: number, to: number): T[] {
+  const out = list.slice();
+  if (from < 0 || from >= out.length) return out;
+  const [item] = out.splice(from, 1);
+  out.splice(Math.max(0, Math.min(out.length, to)), 0, item);
+  return out;
+}
+
+/** The Tableau's tiles: every saved site first, then Essentials and most visited sites (minus
+ *  hidden ones and ones already saved) filling the remaining places up to `limit`. */
+export function composeTiles<E, T extends { url: string }>(
+  saved: readonly SavedSite[],
+  essentials: readonly E[],
+  top: readonly T[],
+  hidden: readonly string[],
+  limit: number,
+): { saved: SavedSite[]; essentials: E[]; top: T[] } {
+  const savedKeys = new Set(saved.map((s) => siteKey(s.url)));
+  let room = Math.max(0, limit - saved.length);
+  const e = essentials.slice(0, room);
+  room -= e.length;
+  const t = top.filter((x) => !hidden.includes(siteKey(x.url)) && !savedKeys.has(siteKey(x.url))).slice(0, room);
+  return { saved: saved.slice(), essentials: e, top: t };
 }
 
 export type BackgroundRef = { kind: "none" } | { kind: "gallery"; id: string } | { kind: "custom"; id: string };

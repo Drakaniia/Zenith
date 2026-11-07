@@ -11,6 +11,7 @@
     BLUR_MAX,
     DIM_MAX,
     MAX_CUSTOM_IMAGES,
+    MAX_SAVED_SITES,
     TILE_COUNTS,
     backgroundChoices,
     localDay,
@@ -101,10 +102,10 @@
   <div class="body">
     {#if tab === 'layout'}
       <section>
-        <h3>Page</h3>
+        <h3>Main page display</h3>
         <div class="row"><span>Greeting</span><Toggle checked={p.showGreeting} label="Greeting" onchange={(v) => set('showGreeting', v)} /></div>
         <div class="row"><span>Search bar</span><Toggle checked={p.showSearch} label="Search bar" onchange={(v) => set('showSearch', v)} /></div>
-        <div class="row"><span>Sites</span><Toggle checked={p.showTiles} label="Sites" onchange={(v) => set('showTiles', v)} /></div>
+        <div class="row"><span>Tableau</span><Toggle checked={p.showTiles} label="Tableau" onchange={(v) => set('showTiles', v)} /></div>
         <div class="row"><span>Keyboard hints</span><Toggle checked={p.showHints} label="Keyboard hints" onchange={(v) => set('showHints', v)} /></div>
         <div class="row">
           <span>Position</span>
@@ -118,7 +119,7 @@
           />
         </div>
         <div class="row">
-          <span class="text"><b>Clear on hover</b><small>Rest the pointer on the settings button for 3 seconds to hide everything.</small></span>
+          <span class="text"><b>Clear on hover</b><small>Hover over the settings button for 1 second to hide everything. Move away to bring it back.</small></span>
           <Toggle checked={p.hoverToHide} label="Clear on hover" onchange={(v) => set('hoverToHide', v)} />
         </div>
       </section>
@@ -150,7 +151,11 @@
       </section>
 
       <section class:off={!p.showTiles}>
-        <h3>Sites</h3>
+        <h3>Tableau · saved websites</h3>
+        <div class="row">
+          <span class="text"><b>Saved sites</b><small>{p.sites.length} of {MAX_SAVED_SITES} · drag tiles to reorder</small></span>
+          <Toggle checked={p.showSaved} label="Saved sites" onchange={(v) => set('showSaved', v)} />
+        </div>
         <div class="row"><span>Essentials</span><Toggle checked={p.showEssentials} label="Essentials" onchange={(v) => set('showEssentials', v)} /></div>
         <div class="row">
           <span>Most visited</span>
@@ -161,6 +166,23 @@
           <span>Show up to</span>
           <Segmented value={p.tileCount} options={TILE_COUNTS.map((n) => ({ value: n, label: String(n) }))} onchange={(v) => set('tileCount', v)} />
         </div>
+        {#if p.hiddenSites.length}
+          <div class="row">
+            <span class="text"><b>Hidden sites</b><small>{p.hiddenSites.length} removed from most visited</small></span>
+            <button type="button" class="btn ghost sm" onclick={() => startPage.restoreHidden()}>Restore</button>
+          </div>
+        {/if}
+        <button
+          type="button"
+          class="btn ghost add-site"
+          disabled={p.sites.length >= MAX_SAVED_SITES}
+          onclick={() => {
+            onclose();
+            startPage.editing = { url: '', title: '' };
+          }}
+        >
+          <Icon name="plus" size={14} /> Add a site
+        </button>
       </section>
 
       <section class:off={!p.showTiles}>
@@ -270,7 +292,7 @@
       </section>
 
       <section class:off={!p.background}>
-        <h3>Appearance</h3>
+        <h3>Background &amp; appearance</h3>
         <label class="slider">
           <span>Darken</span>
           <input type="range" min="0" max={DIM_MAX} step="1" value={p.dim} oninput={(e) => set('dim', Number(e.currentTarget.value))} />
@@ -406,6 +428,18 @@
   }
   .sizes button.on .size-box {
     background: var(--accent-button);
+  }
+  .add-site {
+    width: 100%;
+    height: 30px;
+    margin: 4px 0 6px;
+    justify-content: center;
+    gap: 6px;
+    color: var(--text-2);
+    border: 1px dashed var(--line-strong);
+  }
+  .add-site:hover:not(:disabled) {
+    color: var(--text);
   }
   .reset {
     margin-top: 6px;

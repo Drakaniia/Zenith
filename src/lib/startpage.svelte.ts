@@ -6,13 +6,18 @@ import { settings } from "./settings.svelte";
 import { GALLERY_IDS, galleryById, galleryUrl } from "./wallpapers";
 import {
   MAX_CUSTOM_IMAGES,
+  MAX_HIDDEN_SITES,
   UPLOAD_MAX_SIDE,
   averageLuminance,
   dailyChoice,
   defaultStartPage,
   fitWithin,
   localDay,
+  moveItem,
+  newSiteId,
   newWallpaperId,
+  siteKey,
+  validateSite,
   parseBackground,
   toneOf,
   type StartPageSettings,
@@ -30,6 +35,8 @@ const UPLOAD_MAX_FILE = 40 * 1024 * 1024;
 class StartPageStore {
   /** Search, tiles, greeting and hints are hidden for a clean view (not saved). */
   cleared = $state(false);
+  /** The saved-site form shown over the start page: a new site (no id) or one being edited. */
+  editing = $state<{ id?: string; url: string; title: string } | null>(null);
   /** Uploaded backgrounds loaded from disk, by id. */
   images = $state<Record<string, string>>({});
   #loading = new Set<string>();
@@ -43,12 +50,48 @@ class StartPageStore {
     settings.save(false);
   }
 
-  /** Put the layout options back to their defaults; the background choices stay. */
+  /** Put the layout options back to their defaults; saved sites and background choices stay. */
   resetLayout() {
     const d = defaultStartPage();
-    const { background, customImages, dailyBackground, dailyDate, dim, blur } = this.prefs;
-    settings.value.startPage = { ...d, background, customImages, dailyBackground, dailyDate, dim, blur };
+    const { sites, hiddenSites, background, customImages, dailyBackground, dailyDate, dim, blur } = this.prefs;
+    settings.value.startPage = { ...d, sites, hiddenSites, background, customImages, dailyBackground, dailyDate, dim, blur };
     settings.save(false);
+  }
+
+  /** Saves the open site form. Returns the problem to show, or "" when it was saved. */
+  saveSite(input: { url: string; title: string }): string {
+    const id = this.editing?.id;
+    const sites = this.prefs.sites;
+    const r = validateSite(input, sites, id);
+    if ("error" in r) return r.error;
+    const next = id
+      ? sites.map((s) => (s.id === id ? { ...s, ...r } : s))
+      : [...sites, { id: newSiteId(Date.now(), Math.random()), ...r }];
+    // A site the user saves on purpose shouldn't stay hidden from most visited.
+    const key = siteKey(r.url);
+    this.set({ sites: next, hiddenSites: this.prefs.hiddenSites.filter((h) => h !== key), showSaved: true });
+    this.editing = null;
+    return "";
+  }
+
+  removeSite(id: string) {
+    this.set({ sites: this.prefs.sites.filter((s) => s.id !== id) });
+  }
+
+  moveSite(id: string, to: number) {
+    const sites = this.prefs.sites;
+    this.set({ sites: moveItem(sites, sites.findIndex((s) => s.id === id), to) });
+  }
+
+  /** Removes a most visited site from the Tableau (until "Restore"). */
+  hideSite(url: string) {
+    const key = siteKey(url);
+    if (!key || this.prefs.hiddenSites.includes(key)) return;
+    this.set({ hiddenSites: [...this.prefs.hiddenSites, key].slice(-MAX_HIDDEN_SITES) });
+  }
+
+  restoreHidden() {
+    this.set({ hiddenSites: [] });
   }
 
   apply(ref: string) {
