@@ -3,7 +3,7 @@
   import { onMount } from 'svelte';
   import Icon from './Icon.svelte';
   import { browser } from '../lib/browser.svelte';
-  import { glancePane, overlayLease, scheduleLayout } from '../lib/layout.svelte';
+  import { followLayout, glancePane, overlayLease, scheduleLayout } from '../lib/layout.svelte';
   import { copyText } from '../lib/actions';
   import { ui } from '../lib/ui.svelte';
   import { springEase } from '../lib/motion';
@@ -83,28 +83,60 @@
     const h = Math.round(popup ? area.height * 0.84 : area.height);
     return { left: Math.round(area.left + (area.width - w) / 2), top: Math.round(area.top + (area.height - h) / 2), w, h };
   });
+
+  // "Open as tab": the card grows into the tab area (the webview follows it frame by frame),
+  // then becomes the tab with no exit transition, so the page never blinks.
+  const MORPH_MS = 340;
+  let morph = $state<{ left: number; top: number; w: number; h: number } | null>(null);
+  let expanding = $state(false);
+  let morphTimer: ReturnType<typeof setTimeout> | undefined;
+  $effect(() => {
+    if (!g) return;
+    // A new card starts in its normal shape.
+    morph = null;
+    expanding = false;
+  });
+  const box = $derived(morph ?? frame);
+
+  function openAsTab() {
+    if (!g || morph) return;
+    const id = g.tabId;
+    const finish = () => {
+      if (browser.glance?.tabId !== id) return;
+      expanding = true;
+      browser.expandGlance();
+    };
+    if (anchor || matchMedia('(prefers-reduced-motion: reduce)').matches) return finish();
+    measure();
+    morph = { left: Math.round(area.left), top: Math.round(area.top), w: Math.round(area.width), h: Math.round(area.height) };
+    followLayout(MORPH_MS + 60);
+    clearTimeout(morphTimer);
+    morphTimer = setTimeout(finish, MORPH_MS);
+  }
 </script>
 
 {#if g && tab}
-  <div class="root" use:overlayLease>
+  <div class="root" class:morphing={!!morph} use:overlayLease>
     <div
       class="backdrop"
       class:clear={!!anchor}
       role="presentation"
-      transition:fade={{ duration: 200 }}
+      transition:fade={{ duration: expanding ? 0 : 200 }}
       onpointerdown={() => browser.closeGlance()}
     ></div>
     <div
       class="frame"
       class:popup
       class:ext={!!anchor}
-      style:left="{frame.left}px"
-      style:top="{frame.top}px"
-      style:width="{frame.w}px"
-      style:height="{frame.h}px"
+      class:morphing={!!morph}
+      style:left="{box.left}px"
+      style:top="{box.top}px"
+      style:width="{box.w}px"
+      style:height="{box.h}px"
+      style:--morph-ms="{MORPH_MS}ms"
       in:scale={{ start: anchor ? 0.96 : 0.86, duration: anchor ? 160 : 350, opacity: 0, easing: springEase }}
       onintroend={() => scheduleLayout()}
-      out:scale={{ start: 0.92, duration: anchor ? 120 : 200, opacity: 0 }}
+      out:scale={{ start: 0.92, duration: expanding ? 0 : anchor ? 120 : 200, opacity: 0 }}
     >
       <div class="body" use:glancePane={tabId}>
         {#if !tab.live}<div class="placeholder"></div>{/if}
@@ -112,9 +144,9 @@
       </div>
     </div>
     {#if !anchor}
-    <div class="side" style:left="{frame.left + frame.w}px" style:top="{frame.top + 3}px" transition:fade={{ duration: 160 }}>
+    <div class="side" style:left="{frame.left + frame.w}px" style:top="{frame.top + 3}px" transition:fade={{ duration: expanding ? 0 : 160 }}>
       <button class="action close" title="Close (Esc)" onclick={() => browser.closeGlance()}><Icon name="close" size={16} /></button>
-      <button class="action" title="Open as tab" onclick={() => browser.expandGlance()}><Icon name="expand" size={16} /></button>
+      <button class="action" title="Open as tab" onclick={openAsTab}><Icon name="expand" size={16} /></button>
       {#if g?.openerId && browser.tabs[g.openerId]}
         <button class="action" title="Open in split view" onclick={() => browser.expandGlance(true)}><Icon name="split" size={16} /></button>
       {/if}
@@ -144,6 +176,22 @@
   }
   .backdrop.clear {
     background: transparent;
+  }
+  .morphing .backdrop {
+    opacity: 0;
+    transition: opacity 240ms ease-out;
+  }
+  .morphing .side {
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 120ms ease-out;
+  }
+  .frame.morphing {
+    transition:
+      left var(--morph-ms) var(--zen-spring),
+      top var(--morph-ms) var(--zen-spring),
+      width var(--morph-ms) var(--zen-spring),
+      height var(--morph-ms) var(--zen-spring);
   }
   .frame {
     position: absolute;
