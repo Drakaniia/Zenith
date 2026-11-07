@@ -20,4 +20,4 @@ purpose for faster search
 feat: can change image of the 
 
 
-bug when i click the Extension icon: when i click the extention catalouge, it dont navigate me there, when one button is clicked,  the popup did not hide, when i click extention, icon i cant click it again to hide,   also in the extention catalouge when i install to zenith make the cmd hide, dont popup it, also make it jsut install to chrome, dont rename to zenith 
+bug when i click the Extension icon: when i click the extention catalouge, it dont navigate me there, when one button is clicked,  the popup did not hide, when i click extention, icon i cant click it again to hide,   also in the extention catalouge when i install to zenith make the cmd hide, dont popup it, also make it jsut install to chrome, dont rename to zenith..  the final problem is that  when i click extention, it does not show its popup (it should preview instead and its black) 

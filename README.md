@@ -6,7 +6,8 @@ A lightweight, Zen-style web browser for Windows 11, built with Tauri 2 (Rust) a
 - **Essentials and pinned tabs**: an icon grid shared across spaces, plus per-space pinned tabs that remember their original page.
 - **Spaces**: separate tab sets with their own name, emoji and accent colour.
 - **Command palette address bar** (Ctrl+L, Ctrl+T, Ctrl+K): URL or search (Google or Yandex), open tabs, bookmarks, history, optional search suggestions, and `>` commands. It floats over the live page.
-- **Compact mode** (Ctrl+B): the page fills the window, and the sidebar and toolbar float in from the edges.
+- **Compact mode** (Ctrl+Alt+C): the page fills the window, and the sidebar and toolbar float in from the edges.
+- **Bookmarks** as in Zen: a toolbar (also at the top edge in the single-toolbar layout), a sidebar, the Library, an Edit bookmark panel with per-workspace bookmarks, tags and keywords, import from other browsers and HTML files, and daily JSON backups. See `docs/ZEN-UI.md`.
 - **Split view**: two tabs side by side with a draggable divider, created from the toolbar, a tab menu, by dragging a tab onto the page, or with Ctrl+Alt+S.
 - **Glance**: Alt+click a link to preview it in a floating card, then open it as a tab, in split view, or close it.
 - **Tab sleeping**: background tabs are suspended, then unloaded after a timeout and woken at their scroll position. Tabs playing audio, downloading or in split view are exempt.
@@ -74,7 +75,10 @@ The e2e suite (31 scenarios) drives the real app over the DevTools protocol: nav
 | Ctrl+L, Alt+D, F6              | Address bar                             |
 | Ctrl+K                         | Command palette                         |
 | Ctrl+Tab, Ctrl+1…8, Ctrl+9     | Switch tabs                             |
-| Ctrl+B                         | Compact mode                            |
+| Ctrl+Alt+C, Alt+B              | Compact mode / sidebar width            |
+| Ctrl+D, Ctrl+Shift+D           | Bookmark page / bookmark all tabs       |
+| Ctrl+B, Ctrl+Shift+B           | Bookmarks sidebar / bookmarks toolbar   |
+| Ctrl+Shift+O                   | Bookmarks library                       |
 | Ctrl+Alt+S                     | Split view                              |
 | Ctrl+Alt+Left/Right            | Previous/next space                     |
 | Ctrl+F, F3                     | Find                                    |

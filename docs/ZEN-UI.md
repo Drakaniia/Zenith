@@ -27,6 +27,19 @@ Zenith's chrome is modelled on [Zen Browser](https://github.com/zen-browser/desk
 | `Menu.svelte`                         | `zen-popup.css`                                                                          | Panel colour, 4px item margins, zoom row in the app menu                                                                                                                                                                                                     |
 | `sidebar/MediaBar.svelte`             | `media/zen-media-controls.css`                                                           | Limited to what WebView2 exposes: go to tab, mute/unmute, dismiss (no play/pause or seek)                                                                                                                                                                    |
 
+## Bookmarks
+
+Zen has no bookmark system of its own: it is Firefox's Places with patches, so Zenith follows Zen's patched surfaces and Firefox's behaviour elsewhere. Sources: `src/zen/common/styles/zen-panels/bookmarks.css`, `src/zen/spaces/ZenSpaceBookmarksStorage.js`, `src/browser/components/places/**` (`editBookmarkPanel`, `browserPlacesViews`, `PlacesUIUtils`), and Zen's user manual page on bookmarks.
+
+- **Edit bookmark panel** (`BookmarkPopup.svelte`): favicon tile 100px with a 10px radius, Name, Location (folder menu plus an expander to the folder tree with "New folder"), Workspaces ("-" or the names, with an expander of checkboxes), Remove bookmark and Save. The star saves the bookmark at once, so every way of leaving keeps it; Escape only drops the edits.
+- **Detailed dialog** (`BookmarkDialog.svelte`): "Bookmark Tab…" with tags and keyword, "Bookmark Tabs…" into a new folder, new and renamed folders.
+- **Toolbar** (`BookmarksBar.svelte`): the Bookmarks Toolbar folder, folders as dropdowns, » overflow, Other Bookmarks, "Import bookmarks…" when empty. Own row in the multiple-toolbars layout; in the single-toolbar layout it is the strip above the page and, when not pinned, appears with the window controls at the top edge. Visibility: always, only on a new tab, never (Ctrl+Shift+B).
+- **Sidebar** (`BookmarksPanel.svelte`, Ctrl+B): beside the page, search on top, the tree below, a Bookmarks / History switch in the title.
+- **Library** (`pages/BookmarksPage.svelte`, Ctrl+Shift+O): History, Downloads, Tags and All Bookmarks on the left; a Name / Tags / Location table with Organize, Views and Sort menus; Name, URL, Tags and Keyword below. A tab rather than Firefox's separate window.
+- **Opening:** click opens in the tab you are on; Ctrl or middle-click a background tab; Alt Glance (Zenith's Glance key, where Zen uses its Glance setting, Ctrl by default); Shift a new tab.
+- **Address bar:** results show a bookmark badge; a bookmark's keyword opens it (`%s` takes the words after it); `*` bookmarks, `+` tagged, `^` history, `%` tabs.
+- **Not taken over from Firefox:** a separate Library window, saved searches, Synced Tabs, restoring Firefox's own backup format, "Open in new window", and dropping links from a page onto the toolbar (tabs can be dropped).
+
 ## Previewing without the app
 
 `pnpm dev` and open `http://127.0.0.1:1420` in a browser. `src/lib/preview/mock.ts` stands in for the backend with a seeded session. Options: `?mode=single|multiple|collapsed`, `?theme=light|dark`, `?compact=1`, `?split=1`, `?collapsedPins=1`. The mock is loaded only on the dev server outside Tauri, so it never ships.
