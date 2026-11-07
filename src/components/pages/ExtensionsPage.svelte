@@ -68,7 +68,7 @@
     <header>
       <div>
         <h1>Extensions</h1>
-        <p class="lead">Install Chrome extensions from the Chrome Web Store: open the catalogue and click <strong>Add to Zenith</strong>, or open any downloaded <code>.crx</code>. They run on WebView2's Chromium extension support: content scripts, background service workers, storage and network rules work; a few Chrome-only APIs (some tab, window and identity APIs) are limited by WebView2.</p>
+        <p class="lead">Install Chrome extensions from the Chrome Web Store: open the catalogue and click <strong>Add to Chrome</strong>, or open any downloaded <code>.crx</code>. They run on WebView2's Chromium extension support: content scripts, background service workers, storage and network rules work; a few Chrome-only APIs (some tab, window and identity APIs) are limited by WebView2.</p>
         {#if incognito}
           <p class="lead"><strong>Extensions don't run in incognito windows.</strong> Manage them from a normal Zenith window.</p>
         {/if}
@@ -140,7 +140,7 @@
         {#if !loading && !error}
           <div class="empty">
             <Icon name="puzzle" size={28} />
-            <p>No extensions yet. Browse the catalogue and click <strong>Add to Zenith</strong>, or install a .crx file or an unpacked folder.</p>
+            <p>No extensions yet. Browse the catalogue and click <strong>Add to Chrome</strong>, or install a .crx file or an unpacked folder.</p>
             <button class="btn primary" onclick={() => extensions.openStore()}><Icon name="globe" size={15} />Open the extension catalogue</button>
           </div>
         {/if}

@@ -96,6 +96,8 @@ export const api = {
     invoke<{ x: number; y: number } | null>("tab_sleep", { id }),
   tabSetGlance: (id: string, glance: boolean) =>
     invoke<void>("tab_set_glance", { id, glance }),
+  tabContentSize: (id: string) =>
+    invoke<{ x: number; y: number } | null>("tab_content_size", { id }),
   setLayout: (spec: LayoutSpec) => invoke<void>("set_layout", { spec }),
   focusView: (target: string | null) => invoke<void>("focus_view", { target }),
   find: (

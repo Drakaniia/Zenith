@@ -8,11 +8,16 @@
   // The toolbar's extensions menu (Chrome's puzzle menu): open an extension, pin it next to
   // the button, or go to the extensions page or the Web Store.
   const pos = $derived(extensions.popover);
+  // The last anchor stays in use while the menu plays its exit transition: reading the cleared
+  // `extensions.popover` there threw, which left an invisible layer over the window that
+  // swallowed every click.
+  let last = { x: 0, y: 0, below: true };
+  const at = $derived.by(() => (pos ? (last = pos) : last));
   const W = 320;
-  const left = $derived(pos ? Math.max(8, Math.min(pos.x, window.innerWidth - W - 8)) : 0);
+  const left = $derived(Math.max(8, Math.min(at.x, window.innerWidth - W - 8)));
 
   function close() {
-    extensions.popover = null;
+    extensions.close();
   }
 </script>
 
@@ -22,9 +27,9 @@
     <div
       class="pop glass"
       style:left="{left}px"
-      style:top={pos.below ? `${pos.y}px` : null}
-      style:bottom={pos.below ? null : `${window.innerHeight - pos.y}px`}
-      transition:fly={{ y: pos.below ? -8 : 8, duration: 150 }}
+      style:top={at.below ? `${at.y}px` : null}
+      style:bottom={at.below ? null : `${window.innerHeight - at.y}px`}
+      transition:fly={{ y: at.below ? -8 : 8, duration: 150 }}
       role="dialog"
       aria-label="Extensions"
     >
@@ -34,7 +39,7 @@
           {#each extensions.user as ext (ext.id)}
             {@const pinned = extensions.isPinned(ext.id)}
             <div class="row" class:off={!ext.enabled}>
-              <button class="open" disabled={!ext.enabled} title={ext.popupUrl ? 'Open' : ext.optionsUrl ? 'Options' : ''} onclick={() => extensions.open(ext)}>
+              <button class="open" disabled={!ext.enabled} title={ext.popupUrl ? 'Open' : ext.optionsUrl ? 'Options' : ''} onclick={() => extensions.open(ext, at)}>
                 <span class="ico">{#if ext.icon}<img src={ext.icon} alt="" width="18" height="18" />{:else}<Icon name="puzzle" size={15} />{/if}</span>
                 <span class="name ellipsis">{ext.name}</span>
                 {#if !ext.enabled}<span class="tag">Off</span>{/if}

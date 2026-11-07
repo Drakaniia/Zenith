@@ -323,6 +323,7 @@ fn main() {
             commands::tab_command,
             commands::tab_sleep,
             commands::tab_set_glance,
+            commands::tab_content_size,
             commands::set_layout,
             commands::focus_view,
             commands::find_in_page,

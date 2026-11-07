@@ -45,9 +45,9 @@ const PAGE_SCRIPT: &str = r#"(() => {
   });
 })();"#;
 
-/// Chrome Web Store pages (main frame only, normal windows): an "Add to Zenith" button. The
-/// store's own "Add to Chrome" button is relabelled and taken over when it is there; otherwise a
-/// floating button appears. A real click calls `window.open` with the reserved `_zenith_ext`
+/// Chrome Web Store pages (main frame only, normal windows): the store's own "Add to Chrome"
+/// button installs into Zenith. It keeps its label and is taken over when it is there; otherwise
+/// a floating "Add to Chrome" button appears. A real click calls `window.open` with the reserved `_zenith_ext`
 /// name, which NewWindowRequested accepts only from the store and turns into an install prompt.
 /// Built with DOM calls only and CSSOM styles (the store uses Trusted Types and a strict CSP).
 const STORE_SCRIPT: &str = r#"(() => {
@@ -71,7 +71,7 @@ const STORE_SCRIPT: &str = r#"(() => {
     Object.assign(host.style, { position: 'fixed', right: '24px', bottom: '24px', zIndex: '2147483647', display: 'none' });
     const root = host.attachShadow({ mode: 'closed' });
     const b = document.createElement('button');
-    b.textContent = 'Add to Zenith';
+    b.textContent = 'Add to Chrome';
     Object.assign(b.style, {
       font: '600 14px/1 "Segoe UI Variable", "Segoe UI", system-ui, sans-serif', padding: '12px 20px',
       borderRadius: '999px', border: '0', color: '#fff', background: '#7c6cf0', cursor: 'pointer',
@@ -92,7 +92,6 @@ const STORE_SCRIPT: &str = r#"(() => {
           b.dataset.zenith = '1';
           b.addEventListener('click', install, true);
         }
-        if (b.textContent !== 'Add to Zenith') b.textContent = 'Add to Zenith';
         b.disabled = false;
         b.removeAttribute('aria-disabled');
         if (b.offsetParent) taken = true;
@@ -218,6 +217,9 @@ pub struct TabShared {
     /// A tab of an incognito window (InPrivate profile, no history).
     pub private: bool,
     pub glance: Cell<bool>,
+    /// An extension page (toolbar popup): drawn on white like in Chrome, never on the theme's
+    /// page colour.
+    pub light_bg: bool,
     pub nav_uri: RefCell<String>,
     pub page_host: RefCell<String>,
     pub url: RefCell<String>,
@@ -236,12 +238,13 @@ pub struct TabShared {
 }
 
 impl TabShared {
-    fn new(id: &str, window: &str, glance: bool) -> Self {
+    fn new(id: &str, window: &str, glance: bool, light_bg: bool) -> Self {
         Self {
             id: id.to_string(),
             window: window.to_string(),
             private: super::is_private_window(window),
             glance: Cell::new(glance),
+            light_bg,
             nav_uri: RefCell::new(String::new()),
             page_host: RefCell::new(String::new()),
             url: RefCell::new(String::new()),
@@ -359,7 +362,9 @@ pub fn create(opts: CreateOptions) -> Result<ICoreWebView2, String> {
     }
 
     super::set_tab_window(&opts.id, &label);
-    let shared = Rc::new(TabShared::new(&opts.id, &label, opts.glance));
+    let light_bg = opts.url.as_deref().is_some_and(|u| u.starts_with("chrome-extension://"));
+    let bg = if light_bg { (255, 255, 255) } else { bg };
+    let shared = Rc::new(TabShared::new(&opts.id, &label, opts.glance, light_bg));
     shared.restore_scroll.set(opts.scroll);
     let rect = pane.as_ref().map(super::logical_rect).unwrap_or_default();
     let mut builder = WebViewBuilder::new()
@@ -1191,6 +1196,42 @@ pub fn sleep(id: &str, done: impl FnOnce(Option<(f64, f64)>) + 'static) {
     unsafe {
         if core.ExecuteScript(&HSTRING::from("[window.scrollX, window.scrollY]"), &handler).is_err() {
             post(move || finish_sleep(token, &id, None));
+        }
+    }
+}
+
+/// The natural size of a page's content (CSS px), laid out shrink-to-fit the way Chrome sizes
+/// an extension's toolbar popup. None when the page cannot run the script.
+pub fn content_size(id: &str, done: impl FnOnce(Option<(f64, f64)>) + 'static) {
+    const SCRIPT: &str = r#"(() => {
+  const d = document.documentElement, b = document.body;
+  if (!b) return null;
+  const saved = d.style.cssText;
+  d.style.width = 'max-content';
+  d.style.height = 'max-content';
+  const r = d.getBoundingClientRect(), br = b.getBoundingClientRect();
+  const w = Math.max(r.width, br.width, b.scrollWidth), h = Math.max(r.height, br.height, b.scrollHeight);
+  d.style.cssText = saved;
+  return [Math.ceil(w), Math.ceil(h)];
+})()"#;
+    let Some(core) = with_host(|h| h.tabs.get(id).map(|t| t.core())).flatten() else {
+        return done(None);
+    };
+    let done = RefCell::new(Some(done));
+    let handler = ExecuteScriptCompletedHandler::create(Box::new(move |result, json| {
+        let size = result
+            .ok()
+            .and_then(|_| serde_json::from_str::<Vec<f64>>(&json).ok())
+            .filter(|v| v.len() == 2)
+            .map(|v| (v[0], v[1]));
+        if let Some(done) = done.borrow_mut().take() {
+            done(size);
+        }
+        Ok(())
+    }));
+    unsafe {
+        if let Err(e) = core.ExecuteScript(&HSTRING::from(SCRIPT), &handler) {
+            eprintln!("[zenith] content size script failed: {e}");
         }
     }
 }

@@ -241,6 +241,13 @@ pub async fn tab_sleep(app: AppHandle, id: String) -> CmdResult<Option<Scroll>> 
     Ok(scroll.map(|(x, y)| Scroll { x, y }))
 }
 
+/// The natural size of a page's content (sizes extension popups to fit, like Chrome).
+#[tauri::command]
+pub async fn tab_content_size(app: AppHandle, id: String) -> CmdResult<Option<Scroll>> {
+    let size = on_main_cb(&app, move |done| tab::content_size(&id, move |s| done(s))).await?;
+    Ok(size.map(|(x, y)| Scroll { x, y }))
+}
+
 #[tauri::command]
 pub async fn tab_set_glance(app: AppHandle, id: String, glance: bool) -> CmdResult<()> {
     on_main(&app, move || tab::set_glance(&id, glance)).await

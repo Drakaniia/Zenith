@@ -8,6 +8,7 @@ import type {
   ExtensionUpdate,
   InstallEvent,
   InstallOffer,
+  PopupAnchor,
 } from "./types";
 
 export const WEB_STORE_URL = "https://chromewebstore.google.com/category/extensions";
@@ -27,7 +28,10 @@ class ExtensionStore {
   updating = $state<string[]>([]);
   offers = $state<PendingOffer[]>([]);
   /** The toolbar's extensions popover, anchored at a point. */
-  popover = $state<{ x: number; y: number; below: boolean } | null>(null);
+  popover = $state<PopupAnchor | null>(null);
+  /** When the popover last closed (not reactive): lets its toolbar button tell a closing
+   *  click from an opening one. */
+  private closedAt = 0;
 
   user = $derived(this.items.filter((e) => !e.builtin));
   builtin = $derived(this.items.filter((e) => e.builtin));
@@ -61,17 +65,27 @@ class ExtensionStore {
     });
   }
 
-  /** Opens what the extension shows from the toolbar: its popup (in a Glance over the active
-   *  page), else its options page, else the extensions page. */
-  open(ext: ExtensionInfo) {
+  close() {
+    if (!this.popover) return;
     this.popover = null;
-    if (ext.popupUrl) browser.openGlance(ext.popupUrl, browser.activeTab?.id);
+    this.closedAt = performance.now();
+  }
+
+  justClosed() {
+    return performance.now() - this.closedAt < 350;
+  }
+
+  /** Opens what the extension shows from the toolbar: its popup (a small card anchored at the
+   *  toolbar, like Chrome's), else its options page, else the extensions page. */
+  open(ext: ExtensionInfo, anchor?: PopupAnchor) {
+    this.close();
+    if (ext.popupUrl) browser.openGlance(ext.popupUrl, browser.activeTab?.id, anchor);
     else if (ext.optionsUrl) browser.openTab(ext.optionsUrl);
     else browser.openTab("zenith://extensions");
   }
 
   openStore(storeId?: string | null) {
-    this.popover = null;
+    this.close();
     browser.openTab(storeId ? storeUrl(storeId) : WEB_STORE_URL);
   }
 

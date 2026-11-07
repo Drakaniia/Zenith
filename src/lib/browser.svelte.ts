@@ -6,6 +6,7 @@ import type {
   ClosedTab,
   Folder,
   GlanceState,
+  PopupAnchor,
   Space,
   SpaceId,
   Tab,
@@ -814,11 +815,11 @@ class BrowserStore {
   // ------------------------------------------------------------------------------------------
   // Glance
 
-  openGlance(url: string, openerId?: TabId) {
+  openGlance(url: string, openerId?: TabId, anchor?: PopupAnchor) {
     if (this.glance) this.closeGlance();
     const draft = makeTab(url, "", { openerId, live: true, loading: true });
     this.tabs[draft.id] = draft;
-    this.glance = { tabId: draft.id, openerId, popup: false };
+    this.glance = { tabId: draft.id, openerId, popup: false, anchor };
     void api
       .tabCreate({ id: draft.id, url, glance: true })
       .catch(() => this.closeGlance());

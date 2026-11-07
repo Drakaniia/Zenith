@@ -78,6 +78,15 @@ export interface GlanceState {
   openerId?: TabId;
   /** A real popup window (window.open with a size) shown as a floating card. */
   popup: boolean;
+  /** An extension's toolbar popup: a small card anchored at this point instead of a preview. */
+  anchor?: PopupAnchor;
+}
+
+/** A toolbar point a menu or popup hangs from (`below`: it opens downward from `y`). */
+export interface PopupAnchor {
+  x: number;
+  y: number;
+  below: boolean;
 }
 
 /** Partial update emitted by the backend for a tab webview. */
@@ -243,7 +252,7 @@ export interface ExtensionInfo {
   storeId?: string | null;
 }
 
-/** An extension found in a page (a .crx download, "Add to Zenith" on the Web Store),
+/** An extension found in a page (a .crx download, "Add to Chrome" on the Web Store),
  *  staged and waiting for the user to accept or decline it. */
 export interface InstallOffer {
   token: number;

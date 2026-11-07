@@ -7,11 +7,21 @@
   import { copyText } from '../lib/actions';
   import { ui } from '../lib/ui.svelte';
   import { springEase } from '../lib/motion';
+  import type { GlanceState } from '../lib/types';
+  import { api } from '../lib/ipc';
 
   // Zen's Glance (src/zen/glance): a page previewed in a card over the current tab, 80 % of the
   // content area wide, with round action buttons beside it. Opens with a 350 ms spring.
   const g = $derived(browser.glance);
   const tab = $derived(g ? browser.tabs[g.tabId] : undefined);
+  // The card keeps its last shape while it plays its exit transition (`browser.glance` is
+  // already null by then).
+  let lastAnchor: GlanceState['anchor'] = undefined;
+  let lastPopup = false;
+  let lastTabId = '';
+  const tabId = $derived.by(() => (g ? (lastTabId = g.tabId) : lastTabId));
+  const anchor = $derived.by(() => (g ? (lastAnchor = g.anchor) : lastAnchor));
+  const popup = $derived.by(() => (g ? (lastPopup = g.popup) : lastPopup));
 
   let area = $state({ left: 0, top: 0, width: window.innerWidth, height: window.innerHeight });
   function measure() {
@@ -35,8 +45,40 @@
     if (g) measure();
   });
 
+  // Extension popups size to their content like Chrome's (25 x 25 to 800 x 600); until the
+  // page has been measured the card has a typical popup's size.
+  let fit = $state<{ id: string; w: number; h: number } | null>(null);
+  const extTabId = $derived(g?.anchor ? g.tabId : null);
+  const extLoaded = $derived(!!extTabId && browser.tabs[extTabId]?.loading === false);
+  $effect(() => {
+    const id = extTabId;
+    if (!id || !extLoaded) return;
+    let stop = false;
+    const measure = async () => {
+      if (stop) return;
+      const s = await api.tabContentSize(id).catch(() => null);
+      if (stop || !s || s.x < 1 || s.y < 1) return;
+      fit = { id, w: Math.min(800, Math.max(25, s.x)), h: Math.min(600, Math.max(25, s.y)) };
+      scheduleLayout();
+    };
+    // Re-measured while the popup settles: many build their UI after load.
+    const timers = [0, 150, 400, 900, 1600].map((ms) => setTimeout(measure, ms));
+    return () => {
+      stop = true;
+      timers.forEach(clearTimeout);
+    };
+  });
+  const sized = $derived(fit && fit.id === tabId ? fit : null);
+  const EXT_W = $derived(sized?.w ?? 380);
+  const EXT_H = $derived(sized?.h ?? 560);
+
   const frame = $derived.by(() => {
-    const popup = g?.popup;
+    if (anchor) {
+      const w = Math.min(EXT_W, window.innerWidth - 16);
+      const h = Math.min(EXT_H, anchor.below ? window.innerHeight - anchor.y - 8 : anchor.y - 8);
+      const left = Math.max(8, Math.min(anchor.x, window.innerWidth - w - 8));
+      return { left, top: anchor.below ? anchor.y : anchor.y - h, w, h };
+    }
     const w = Math.round(area.width * (popup ? 0.55 : 0.8));
     const h = Math.round(popup ? area.height * 0.84 : area.height);
     return { left: Math.round(area.left + (area.width - w) / 2), top: Math.round(area.top + (area.height - h) / 2), w, h };
@@ -45,27 +87,35 @@
 
 {#if g && tab}
   <div class="root" use:overlayLease>
-    <div class="backdrop" role="presentation" transition:fade={{ duration: 200 }} onpointerdown={() => browser.closeGlance()}></div>
+    <div
+      class="backdrop"
+      class:clear={!!anchor}
+      role="presentation"
+      transition:fade={{ duration: 200 }}
+      onpointerdown={() => browser.closeGlance()}
+    ></div>
     <div
       class="frame"
-      class:popup={g.popup}
+      class:popup
+      class:ext={!!anchor}
       style:left="{frame.left}px"
       style:top="{frame.top}px"
       style:width="{frame.w}px"
       style:height="{frame.h}px"
-      in:scale={{ start: 0.86, duration: 350, opacity: 0, easing: springEase }}
+      in:scale={{ start: anchor ? 0.96 : 0.86, duration: anchor ? 160 : 350, opacity: 0, easing: springEase }}
       onintroend={() => scheduleLayout()}
-      out:scale={{ start: 0.92, duration: 200, opacity: 0 }}
+      out:scale={{ start: 0.92, duration: anchor ? 120 : 200, opacity: 0 }}
     >
-      <div class="body" use:glancePane={g.tabId}>
+      <div class="body" use:glancePane={tabId}>
         {#if !tab.live}<div class="placeholder"></div>{/if}
         {#if tab.loading}<span class="loading"></span>{/if}
       </div>
     </div>
+    {#if !anchor}
     <div class="side" style:left="{frame.left + frame.w}px" style:top="{frame.top + 3}px" transition:fade={{ duration: 160 }}>
       <button class="action close" title="Close (Esc)" onclick={() => browser.closeGlance()}><Icon name="close" size={16} /></button>
       <button class="action" title="Open as tab" onclick={() => browser.expandGlance()}><Icon name="expand" size={16} /></button>
-      {#if g.openerId && browser.tabs[g.openerId]}
+      {#if g?.openerId && browser.tabs[g.openerId]}
         <button class="action" title="Open in split view" onclick={() => browser.expandGlance(true)}><Icon name="split" size={16} /></button>
       {/if}
       <button
@@ -77,6 +127,7 @@
         }}><Icon name="link" size={16} /></button
       >
     </div>
+    {/if}
   </div>
 {/if}
 
@@ -91,6 +142,9 @@
     inset: 0;
     background: var(--backdrop);
   }
+  .backdrop.clear {
+    background: transparent;
+  }
   .frame {
     position: absolute;
     display: flex;
@@ -100,6 +154,15 @@
     overflow: hidden;
     background: var(--page-bg);
     transform-origin: 50% 40%;
+  }
+  /* Extension popups render on white like in Chrome (most assume a light page). */
+  .frame.ext {
+    border-radius: var(--radius-xl);
+    background: #fff;
+    transform-origin: 0 0;
+  }
+  .frame.ext .placeholder {
+    background: #fff;
   }
   .body {
     flex: 1;

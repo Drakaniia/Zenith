@@ -9,7 +9,7 @@
 //! unpacked manifest (`key`), exactly as Chrome derives the id, so extensions that rely on their
 //! own id keep working and the Web Store can be asked for updates.
 //!
-//! Extensions found in a page (a `.crx` download, the Web Store's "Add to Zenith" button) are
+//! Extensions found in a page (a `.crx` download, the Web Store's "Add to Chrome" button) are
 //! not installed straight away: they are staged under `extensions/pending` and offered to the
 //! user with their permissions (`ext-install` event), then installed or discarded.
 
@@ -314,7 +314,10 @@ fn stage_crx_in(bytes: &[u8], root: &Path) -> Result<Staged, String> {
     let tar = Path::new(&std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".into()))
         .join("System32")
         .join("tar.exe");
+    // CREATE_NO_WINDOW: tar.exe is a console program; without it a cmd window flashes up.
+    use std::os::windows::process::CommandExt as _;
     let status = std::process::Command::new(tar)
+        .creation_flags(0x0800_0000)
         .arg("-xf")
         .arg(&archive)
         .arg("-C")

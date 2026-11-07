@@ -1211,7 +1211,7 @@ pub fn attach_accelerators(controller: &ICoreWebView2Controller, tab: Option<std
 pub fn set_page_background(rgb: (u8, u8, u8)) {
     with_host(|h| {
         h.page_bg = rgb;
-        for t in h.tabs.values() {
+        for t in h.tabs.values().filter(|t| !t.shared.light_bg) {
             let _ = t.view.set_background_color((rgb.0, rgb.1, rgb.2, 255));
         }
     });

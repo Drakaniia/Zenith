@@ -318,7 +318,7 @@
     if (e.key === 'Escape') {
       if (ui.menu) ui.closeMenu();
       else if (ui.media) ui.media = null;
-      else if (extensions.popover) extensions.popover = null;
+      else if (extensions.popover) extensions.close();
       else if (ui.downloadsOpen) ui.downloadsOpen = false;
       else if (browser.glance && !ui.palette.open) browser.closeGlance();
       else if (ui.flyout) ui.flyout = false;
