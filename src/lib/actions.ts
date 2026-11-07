@@ -1,7 +1,8 @@
 // One dispatcher for keyboard shortcuts, menus and palette commands.
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { api } from "./ipc";
-import { browser } from "./browser.svelte";
+import { browser, tabTitle } from "./browser.svelte";
+import { chooseChatbot, toggleChatbot } from "./chatbot";
 import {
   backupBookmarksFile,
   bookmarkAllTabs,
@@ -14,16 +15,19 @@ import {
 } from "./bookmark-actions";
 import { settings } from "./settings.svelte";
 import { ui } from "./ui.svelte";
-import type { Tab } from "./types";
+import type { SplitLayout, Tab } from "./types";
 import {
+  NEW_TAB_URL,
+  displayHost,
   hostOf,
   internalPage,
+  isSecure,
   isWebUrl,
   siteOf,
   type InternalPage,
 } from "./url";
 import type { IconName } from "./icons";
-import { ACTIONS } from "./shortcuts";
+import { ACTIONS, chordLabel } from "./shortcuts";
 import { incognito } from "./app.svelte";
 import { onboarding } from "./onboarding.svelte";
 import { notes } from "./notes.svelte";
@@ -111,7 +115,8 @@ export function openFind(tab: Tab | undefined) {
 
 /** The first key bound to an action, for menu hints and tooltips. */
 export function shortcutHint(action: string): string | undefined {
-  return settings.value.shortcuts[action]?.[0];
+  const key = settings.value.shortcuts[action]?.[0];
+  return key && chordLabel(key);
 }
 
 /** A tooltip such as "Compact mode (Ctrl+Alt+C)": the label with its shortcut, when it has one. */
@@ -168,6 +173,114 @@ export function zoomActive(dir: -1 | 0 | 1) {
   zoomStep(browser.activeTab, dir);
 }
 
+/** Zen's split shortcuts (Ctrl+Alt+V, H, G): the tabs picked in the sidebar (two to four), else
+ *  the current tab and the next one. In a split view they change its layout instead. */
+function splitShortcut(layout: SplitLayout) {
+  if (browser.activeSplit) return browser.setSplitLayout(layout);
+  const picked = ui.selectedTabs.filter((id) => browser.tabs[id]);
+  if (picked.length >= 2) {
+    ui.clearTabSelection();
+    return browser.splitTabs(picked, layout);
+  }
+  const tab = browser.activeTab;
+  if (!tab) return;
+  const order = browser.order();
+  const i = order.indexOf(tab.id);
+  // The next tab, wrapping around to the first (Essentials, then pinned, then regular tabs).
+  const next = [...order.slice(i + 1), ...order.slice(0, Math.max(i, 0))].find((id) => id !== tab.id);
+  const other = next ?? browser.openTab(NEW_TAB_URL, { activate: false }).id;
+  browser.splitTabs([tab.id, other], layout);
+}
+
+/** Firefox's Page Info, as a panel under the address bar: the site, its connection and what
+ *  Zenith did on it, with the related actions. */
+function pageInfo(tab: Tab | undefined) {
+  if (!tab) return;
+  const web = isWebUrl(tab.url);
+  const anchor = [...document.querySelectorAll<HTMLElement>(".pill .main")].find((el) => el.getBoundingClientRect().width > 0);
+  const r = anchor?.getBoundingClientRect();
+  const site = web ? siteOf(hostOf(tab.url)) : "";
+  const blockingOff = web && settings.value.blockerDisabledSites.includes(site);
+  const zoom = Math.round((tab.zoom || 1) * 100);
+  ui.openMenu(r ? r.left : Math.max(8, window.innerWidth / 2 - 140), r ? r.bottom + 6 : 56, [
+    { label: tabTitle(tab), heading: true },
+    { label: web ? displayHost(tab.url) : tab.url, icon: "globe", heading: true },
+    web
+      ? isSecure(tab.url)
+        ? { label: "Connection is secure (HTTPS)", icon: "lock", heading: true }
+        : { label: "Connection is not secure", icon: "unlock", heading: true }
+      : { label: "Zenith page or local file", icon: "info", heading: true },
+    ...(web
+      ? [
+          {
+            label: blockingOff ? "Ad and tracker blocking is off here" : `${tab.blocked} ads and trackers blocked`,
+            icon: (blockingOff ? "shieldOff" : "shieldCheck") as IconName,
+            heading: true,
+          },
+        ]
+      : []),
+    ...(zoom !== 100 ? [{ label: `Zoom ${zoom}%`, icon: "zoomIn" as IconName, heading: true }] : []),
+    { separator: true },
+    { label: "Copy address", icon: "link", run: () => void copyText(tab.url) },
+    ...(web
+      ? [
+          {
+            label: blockingOff ? "Turn on blocking for this site" : "Turn off blocking for this site",
+            icon: (blockingOff ? "shieldCheck" : "shieldOff") as IconName,
+            run: () => toggleSiteBlocking(tab),
+          },
+          { label: "View page source", icon: "code" as IconName, run: () => void runAction("viewSource", tab.id) },
+          { label: "Clear site data and permissions…", icon: "eraser" as IconName, run: () => openInternal("settings", "privacy") },
+        ]
+      : []),
+  ]);
+}
+
+/** Ctrl+O: a local file in a new tab. */
+async function openLocalFile() {
+  const path = await api.pickFile().catch(() => null);
+  if (!path) return;
+  try {
+    browser.openTab(new URL("file:///" + path.replace(/\\/g, "/").replace(/^\/+/, "")).href);
+  } catch {
+    ui.toast("That file can't be opened", { icon: "alert" });
+  }
+}
+
+/** Runs one of the backend's page tools (tab.rs `command`) and reports failures. */
+async function pageTool<T>(tab: Tab | undefined, cmd: string, arg?: unknown): Promise<T | undefined> {
+  if (!tab?.live) {
+    ui.toast("Open a web page first", { icon: "info" });
+    return undefined;
+  }
+  try {
+    return await api.tabCommand<T>(tab.id, cmd, arg);
+  } catch (e) {
+    ui.toast(String(e), { icon: "alert" });
+    return undefined;
+  }
+}
+
+/** DevTools panels for Firefox's tool shortcuts (Chromium's names for the nearest panel). */
+const DEVTOOLS_PANELS: Record<string, string> = {
+  inspector: "elements",
+  webConsole: "console",
+  jsDebugger: "sources",
+  networkMonitor: "network",
+  styleEditor: "sources",
+  performance: "timeline",
+  storage: "resources",
+  domPanel: "elements",
+  accessibility: "elements",
+};
+
+function copyMarkdownLink(tab: Tab | undefined) {
+  if (!tab || tab.url.startsWith("zenith://")) return;
+  const title = tabTitle(tab).replace(/[[\]\\]/g, "\\$&");
+  const url = tab.url.replace(/[()]/g, (c) => encodeURIComponent(c));
+  void copyText(`[${title}](${url})`).then(() => ui.toast("Markdown link copied", { icon: "link" }));
+}
+
 export async function runAction(
   action: string,
   source?: string | null,
@@ -221,6 +334,21 @@ export async function runAction(
       return live && api.tabCommand(live.id, "back");
     case "forward":
       return live && api.tabCommand(live.id, "forward");
+    case "goHome": {
+      const home = settings.value.homepage || NEW_TAB_URL;
+      if (tab && !tab.essential) return browser.navigate(tab, home);
+      return browser.openTab(home);
+    }
+    case "focusSearch":
+      return ui.openPalette("search");
+    case "showAllTabs":
+      // The address bar limited to open tabs (Firefox's % restriction).
+      ui.openPalette("navigate", "% ");
+      ui.palette.selectAll = false;
+      return;
+    case "escape":
+      // Esc in a page that is still loading stops it; the page gets the key either way.
+      return live?.loading && api.tabCommand(live.id, "stop");
     case "reload":
       if (tab?.crashed) return browser.reviveCrashed(tab.id);
       return live && api.tabCommand(live.id, "reload");
@@ -234,6 +362,59 @@ export async function runAction(
         ui.toast("Link copied", { icon: "link" });
       }
       return;
+    case "copyUrlMarkdown":
+      return copyMarkdownLink(tab);
+    case "resetPinned":
+      if (tab?.pinnedUrl) return browser.resetPinned(tab.id);
+      return ui.toast("Only pinned tabs and Essentials have a pinned address", { icon: "pin" });
+    case "pageInfo":
+      return pageInfo(tab);
+    case "openFile":
+      return openLocalFile();
+    case "readerMode": {
+      const r = await pageTool<string>(live, "reader");
+      if (r === "none") ui.toast("Reader view isn't available for this page", { icon: "note" });
+      return;
+    }
+    case "pictureInPicture": {
+      const r = await pageTool<string>(live, "pip");
+      if (r === "none") ui.toast("No video on this page", { icon: "film" });
+      else if (r === "blocked") ui.toast("This video can't play in picture-in-picture", { icon: "film" });
+      return;
+    }
+    case "switchTextDirection":
+      return void pageTool(live, "textDirection");
+    case "screenshot": {
+      const path = await pageTool<string>(live, "screenshot");
+      if (path)
+        ui.toast("Screenshot saved", {
+          icon: "check",
+          timeout: 6000,
+          action: { label: "Open", run: () => void api.openPath(path) },
+        });
+      return;
+    }
+    case "responsiveDesign": {
+      const on = await pageTool<boolean>(live, "responsive");
+      if (on !== undefined)
+        ui.toast(on ? "Responsive design mode: 390 px wide, touch" : "Responsive design mode off", { icon: "code" });
+      return;
+    }
+    case "taskManager":
+      return void pageTool(live ?? Object.values(browser.tabs).find((t) => t.live), "taskManager");
+    case "browserToolbox":
+    case "browserConsole":
+      return api.chromeDevtools().catch((e) => ui.toast(String(e), { icon: "alert" }));
+    case "inspector":
+    case "webConsole":
+    case "jsDebugger":
+    case "networkMonitor":
+    case "styleEditor":
+    case "performance":
+    case "storage":
+    case "domPanel":
+    case "accessibility":
+      return void pageTool(live, "devtools", DEVTOOLS_PANELS[action]);
     case "find":
       // On the notes page Ctrl+F searches the notes.
       if (!live && onNotesPage()) {
@@ -271,7 +452,25 @@ export async function runAction(
       return;
     case "toggleCompact":
       ui.flyout = false;
+      ui.flyoutPinned = false;
+      ui.topReveal = false;
       return settings.update({ compact: !settings.value.compact });
+    case "toggleFloatingSidebar":
+      // Zen: shows the floating sidebar of compact mode and keeps it until pressed again.
+      if (!settings.value.compact)
+        return ui.toast(`The floating sidebar is part of compact mode${shortcutHint("toggleCompact") ? ` (${shortcutHint("toggleCompact")})` : ""}`, { icon: "sidebar" });
+      ui.flyoutPinned = !(ui.flyout && ui.flyoutPinned);
+      ui.flyout = ui.flyoutPinned;
+      return;
+    case "toggleFloatingToolbar":
+      // Zen: compact mode hides the toolbar too; it then floats in from the top edge.
+      if (settings.value.toolbarMode === "single")
+        return ui.toast("With the single toolbar the address bar is in the sidebar", { icon: "sidebar" });
+      ui.topReveal = false;
+      return settings.update({
+        compact: true,
+        compactHideToolbar: !(settings.value.compact && settings.value.compactHideToolbar),
+      });
     case "toggleSidebar": {
       // Zen: expand or collapse the sidebar (single/multiple toolbars <-> collapsed toolbar).
       const collapsed = settings.value.toolbarMode === "collapsed";
@@ -297,6 +496,27 @@ export async function runAction(
       return openIncognito();
     case "toggleSplit":
       return browser.toggleSplit();
+    case "splitVertical":
+      return splitShortcut("vsep");
+    case "splitHorizontal":
+      return splitShortcut("hsep");
+    case "splitGrid":
+      return splitShortcut("grid");
+    case "unsplit":
+      return browser.unsplit();
+    case "toggleChatbot":
+      return toggleChatbot();
+    case "chooseChatbot":
+      return chooseChatbot(false);
+    case "newWindow":
+      // From an incognito window a normal window opens, without that window's spaces.
+      return api.windowOpen(incognito ? null : browser.snapshot()).catch((e) => ui.toast(String(e), { icon: "alert" }));
+    case "closeWindow":
+      return void getCurrentWindow().close();
+    case "undoCloseWindow":
+      if (!(await api.windowUndoClose().catch(() => false)))
+        ui.toast("No recently closed windows", { icon: "window" });
+      return;
     case "fullscreen": {
       const w = getCurrentWindow();
       return w.setFullscreen(!(await w.isFullscreen()));
@@ -316,6 +536,17 @@ export async function runAction(
       return toggleBookmarksPanel();
     case "toggleBookmarksBar":
       return toggleBookmarksBar();
+    case "historySidebar": {
+      // Ctrl+H: the sidebar panel on its history view, or closed again.
+      const s = settings.value;
+      if (s.bookmarksPanel && s.bookmarksPanelView === "history") return settings.update({ bookmarksPanel: false });
+      return settings.update({ bookmarksPanel: true, bookmarksPanelView: "history" });
+    }
+    case "toggleSidebarPanel":
+      // Firefox's sidebar toggle: the panel on whichever view it showed last.
+      return settings.update({ bookmarksPanel: !settings.value.bookmarksPanel });
+    case "clearData":
+      return openInternal("settings", "privacy");
     case "runSetup":
       // An incognito window saves nothing, so setup there would be lost.
       if (incognito)
@@ -334,7 +565,10 @@ export async function runAction(
       return openNotes({ create: true });
     default: {
       const m = /^selectTab(\d)$/.exec(action);
-      if (m) browser.activateIndex(Number(m[1]) - 1);
+      if (m) return browser.activateIndex(Number(m[1]) - 1);
+      const s = /^switchSpace(\d+)$/.exec(action);
+      const space = s && browser.spaces[Number(s[1]) - 1];
+      if (space) browser.switchSpace(space.id);
     }
   }
 }
@@ -388,13 +622,50 @@ const ICONS: Record<string, IconName> = {
   settings: "settings",
   runSetup: "sparkle",
   openNotes: "note",
+  newWindow: "window",
+  closeWindow: "close",
+  undoCloseWindow: "window",
+  goHome: "globe",
+  stop: "stop",
+  copyUrlMarkdown: "link",
+  focusSearch: "search",
+  showAllTabs: "layers",
+  resetPinned: "pin",
+  readerMode: "note",
+  pictureInPicture: "film",
+  pageInfo: "info",
+  screenshot: "save",
+  openFile: "file",
+  toggleChatbot: "sparkle",
+  toggleSidebarPanel: "sidebar",
+  historySidebar: "history",
+  toggleFloatingSidebar: "sidebar",
+  toggleFloatingToolbar: "sidebar",
+  splitVertical: "split",
+  splitHorizontal: "split",
+  splitGrid: "split",
+  unsplit: "unsplit",
+  clearData: "eraser",
+  taskManager: "code",
+  responsiveDesign: "code",
+  browserToolbox: "code",
+  browserConsole: "code",
+  inspector: "code",
+  webConsole: "code",
+  jsDebugger: "code",
+  networkMonitor: "code",
+  styleEditor: "code",
+  performance: "code",
+  storage: "code",
+  domPanel: "code",
+  accessibility: "code",
 };
 
 /** Commands offered by the palette's command mode. */
 export function commands(): Command[] {
   const list: Command[] = ACTIONS.filter(
     (a) =>
-      !/^selectTab|^lastTab|^nextTab|^prevTab|^openPalette|^commandPalette|^findNext|^findPrev|^back$|^forward$/.test(
+      !/^selectTab|^switchSpace\d|^lastTab|^nextTab|^prevTab|^openPalette|^commandPalette|^findNext|^findPrev|^back$|^forward$/.test(
         a.id,
       ),
   ).map((a) => ({
@@ -498,6 +769,13 @@ export function commands(): Command[] {
       icon: "bookmark",
       keywords: "bookmarks json",
       run: () => void restoreBookmarks(),
+    },
+    {
+      id: "chooseChatbot",
+      label: "Choose the AI chatbot…",
+      icon: "sparkle",
+      keywords: "ai chatgpt claude gemini copilot mistral",
+      run: () => chooseChatbot(false),
     },
     {
       id: "shortcuts",

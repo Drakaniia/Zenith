@@ -1,10 +1,10 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "chrome",
-  "description": "The browser chrome UI of each window (main, incognito-N). Only these local chrome webviews get IPC; tab webviews are raw WebView2 views with no Tauri bridge.",
+  "description": "The browser chrome UI of each window (main, window-N, incognito-N). Only these local chrome webviews get IPC; tab webviews are raw WebView2 views with no Tauri bridge.",
   "local": true,
-  "windows": ["main", "incognito-*"],
-  "webviews": ["main", "incognito-*"],
+  "windows": ["main", "window-*", "incognito-*"],
+  "webviews": ["main", "window-*", "incognito-*"],
   "permissions": [
     "core:default",
     "core:window:allow-minimize",

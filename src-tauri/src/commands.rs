@@ -16,12 +16,13 @@ use tauri_plugin_dialog::DialogExt;
 
 use crate::host::downloads::{self, DownloadEvent};
 use crate::host::crx;
+use crate::host::page_tools;
 use crate::host::extensions::{self, ExtensionInfo};
 use crate::host::tab::{self, CreateOptions};
 use crate::host::{self, bookmarks_db, db, paths, LayoutSpec, RuntimeConfig, BLOCKER};
 use crate::keys::BindingSpec;
 use crate::store::{self, DownloadRecord, HistoryEntry, Note};
-use crate::{blocker, bookmarks, importer, net, urls, win};
+use crate::{blocker, bookmarks, importer, net, sessions, urls, win};
 
 type CmdResult<T> = Result<T, String>;
 
@@ -147,6 +148,96 @@ pub async fn window_close(app: AppHandle, window: WebviewWindow) -> CmdResult<()
     Ok(())
 }
 
+/// Opens another normal window (Ctrl+N). `session` is the calling window's snapshot: the new
+/// window gets its spaces, essentials and pinned tabs, but not its regular tabs.
+#[tauri::command]
+pub async fn window_open(app: AppHandle, session: Option<String>) -> CmdResult<()> {
+    let start = sessions::Start { data: session, keep: Some(false), fresh: true };
+    std::thread::spawn(move || {
+        if let Err(e) = crate::open_normal_window(&app, start) {
+            eprintln!("[zenith] could not open a window: {e}");
+        }
+    });
+    Ok(())
+}
+
+/// Reopens the most recently closed normal window (Ctrl+Shift+N); false when there is none.
+#[tauri::command]
+pub async fn window_undo_close(app: AppHandle) -> CmdResult<bool> {
+    let main_open = app.get_webview_window(host::MAIN).is_some();
+    let Some(closed) = sessions::pop_closed(main_open) else { return Ok(false) };
+    std::thread::spawn(move || {
+        let opened = match closed {
+            sessions::Closed::Main => crate::reopen_main_window(&app),
+            sessions::Closed::Extra(data) => {
+                crate::open_normal_window(&app, sessions::Start { data: Some(data), keep: Some(true), fresh: true })
+            }
+        };
+        if let Err(e) = opened {
+            eprintln!("[zenith] could not reopen a window: {e}");
+        }
+    });
+    Ok(true)
+}
+
+/// The main window's UI calls this once at startup: the other windows that were open when Zenith
+/// quit come back (`keep`, the "restore previous session" setting) or are forgotten.
+#[tauri::command]
+pub async fn windows_restore(app: AppHandle, window: WebviewWindow, keep: bool) -> CmdResult<()> {
+    if window.label() != host::MAIN {
+        return Ok(());
+    }
+    let saved = blocking(move || sessions::take_saved(keep)).await?;
+    if saved.is_empty() {
+        return Ok(());
+    }
+    std::thread::spawn(move || {
+        for data in saved {
+            let start = sessions::Start { data: Some(data), keep: Some(true), fresh: true };
+            if let Err(e) = crate::open_normal_window(&app, start) {
+                eprintln!("[zenith] could not restore a window: {e}");
+            }
+        }
+    });
+    Ok(())
+}
+
+/// Firefox's Browser Toolbox and Browser Console: DevTools for this window's own UI. Release
+/// builds turn the UI's DevTools off; asking for them explicitly turns them on for the window.
+#[tauri::command]
+pub async fn chrome_devtools(app: AppHandle, window: WebviewWindow) -> CmdResult<()> {
+    on_main(&app, move || {
+        window
+            .with_webview(|pw| unsafe {
+                use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Settings;
+                let Ok(core) = pw.controller().CoreWebView2() else { return };
+                if let Ok(settings) = core.Settings() {
+                    let settings: ICoreWebView2Settings = settings;
+                    let _ = settings.SetAreDevToolsEnabled(true);
+                }
+                let _ = core.OpenDevToolsWindow();
+            })
+            .map_err(|e| e.to_string())
+    })
+    .await?
+}
+
+/// Ctrl+O: a file to open in a tab.
+#[tauri::command]
+pub async fn pick_file(app: AppHandle) -> CmdResult<Option<String>> {
+    blocking(move || {
+        app.dialog()
+            .file()
+            .set_title("Open file")
+            .add_filter("Web pages and documents", &["html", "htm", "xhtml", "shtml", "svg", "pdf", "txt", "xml", "json", "png", "jpg", "jpeg", "gif", "webp", "avif", "mp4", "webm", "mp3"])
+            .add_filter("All files", &["*"])
+            .blocking_pick_file()
+            .and_then(|p| p.into_path().ok())
+            .map(|p| p.display().to_string())
+    })
+    .await
+}
+
 /// Opens a new incognito window in this process, optionally with web addresses to load.
 #[tauri::command]
 pub async fn incognito_open(urls: Option<Vec<String>>) -> CmdResult<()> {
@@ -227,6 +318,9 @@ pub async fn tab_command(
     cmd: String,
     arg: Option<serde_json::Value>,
 ) -> CmdResult<serde_json::Value> {
+    if page_tools::handles(&cmd) {
+        return on_main_cb(&app, move |done| page_tools::run(&id, &cmd, arg, done)).await?;
+    }
     on_main(&app, move || tab::command(&id, &cmd, arg)).await?
 }
 
@@ -383,23 +477,46 @@ pub async fn clear_browsing_data(
 
 static SESSION_LOCK: Mutex<()> = Mutex::new(());
 
-/// Incognito windows always start empty and never write a session.
-#[tauri::command]
-pub async fn session_load(window: WebviewWindow) -> CmdResult<Option<String>> {
-    if private(&window) {
-        return Ok(None);
-    }
-    blocking(|| store::read_text(&paths().session())).await
+#[derive(Serialize)]
+pub struct SessionStart {
+    data: Option<String>,
+    /// Whether to restore the regular tabs too; `None`: the user's setting decides.
+    keep: Option<bool>,
+    /// The tabs need new ids (they came from another window or an earlier run).
+    fresh: bool,
 }
 
+/// A window's tabs. The main window's are in `session.json`; another normal window gets what it
+/// was opened with (see sessions.rs). Incognito windows always start empty.
+#[tauri::command]
+pub async fn session_load(window: WebviewWindow) -> CmdResult<SessionStart> {
+    let empty = SessionStart { data: None, keep: None, fresh: false };
+    if private(&window) {
+        return Ok(empty);
+    }
+    let label = window.label().to_string();
+    let start = sessions::take_pending(&label);
+    if label == host::MAIN {
+        let data = blocking(|| store::read_text(&paths().session())).await?;
+        return Ok(SessionStart { data, keep: start.and_then(|s| s.keep), fresh: false });
+    }
+    Ok(start.map(|s| SessionStart { data: s.data, keep: s.keep, fresh: s.fresh }).unwrap_or(empty))
+}
+
+/// Incognito windows never write a session.
 #[tauri::command]
 pub async fn session_save(window: WebviewWindow, data: String) -> CmdResult<()> {
     if private(&window) {
         return Ok(());
     }
+    let label = window.label().to_string();
     blocking(move || {
         let _guard = SESSION_LOCK.lock();
-        store::write_atomic(&paths().session(), data.as_bytes()).map_err(|e| e.to_string())
+        if label == host::MAIN {
+            store::write_atomic(&paths().session(), data.as_bytes()).map_err(|e| e.to_string())
+        } else {
+            sessions::save(&label, data)
+        }
     })
     .await?
 }
@@ -409,13 +526,22 @@ pub async fn settings_load() -> CmdResult<Option<String>> {
     blocking(|| store::read_text(&paths().settings())).await
 }
 
-/// Incognito windows start from the user's settings; their own changes are not saved.
+#[derive(Serialize, Clone)]
+struct SettingsChanged {
+    /// Window that saved; it already has the new values.
+    origin: String,
+}
+
+/// Incognito windows start from the user's settings; their own changes are not saved. The other
+/// normal windows hear about a change through `settings-changed` and reload.
 #[tauri::command]
 pub async fn settings_save(window: WebviewWindow, data: String) -> CmdResult<()> {
     if private(&window) {
         return Ok(());
     }
-    blocking(move || store::write_atomic(&paths().settings(), data.as_bytes()).map_err(|e| e.to_string())).await?
+    blocking(move || store::write_atomic(&paths().settings(), data.as_bytes()).map_err(|e| e.to_string())).await??;
+    host::emit("settings-changed", SettingsChanged { origin: window.label().to_string() });
+    Ok(())
 }
 
 fn wallpaper_file(id: &str) -> CmdResult<PathBuf> {

@@ -3,7 +3,8 @@ import type { IconName } from "./icons";
 import type { DownloadItem, PermissionRequest, TabId } from "./types";
 import { api } from "./ipc";
 
-export type PaletteMode = "navigate" | "newTab" | "command";
+/** `search`: Zen's Focus Search, where the typed text is always a web search. */
+export type PaletteMode = "navigate" | "newTab" | "command" | "search";
 
 /** Keys held (or the middle button) when a menu item was chosen: a bookmark in a menu opens in
  *  a new tab with Ctrl or the middle button, in Glance with Shift. */
@@ -93,6 +94,9 @@ class UiStore {
   });
   toasts = $state<Toast[]>([]);
   flyout = $state(false);
+  /** The floating sidebar was shown from the keyboard (Ctrl+Alt+S) and stays until pressed again. */
+  flyoutPinned = $state(false);
+  /** Compact mode's floating toolbar is showing (it was hidden with Ctrl+Alt+T). */
   topReveal = $state(false);
   downloadsOpen = $state(false);
   /** The media downloader panel: which tab, and the media the user pointed at (if any). */

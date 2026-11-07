@@ -24,15 +24,16 @@
   const regular = $derived(space.tabIds.filter((id) => browser.tabs[id]));
   const split = $derived(space.split && space.split.ids.every((id) => browser.tabs[id]) ? space.split : undefined);
 
-  type Row = { key: string; tab: Tab } | { key: string; group: [Tab, Tab] };
-  /** Rows of a list, with a split pair drawn as one group row where both tabs are in the list. */
+  type Row = { key: string; tab: Tab } | { key: string; group: Tab[] };
+  /** Rows of a list, with the split tabs drawn as one group row (at the first of them) where all
+   *  of them are in the list. */
   function rows(ids: TabId[]): Row[] {
     const out: Row[] = [];
-    const pair = split && split.ids.every((id) => ids.includes(id)) ? split.ids : null;
+    const members = split && split.ids.every((id) => ids.includes(id)) ? split.ids : null;
+    const lead = members && ids.find((id) => members.includes(id));
     for (const id of ids) {
-      if (pair && id === pair[1]) continue;
-      if (pair && id === pair[0]) out.push({ key: 'split:' + id, group: [browser.tabs[pair[0]], browser.tabs[pair[1]]] });
-      else out.push({ key: id, tab: browser.tabs[id] });
+      if (members && id === lead) out.push({ key: 'split:' + id, group: members.map((m) => browser.tabs[m]) });
+      else if (!members?.includes(id)) out.push({ key: id, tab: browser.tabs[id] });
     }
     return out;
   }
@@ -94,7 +95,7 @@
 
 {#snippet tabRow(row: Row)}
   {#if 'group' in row}
-    <!-- Zen's split-view group: the two tabs side by side in one rounded row. -->
+    <!-- Zen's split-view group: the split tabs side by side in one rounded row. -->
     <div
       class="split-group"
       class:active={row.group.some((t) => t.id === activeId)}

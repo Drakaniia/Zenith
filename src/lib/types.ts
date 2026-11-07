@@ -35,9 +35,16 @@ export interface Tab {
   media: number;
 }
 
+/** Zen's split layouts: side by side (`vsep`, a vertical separator), stacked (`hsep`) or a grid. */
+export type SplitLayout = "vsep" | "hsep" | "grid";
+
 export interface SplitState {
-  ids: [TabId, TabId];
+  /** Two to four tabs, in pane order. */
+  ids: TabId[];
+  /** Share of the first pane with two panes side by side or stacked. */
   ratio: number;
+  /** Missing in sessions from earlier versions: side by side. */
+  layout?: SplitLayout;
 }
 
 /** A Zen tab folder in a space's pinned section. Its tabs stay in `Space.pinnedIds` (so every

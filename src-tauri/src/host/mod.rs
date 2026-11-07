@@ -16,6 +16,7 @@ pub mod autofill;
 pub mod crx;
 pub mod downloads;
 pub mod extensions;
+pub mod page_tools;
 pub mod tab;
 
 use std::cell::RefCell;
@@ -78,6 +79,23 @@ pub const MAIN: &str = "main";
 /// Incognito windows are labelled `incognito-N`.
 pub fn is_private_window(label: &str) -> bool {
     label.starts_with(crate::incognito::LABEL_PREFIX)
+}
+
+/// The main window or one of the other normal windows (`window-N`, see sessions.rs).
+pub fn is_normal_window(label: &str) -> bool {
+    label == MAIN || crate::sessions::is_extra_window(label)
+}
+
+/// The normal window to send app-wide requests to (links from other apps, extension pages):
+/// the main window, else another normal one.
+pub fn primary_window() -> String {
+    let windows = app().webview_windows();
+    if windows.contains_key(MAIN) {
+        return MAIN.to_string();
+    }
+    let mut extra: Vec<&String> = windows.keys().filter(|l| crate::sessions::is_extra_window(l)).collect();
+    extra.sort();
+    extra.first().map(|l| l.to_string()).unwrap_or_else(|| MAIN.to_string())
 }
 
 /// Emits an app-wide event (downloads, updates) to every window's chrome UI.
@@ -1134,8 +1152,8 @@ fn check_stray_target(target_id: String) {
             return;
         }
         chrome_cdp("Target.closeTarget", &serde_json::json!({ "targetId": target_id }).to_string(), |_| {});
-        // Extensions belong to the user's profile, so their pages open in the normal window.
-        emit_to_window(MAIN, "tab-open-request", serde_json::json!({ "url": url, "openerId": null, "kind": "foreground" }));
+        // Extensions belong to the user's profile, so their pages open in a normal window.
+        emit_to_window(&primary_window(), "tab-open-request", serde_json::json!({ "url": url, "openerId": null, "kind": "foreground" }));
     });
 }
 
@@ -1270,9 +1288,17 @@ pub fn attach_accelerators(controller: &ICoreWebView2Controller, tab: Option<std
                 let source = tab.as_ref().map(|t| t.id.clone());
 
                 if let Some(t) = &tab {
-                    if t.glance.get() && vk == VK_ESCAPE.0 as u32 && !ctrl && !alt && !shift {
-                        args.SetHandled(true)?;
-                        emit_to_window(&label, "shortcut", ShortcutEvent { action: "closeGlance".into(), repeat, source });
+                    if vk == VK_ESCAPE.0 as u32 && !ctrl && !alt && !shift {
+                        if t.glance.get() {
+                            args.SetHandled(true)?;
+                            emit_to_window(&label, "shortcut", ShortcutEvent { action: "closeGlance".into(), repeat, source });
+                            return Ok(());
+                        }
+                        // Esc stops a page that is still loading (the UI knows whether it is);
+                        // the page gets the key as well.
+                        if !repeat {
+                            emit_to_window(&label, "shortcut", ShortcutEvent { action: "escape".into(), repeat, source });
+                        }
                         return Ok(());
                     }
                 }

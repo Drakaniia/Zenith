@@ -70,12 +70,16 @@ pub fn is_reserved(chord: &Chord) -> bool {
         return true;
     }
     // Ctrl+Backspace/Delete/arrows/Home/End are word and caret navigation in text fields.
-    if plain_ctrl && matches!(chord.vk, 0x08 | 0x2E | 0x25..=0x28 | 0x24 | 0x23) {
+    // Ctrl+Shift+Delete is the browsers' "clear browsing data" key instead.
+    let clear_data = chord.shift && chord.vk == 0x2E;
+    if plain_ctrl && !clear_data && matches!(chord.vk, 0x08 | 0x2E | 0x25..=0x28 | 0x24 | 0x23) {
         return true;
     }
-    // A binding needs a modifier unless it is a function key.
+    // A binding needs a modifier unless it is a function key, or Shift+Esc (the task manager,
+    // as in Firefox and Chromium).
     let function_key = (0x70..=0x87).contains(&chord.vk);
-    !chord.ctrl && !chord.alt && !function_key
+    let task_manager = chord.shift && chord.vk == 0x1B;
+    !chord.ctrl && !chord.alt && !function_key && !task_manager
 }
 
 pub fn parse_chord(text: &str) -> Option<Chord> {
@@ -180,6 +184,12 @@ mod tests {
         assert!(is_reserved(&parse_chord("Ctrl+Shift+Z").unwrap()));
         assert!(is_reserved(&parse_chord("Ctrl+Backspace").unwrap()));
         assert!(is_reserved(&parse_chord("K").unwrap()));
+        assert!(is_reserved(&parse_chord("Escape").unwrap()));
+        assert!(is_reserved(&parse_chord("Ctrl+Delete").unwrap()));
+        assert!(is_reserved(&parse_chord("Ctrl+Shift+Left").unwrap()));
+        assert!(!is_reserved(&parse_chord("Ctrl+Shift+Delete").unwrap()));
+        assert!(!is_reserved(&parse_chord("Shift+Escape").unwrap()));
+        assert!(!is_reserved(&parse_chord("Ctrl+Alt+Shift+I").unwrap()));
         assert!(!is_reserved(&parse_chord("F11").unwrap()));
         assert!(!is_reserved(&parse_chord("Ctrl+T").unwrap()));
         let bindings = Bindings::from_specs(&[BindingSpec {

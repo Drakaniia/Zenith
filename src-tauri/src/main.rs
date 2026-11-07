@@ -13,6 +13,7 @@ mod keys;
 mod media;
 mod net;
 mod password_commands;
+mod sessions;
 mod store;
 mod updates;
 mod urls;
@@ -33,6 +34,7 @@ static QUITTING: AtomicBool = AtomicBool::new(false);
 /// Windows whose UI was asked to save before closing (see `CloseRequested`).
 static CLOSING: Mutex<Option<HashSet<String>>> = Mutex::new(None);
 static NEXT_INCOGNITO: AtomicU32 = AtomicU32::new(1);
+static NEXT_WINDOW: AtomicU32 = AtomicU32::new(1);
 
 /// The saved state was maximized. Applied when the window is first shown (`ui_ready`):
 /// maximizing a still-hidden window leaves it flagged maximized at its restored size, so it
@@ -133,9 +135,17 @@ fn browser_args() -> String {
     args
 }
 
-/// An incognito window opens over the normal one, offset like a cascaded window.
-fn place_incognito_window(app: &AppHandle, window: &WebviewWindow) {
-    let Some(main) = app.get_webview_window(host::MAIN) else {
+/// An incognito or extra window opens over the window the user is in (else the main one),
+/// offset like a cascaded window.
+fn place_cascaded(app: &AppHandle, window: &WebviewWindow) {
+    let others: Vec<WebviewWindow> = app.webview_windows().into_values().filter(|w| w.label() != window.label()).collect();
+    let base = others
+        .iter()
+        .find(|w| w.is_focused().unwrap_or(false))
+        .or_else(|| others.iter().find(|w| w.label() == host::MAIN))
+        .or_else(|| others.first())
+        .cloned();
+    let Some(main) = base else {
         let _ = window.center();
         return;
     };
@@ -154,6 +164,7 @@ fn place_incognito_window(app: &AppHandle, window: &WebviewWindow) {
 /// passes the same WebView2 options, so all of them share one WebView2 browser process.
 fn create_window(app: &AppHandle, label: &str) -> tauri::Result<()> {
     let private = host::is_private_window(label);
+    let extra = sessions::is_extra_window(label);
     let title = if private {
         "Zenith Incognito"
     } else if host::profile_override().is_some() {
@@ -189,8 +200,8 @@ fn create_window(app: &AppHandle, label: &str) -> tauri::Result<()> {
         .zoom_hotkeys_enabled(false)
         .devtools(cfg!(debug_assertions))
         .build()?;
-    if private {
-        place_incognito_window(app, &window);
+    if private || extra {
+        place_cascaded(app, &window);
     } else {
         restore_window_state(&window);
     }
@@ -206,6 +217,19 @@ pub fn open_incognito_window(app: &AppHandle, urls: Vec<String>) -> tauri::Resul
     create_window(app, &label)
 }
 
+/// Opens another normal window (`window-N`) that starts with `start`. Call off the UI thread.
+pub fn open_normal_window(app: &AppHandle, start: sessions::Start) -> tauri::Result<()> {
+    let label = format!("{}{}", sessions::LABEL_PREFIX, NEXT_WINDOW.fetch_add(1, Ordering::Relaxed));
+    sessions::set_pending(&label, start);
+    create_window(app, &label)
+}
+
+/// Reopens the main window (closed while other windows stayed open) with all of its tabs.
+pub fn reopen_main_window(app: &AppHandle) -> tauri::Result<()> {
+    sessions::set_pending(host::MAIN, sessions::Start { data: None, keep: Some(true), fresh: false });
+    create_window(app, host::MAIN)
+}
+
 /// Closes one window once its UI has saved what it keeps. The last window quits Zenith.
 pub fn close_window(app: &AppHandle, label: &str) {
     if QUITTING.load(Ordering::SeqCst) {
@@ -219,6 +243,8 @@ pub fn close_window(app: &AppHandle, label: &str) {
     if label == host::MAIN {
         save_window_state();
     }
+    // Ctrl+Shift+N can bring it back.
+    sessions::window_closed(label);
     let app2 = app.clone();
     let label = label.to_string();
     let _ = app.run_on_main_thread(move || {
@@ -290,12 +316,12 @@ fn main() {
                 incognito::open_window(urls);
                 return;
             }
-            match app.get_webview_window(host::MAIN) {
+            match app.get_webview_window(&host::primary_window()) {
                 Some(w) => {
                     let _ = w.unminimize();
                     let _ = w.show();
                     let _ = w.set_focus();
-                    host::emit_to_window(host::MAIN, "open-urls", urls);
+                    host::emit_to_window(w.label(), "open-urls", urls);
                 }
                 // Only incognito windows are open: bring the normal window back.
                 None => {
@@ -318,6 +344,11 @@ fn main() {
             commands::app_quit,
             commands::window_close,
             commands::incognito_open,
+            commands::window_open,
+            commands::window_undo_close,
+            commands::windows_restore,
+            commands::chrome_devtools,
+            commands::pick_file,
             commands::tab_create,
             commands::tab_close,
             commands::tab_navigate,

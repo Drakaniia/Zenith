@@ -146,6 +146,18 @@
           },
         }));
     }
+    // Zen's "Focus Search" (Ctrl+K): whatever is typed is searched with the default engine.
+    if (mode === 'search') {
+      if (!q) return [];
+      const url = searchUrl(q, settings.value.searchEngine);
+      const out: Item[] = [{ key: 'go', kind: 'search', title: q, subtitle: `Search ${engine.name}`, icon: 'search', run: (h) => go(url, h) }];
+      for (const s of suggestions.slice(0, 8)) {
+        if (s.toLowerCase() === q.toLowerCase()) continue;
+        const su = searchUrl(s, settings.value.searchEngine);
+        out.push({ key: `s:${s}`, kind: 'suggest', title: s, icon: 'search', run: (h) => go(su, h) });
+      }
+      return out;
+    }
     // Firefox's restriction tokens: only bookmarks (*), tagged bookmarks (+), history (^) or tabs (%).
     const only = restrict.restriction;
     if (only === 'bookmarks' || only === 'tagged') {
@@ -294,7 +306,7 @@
   /** Offers (or updates) the inline completion, but only while the caret is where typing left it. */
   function refreshFill() {
     const el = input;
-    if (!el || !armed || preview !== null || commandMode || document.activeElement !== el) return;
+    if (!el || !armed || preview !== null || commandMode || mode === 'search' || document.activeElement !== el) return;
     const caret = fill ? query.length : el.value.length;
     if (el.selectionStart !== caret || el.selectionEnd !== el.value.length) return;
     fill = autofill(query, candidates());
@@ -380,7 +392,8 @@
         armed = false;
         selected = initialSelection();
       } else close();
-    } else if (e.key === 'Backspace' && commandMode && query === '' && mode === 'command') {
+    } else if (e.key === 'Backspace' && query === '' && (mode === 'command' || mode === 'search')) {
+      // Backspace in the empty bar leaves command or search mode (Firefox removes the chip).
       mode = 'navigate';
     }
   }
@@ -399,7 +412,7 @@
   }
 
   const placeholder = $derived(
-    commandMode ? 'Type a command…' : mode === 'newTab' ? 'Search or enter address' : 'Search or enter address',
+    commandMode ? 'Type a command…' : mode === 'search' ? `Search with ${engine.name}` : 'Search or enter address',
   );
 </script>
 
@@ -440,6 +453,8 @@
           </button>
         {:else if mode === 'newTab' && !commandMode}
           <span class="chip">New tab</span>
+        {:else if mode === 'search' && !commandMode}
+          <span class="chip">{engine.name}</span>
         {:else if commandMode}
           <span class="chip">Commands</span>
         {/if}

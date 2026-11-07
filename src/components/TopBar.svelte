@@ -9,7 +9,7 @@
   import { ui, type MenuItem } from '../lib/ui.svelte';
   import { api } from '../lib/ipc';
   import { appMenu } from '../lib/menus';
-  import { openInternal, runAction, withHint } from '../lib/actions';
+  import { openInternal, runAction, shortcutHint, withHint } from '../lib/actions';
   import { appInfo, incognito } from '../lib/app.svelte';
 
   // Zen's #nav-bar for the multiple-toolbars and collapsed layouts (38px): navigation buttons,
@@ -65,16 +65,16 @@
   function overflowItems(): MenuItem[] {
     const items: MenuItem[] = [];
     if (hidden.has('back'))
-      items.push({ label: 'Back', icon: 'back', hint: 'Alt+Left', disabled: !live?.canGoBack, run: () => live && api.tabCommand(live.id, 'back') });
+      items.push({ label: 'Back', icon: 'back', hint: shortcutHint('back'), disabled: !live?.canGoBack, run: () => live && api.tabCommand(live.id, 'back') });
     if (hidden.has('forward'))
-      items.push({ label: 'Forward', icon: 'forward', hint: 'Alt+Right', disabled: !live?.canGoForward, run: () => live && api.tabCommand(live.id, 'forward') });
+      items.push({ label: 'Forward', icon: 'forward', hint: shortcutHint('forward'), disabled: !live?.canGoForward, run: () => live && api.tabCommand(live.id, 'forward') });
     if (hidden.has('reload')) {
       if (live?.loading) items.push({ label: 'Stop', icon: 'stop', run: () => live && api.tabCommand(live.id, 'stop') });
       else
         items.push({
           label: 'Reload',
           icon: 'reload',
-          hint: 'F5',
+          hint: shortcutHint('reload'),
           disabled: !live && !tab?.crashed,
           run: () => tab && (tab.crashed ? browser.reviveCrashed(tab.id) : api.tabCommand(tab.id, 'reload')),
         });
@@ -83,9 +83,9 @@
       items.push({
         label: browser.activeSplit ? 'Exit split view' : 'Split view',
         icon: browser.activeSplit ? 'unsplit' : 'split',
-        hint: 'Ctrl+Alt+S',
+        hint: shortcutHint(browser.activeSplit ? 'unsplit' : 'splitVertical'),
         disabled: !tab,
-        run: () => browser.toggleSplit(),
+        run: () => void runAction(browser.activeSplit ? 'unsplit' : 'splitVertical'),
       });
     if (hidden.has('extensions')) items.push({ label: 'Extensions', icon: 'puzzle', run: () => openInternal('extensions') });
     return items;
@@ -111,12 +111,12 @@
     </button>
   {/if}
   {#if !hidden.has('back')}
-    <button class="icon-btn" title="Back (Alt+Left)" disabled={!live?.canGoBack} onclick={() => live && api.tabCommand(live.id, 'back')}>
+    <button class="icon-btn" title={withHint('Back', 'back')} disabled={!live?.canGoBack} onclick={() => live && api.tabCommand(live.id, 'back')}>
       <Icon name="back" />
     </button>
   {/if}
   {#if !hidden.has('forward')}
-    <button class="icon-btn" title="Forward (Alt+Right)" disabled={!live?.canGoForward} onclick={() => live && api.tabCommand(live.id, 'forward')}>
+    <button class="icon-btn" title={withHint('Forward', 'forward')} disabled={!live?.canGoForward} onclick={() => live && api.tabCommand(live.id, 'forward')}>
       <Icon name="forward" />
     </button>
   {/if}
@@ -126,7 +126,7 @@
     {:else}
       <button
         class="icon-btn"
-        title="Reload (F5)"
+        title={withHint('Reload', 'reload')}
         disabled={!live && !tab?.crashed}
         onclick={() => tab && (tab.crashed ? browser.reviveCrashed(tab.id) : api.tabCommand(tab.id, 'reload'))}
       >
@@ -155,9 +155,9 @@
     <button
       class="icon-btn"
       class:on={!!browser.activeSplit}
-      title={browser.activeSplit ? 'Exit split view' : 'Split view (Ctrl+Alt+S)'}
+      title={browser.activeSplit ? withHint('Exit split view', 'unsplit') : withHint('Split view', 'splitVertical')}
       data-action="split"
-      onclick={() => browser.toggleSplit()}
+      onclick={() => void runAction(browser.activeSplit ? 'unsplit' : 'splitVertical')}
       disabled={!tab}
     >
       <Icon name={browser.activeSplit ? 'unsplit' : 'split'} />

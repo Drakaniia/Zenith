@@ -3,9 +3,9 @@
   import { settings } from '../../lib/settings.svelte';
   import { ui } from '../../lib/ui.svelte';
   import { api } from '../../lib/ipc';
-  import { ACTIONS, ACTION_LABELS, chordFromEvent, defaultShortcuts, displayChord, isReserved } from '../../lib/shortcuts';
+  import { ACTIONS, ACTION_LABELS, GROUPS, chordFromEvent, defaultShortcuts, displayChord, isReserved } from '../../lib/shortcuts';
 
-  const groups = ['Tabs', 'Navigation', 'Page', 'View', 'Spaces', 'Browser'] as const;
+  const groups = GROUPS;
   let filter = $state('');
   let recording = $state<string | null>(null);
   let message = $state('');

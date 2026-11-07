@@ -9,6 +9,7 @@
   import { bookmarks } from './lib/bookmarks.svelte';
   import { downloads, permissions, ui } from './lib/ui.svelte';
   import { api, on } from './lib/ipc';
+  import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
   import { runAction } from './lib/actions';
   import { barPinned } from './lib/bookmark-actions';
   import { bmDnd } from './lib/bookmark-dnd.svelte';
@@ -56,7 +57,9 @@
   /** Zen's single toolbar: no toolbar above the page; window controls appear at the top edge. */
   const single = $derived(mode === 'single');
   const showSidebar = $derived(!compact && !pageFullscreen);
-  const showTopBar = $derived(!single && !pageFullscreen);
+  /** Compact mode with the toolbar hidden too (Ctrl+Alt+T): it floats in from the top edge. */
+  const hideToolbar = $derived(compact && settings.value.compactHideToolbar && !single && !pageFullscreen);
+  const showTopBar = $derived(!single && !pageFullscreen && !hideToolbar);
   /** The bookmarks toolbar has a row of its own. In the single-toolbar layout, when it hasn't, it
    *  still appears next to the window controls while the pointer is at the top edge. */
   const barOn = $derived(!pageFullscreen && barPinned());
@@ -77,7 +80,7 @@
   let lastLayoutKey = '';
   let animTimer: ReturnType<typeof setTimeout> | undefined;
   $effect.pre(() => {
-    const key = `${compact}|${mode}|${barOn}`;
+    const key = `${compact}|${mode}|${barOn}|${hideToolbar}`;
     if (key === lastLayoutKey) return;
     const first = !lastLayoutKey;
     lastLayoutKey = key;
@@ -117,6 +120,7 @@
     void settings.value.compact;
     void settings.value.sidebarWidth;
     void settings.value.toolbarMode;
+    void hideToolbar;
     void barOn;
     void ui.find.open;
     void pageFullscreen;
@@ -176,13 +180,34 @@
   function scheduleHideFlyout() {
     clearTimeout(hideTimer);
     hideTimer = setTimeout(() => {
-      if (!ui.menu && !ui.downloadsOpen && !extensions.popover && !ui.media && !ui.spaceEditor && !ui.palette.open && !ui.renaming && !ui.dragging)
+      if (!ui.flyoutPinned && !ui.menu && !ui.downloadsOpen && !extensions.popover && !ui.media && !ui.spaceEditor && !ui.palette.open && !ui.renaming && !ui.dragging)
         ui.flyout = false;
     }, 150);
   }
   function keepFlyout() {
     clearTimeout(hideTimer);
   }
+  // The pinned floating sidebar goes with compact mode.
+  $effect(() => {
+    if (!compact) ui.flyoutPinned = false;
+  });
+
+  // Compact mode's floating toolbar: the top edge reveals it, like the sidebar's left edge.
+  let topTimer: ReturnType<typeof setTimeout> | undefined;
+  function revealToolbar() {
+    clearTimeout(topTimer);
+    topTimer = setTimeout(() => (ui.topReveal = true), 50);
+  }
+  function scheduleHideToolbar(delay = 150) {
+    clearTimeout(topTimer);
+    topTimer = setTimeout(() => {
+      if (!ui.menu && !ui.downloadsOpen && !extensions.popover && !ui.palette.open) ui.topReveal = false;
+      else scheduleHideToolbar(400);
+    }, delay);
+  }
+  $effect(() => {
+    if (!hideToolbar) ui.topReveal = false;
+  });
 
   // Single toolbar: hovering the strip above the page reveals the window controls (Zen's
   // zen.view.hide-window-controls), after a short delay, and hides them once the pointer leaves.
@@ -218,7 +243,12 @@
       }),
       on('tab-focused', ({ id }) => {
         if (browser.activeSplit?.ids.includes(id) && browser.activeTab?.id !== id) browser.activate(id, { focus: false });
-        if (ui.flyout) ui.flyout = false;
+        if (ui.flyout && !ui.flyoutPinned) ui.flyout = false;
+        if (ui.topReveal) ui.topReveal = false;
+      }),
+      // Another normal window changed the settings (incognito windows keep their own copy).
+      on('settings-changed', ({ origin }) => {
+        if (!incognito && origin !== getCurrentWebviewWindow().label) void settings.reload();
       }),
       on('popup-blocked', ({ tabId, url }) => {
         ui.toast('Pop-up blocked', {
@@ -297,7 +327,12 @@
 
       requestAnimationFrame(() => (motionReady = true));
       if (incognito) browser.startPrivate();
-      else browser.restore(await api.sessionLoad().catch(() => null), s.restoreSession);
+      else {
+        const saved = await api.sessionLoad().catch(() => null);
+        browser.restore(saved?.data ?? null, saved?.keep ?? s.restoreSession, saved?.fresh ?? false);
+        // The main window brings back the other windows that were open when Zenith quit.
+        void api.windowsRestore(s.restoreSession).catch(() => {});
+      }
       await pushed;
       await tick();
       requestAnimationFrame(async () => {
@@ -340,7 +375,11 @@
       else if (extensions.popover) extensions.close();
       else if (ui.downloadsOpen) ui.downloadsOpen = false;
       else if (browser.glance && !ui.palette.open) browser.closeGlance();
-      else if (ui.flyout) ui.flyout = false;
+      else if (ui.topReveal) ui.topReveal = false;
+      else if (ui.flyout) {
+        ui.flyout = false;
+        ui.flyoutPinned = false;
+      }
     }
   }
 </script>
@@ -355,6 +394,7 @@
   class:single
   class:has-bar={barOn}
   class:collapsed-mode={mode === 'collapsed'}
+  class:no-toolbar={hideToolbar}
   class:incognito
   class:animating
   inert={onboarding.open}
@@ -460,6 +500,29 @@
     {/if}
   {/if}
 
+  {#if hideToolbar}
+    <div
+      class="hot-top"
+      role="presentation"
+      onmouseenter={revealToolbar}
+      onmouseleave={() => !ui.topReveal && clearTimeout(topTimer)}
+      data-tauri-drag-region
+    ></div>
+    {#if ui.topReveal}
+      <div
+        class="top-flyout"
+        role="presentation"
+        use:overlayLease
+        onmouseenter={() => clearTimeout(topTimer)}
+        onmouseleave={() => scheduleHideToolbar()}
+        in:slidePx={{ y: -16, duration: 200, easing: compactEase }}
+        out:slidePx={{ y: -16, duration: 150, easing: cubicOut }}
+      >
+        <TopBar floating />
+      </div>
+    {/if}
+  {/if}
+
   {#if compact && !pageFullscreen}
     <div
       class="hot-left"
@@ -553,6 +616,10 @@
   }
   .app.single.has-bar {
     --lay-top: var(--bm-bar-h);
+  }
+  /* Compact mode with the toolbar hidden as well: the page reaches the top edge. */
+  .app.no-toolbar {
+    --lay-top: var(--zen-sep);
   }
   .app.animating {
     transition:
@@ -705,5 +772,31 @@
   }
   .app:not(.single) .flyout {
     top: var(--zen-toolbar-h);
+  }
+  .app.no-toolbar .flyout {
+    top: calc(var(--zen-sep) / 2);
+  }
+  .hot-top {
+    position: absolute;
+    top: 0;
+    left: var(--margin);
+    right: 0;
+    height: var(--zen-sep);
+    z-index: 5;
+  }
+  /* Compact mode's floating toolbar (Zen: #zen-appcontent-navbar-container in compact mode). */
+  .top-flyout {
+    position: absolute;
+    top: calc(var(--zen-sep) / 2);
+    left: calc(var(--zen-sep) / 2);
+    right: calc(var(--zen-sep) / 2);
+    z-index: 41;
+    border-radius: var(--r-panel);
+    corner-shape: var(--sq);
+    background: color-mix(in srgb, var(--accent) 7%, var(--compact-bg));
+    outline: 1px solid rgba(255, 255, 255, 0.15);
+    outline-offset: -1px;
+    box-shadow: var(--zen-big-shadow);
+    overflow: hidden;
   }
 </style>

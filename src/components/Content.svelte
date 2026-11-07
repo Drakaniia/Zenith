@@ -11,6 +11,10 @@
 
   const split = $derived(browser.activeSplit);
   const ids = $derived(browser.visibleIds);
+  const layout = $derived(split?.layout ?? 'vsep');
+  /** Two panes side by side or stacked share the space by the split ratio, with a draggable
+   *  divider; more panes, and the grid, share it equally. */
+  const resizable = $derived(!!split && ids.length === 2 && layout !== 'grid');
   let panesEl: HTMLDivElement | undefined = $state();
   let hoverSide = $state<'left' | 'right' | null>(null);
 
@@ -20,8 +24,10 @@
     const el = e.currentTarget as HTMLElement;
     el.setPointerCapture(e.pointerId);
     const rect = panesEl.getBoundingClientRect();
+    const stacked = s.layout === 'hsep';
     const move = (ev: PointerEvent) => {
-      s.ratio = Math.min(0.8, Math.max(0.2, (ev.clientX - rect.left) / rect.width));
+      const at = stacked ? (ev.clientY - rect.top) / rect.height : (ev.clientX - rect.left) / rect.width;
+      s.ratio = Math.min(0.8, Math.max(0.2, at));
     };
     const up = () => el.removeEventListener('pointermove', move);
     el.addEventListener('pointermove', move);
@@ -40,18 +46,31 @@
   {#if settings.value.bookmarksPanel && !browser.fullscreenTabId}
     <BookmarksPanel />
   {/if}
-  <div class="panes" bind:this={panesEl}>
+  <div
+    class="panes"
+    class:hsep={!!split && layout === 'hsep'}
+    class:grid={!!split && layout === 'grid'}
+    class:spaced={!!split && !resizable}
+    class:three={!!split && layout === 'grid' && ids.length === 3}
+    bind:this={panesEl}
+  >
     {#if ids.length === 0}
       <div class="card solid"><NewTab /></div>
     {:else}
       {#each ids as id, i (id)}
-        {#if i === 1}
-          <div class="divider" role="separator" aria-orientation="vertical" onpointerdown={startResize}><span></span></div>
+        {#if i === 1 && resizable}
+          <div
+            class="divider"
+            class:h={layout === 'hsep'}
+            role="separator"
+            aria-orientation={layout === 'hsep' ? 'horizontal' : 'vertical'}
+            onpointerdown={startResize}
+          ><span></span></div>
         {/if}
         <div
           class="card"
           class:focused={!!split && browser.activeTab?.id === id}
-          style:flex={split ? `${i === 0 ? split.ratio : 1 - split.ratio} 1 0` : '1 1 0'}
+          style:flex={resizable && split ? `${i === 0 ? split.ratio : 1 - split.ratio} 1 0` : '1 1 0'}
           role="presentation"
           onpointerdown={() => split && browser.activeTab?.id !== id && browser.activate(id)}
         >
@@ -110,11 +129,28 @@
     min-height: 0;
     display: flex;
   }
+  /* Zen's split layouts: stacked (horizontal separator) and grid. */
+  .panes.hsep {
+    flex-direction: column;
+  }
+  .panes.spaced {
+    gap: var(--zen-sep);
+  }
+  .panes.grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-auto-rows: minmax(0, 1fr);
+  }
+  /* Three tabs: the first takes the whole left column. */
+  .panes.grid.three > .card:first-of-type {
+    grid-row: span 2;
+  }
   /* The page card (Zen: .browserSidebarContainer): native inner radius, Zen's big shadow. The
    * page itself is a native view drawn over it, so the radius shows on internal pages. */
   .card {
     position: relative;
     min-width: 0;
+    min-height: 0;
     display: flex;
     flex-direction: column;
     border-radius: var(--r-content);
@@ -148,6 +184,15 @@
   }
   .divider:hover span {
     opacity: 1;
+  }
+  .divider.h {
+    width: auto;
+    height: var(--zen-sep);
+    cursor: ns-resize;
+  }
+  .divider.h span {
+    width: 50px;
+    height: 2px;
   }
   .zones {
     position: absolute;

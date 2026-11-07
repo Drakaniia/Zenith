@@ -19,6 +19,11 @@ export interface Settings {
   material: "mica" | "mica-alt" | "acrylic" | "solid";
   contentScheme: "system" | "light" | "dark";
   compact: boolean;
+  /** Compact mode also hides the toolbar above the page; it floats in from the top edge (Zen's
+   *  floating toolbar, toggled with Ctrl+Alt+T). */
+  compactHideToolbar: boolean;
+  /** The AI chatbot opened by Ctrl+Alt+X (a key of CHATBOTS); empty until one is picked. */
+  chatbot: string;
   /** Zen's layouts: the URL bar in the sidebar (single toolbar), a toolbar above the page
    *  (multiple toolbars), or an icon-only sidebar with the toolbar above the page (collapsed). */
   toolbarMode: ToolbarMode;
@@ -158,6 +163,8 @@ export function defaultSettings(): Settings {
     material: "mica",
     contentScheme: "system",
     compact: false,
+    compactHideToolbar: false,
+    chatbot: "",
     toolbarMode: "single",
     sidebarWidth: SIDEBAR_DEFAULT,
     showClearButton: true,
@@ -233,6 +240,19 @@ class SettingsStore {
       this.systemDark = e.matches;
       void this.push();
     });
+    await this.#read();
+  }
+
+  /** Another window saved the settings: take its values. The backend already has them (that
+   *  window pushed them), so only this window's own UI follows. */
+  async reload() {
+    clearTimeout(this.#saveTimer);
+    await this.#read();
+    const root = document.documentElement;
+    root.dataset.theme = this.resolvedTheme;
+  }
+
+  async #read() {
     try {
       const raw = await api.settingsLoad();
       if (raw) {

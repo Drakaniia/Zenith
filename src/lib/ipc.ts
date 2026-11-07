@@ -84,6 +84,18 @@ export const api = {
   /** Opens a new incognito window (same process, InPrivate pages), optionally loading pages. */
   incognitoOpen: (urls: string[] = []) =>
     invoke<void>("incognito_open", { urls }),
+  /** Opens another normal window. `session` (this window's snapshot) gives it the same spaces,
+   *  essentials and pinned tabs; its regular tabs are not copied. */
+  windowOpen: (session: string | null) => invoke<void>("window_open", { session }),
+  /** Reopens the most recently closed normal window; false when there is none. */
+  windowUndoClose: () => invoke<boolean>("window_undo_close"),
+  /** Called once by the main window at startup: reopens the other windows that were open when
+   *  Zenith quit (`keep`), or forgets them. */
+  windowsRestore: (keep: boolean) => invoke<void>("windows_restore", { keep }),
+  /** Opens the developer tools of this window's own UI (Firefox's Browser Toolbox). */
+  chromeDevtools: () => invoke<void>("chrome_devtools"),
+  /** A local file chosen in the system dialog (Ctrl+O), or null. */
+  pickFile: () => invoke<string | null>("pick_file"),
 
   tabCreate: (args: {
     id: string;
@@ -132,7 +144,12 @@ export const api = {
     history: boolean,
   ) => invoke<void>("clear_browsing_data", { kinds, sinceMs, history }),
 
-  sessionLoad: () => invoke<string | null>("session_load"),
+  /** This window's saved tabs. `keep` says whether to restore its regular tabs too: null leaves
+   *  it to the "restore previous session" setting, false keeps only spaces, essentials and pinned
+   *  tabs (a new window), true restores everything (a reopened window). `fresh` asks for new tab
+   *  ids, as the tabs came from another window. */
+  sessionLoad: () =>
+    invoke<{ data: string | null; keep: boolean | null; fresh: boolean }>("session_load"),
   sessionSave: (data: string) => invoke<void>("session_save", { data }),
   settingsLoad: () => invoke<string | null>("settings_load"),
   settingsSave: (data: string) => invoke<void>("settings_save", { data }),
@@ -294,6 +311,8 @@ export interface BackendEvents {
   "notes-changed": { origin: string; id: string; deleted: boolean };
   /** Another window changed the bookmarks. */
   "bookmarks-changed": { origin: string };
+  /** Another normal window saved the settings. */
+  "settings-changed": { origin: string };
 }
 
 export function on<K extends keyof BackendEvents>(

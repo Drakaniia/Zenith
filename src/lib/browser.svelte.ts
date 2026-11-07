@@ -10,6 +10,7 @@ import type {
   PopupAnchor,
   Space,
   SpaceId,
+  SplitLayout,
   Tab,
   TabId,
   TabPatch,
@@ -147,11 +148,11 @@ class BrowserStore {
     const s = this.activeSpace;
     const id = s?.activeTabId;
     if (!s?.split || !id || !s.split.ids.includes(id)) return undefined;
-    if (!this.tabs[s.split.ids[0]] || !this.tabs[s.split.ids[1]])
+    if (s.split.ids.length < 2 || !s.split.ids.every((t) => this.tabs[t]))
       return undefined;
     return s.split;
   });
-  /** Tabs currently on screen (one, or two in split view). */
+  /** Tabs currently on screen (one, or two to four in split view). */
   visibleIds = $derived<TabId[]>(
     this.activeSplit
       ? [...this.activeSplit.ids]
@@ -778,16 +779,35 @@ class BrowserStore {
   // Split view
 
   splitWith(a: TabId, b: TabId) {
+    this.splitTabs([a, b]);
+  }
+
+  /** Shows two to four tabs of the active space together (Zen allows four in a grid). */
+  splitTabs(ids: TabId[], layout: SplitLayout = "vsep") {
     const space = this.activeSpace;
-    if (!space || a === b || !this.tabs[a] || !this.tabs[b]) return;
-    for (const id of [a, b]) {
+    const members = [...new Set(ids)].filter((id) => this.tabs[id]).slice(0, 4);
+    if (!space || members.length < 2) return;
+    for (const id of members) {
       const t = this.tabs[id];
       if (!t.essential && t.spaceId !== space.id)
         this.moveToSpace(id, space.id);
     }
-    space.split = { ids: [a, b], ratio: 0.5 };
-    this.activate(a);
-    if (needsWebview(this.tabs[b].url)) void this.wake(this.tabs[b]);
+    space.split = { ids: members, ratio: 0.5, layout };
+    this.activate(members[0]);
+    for (const id of members.slice(1)) {
+      const t = this.tabs[id];
+      if (needsWebview(t.url)) void this.wake(t);
+    }
+    scheduleLayout();
+  }
+
+  /** Changes how the current split view is laid out. */
+  setSplitLayout(layout: SplitLayout) {
+    const split = this.activeSplit;
+    if (!split) return;
+    split.layout = layout;
+    split.ratio = 0.5;
+    scheduleLayout();
   }
 
   toggleSplit() {
@@ -990,7 +1010,7 @@ class BrowserStore {
           tabIds: f.tabIds.filter((id) => s.pinnedIds.includes(id)),
         })),
         split: s.split
-          ? { ids: [...s.split.ids] as [TabId, TabId], ratio: s.split.ratio }
+          ? { ids: [...s.split.ids], ratio: s.split.ratio, layout: s.split.layout }
           : undefined,
       })),
       tabs: persistent,
@@ -1010,13 +1030,17 @@ class BrowserStore {
     this.restored = true;
   }
 
-  restore(json: string | null, keepTabs: boolean) {
+  /** Restores a session. `fresh`: the session is another window's (a new window gets that window's
+   *  spaces, essentials and pinned tabs): its tabs get new ids, and nothing is selected, so the
+   *  window opens on the start page. */
+  restore(json: string | null, keepTabs: boolean, fresh = false) {
     let file: SessionFile | null = null;
     try {
       file = json ? (JSON.parse(json) as SessionFile) : null;
     } catch {
       file = null;
     }
+    if (file && fresh) file = renumberTabs(file, !keepTabs);
     if (!file || !Array.isArray(file.spaces) || !file.spaces.length) {
       const home = this.createSpace("Home", "🏠", SPACE_COLORS[0]);
       this.activeSpaceId = home.id;
@@ -1054,12 +1078,19 @@ class BrowserStore {
           }))
         : [],
       split:
-        s.split && s.split.ids.every((id) => tabs[id]) ? s.split : undefined,
+        s.split &&
+        Array.isArray(s.split.ids) &&
+        s.split.ids.length >= 2 &&
+        s.split.ids.every((id) => tabs[id])
+          ? s.split
+          : undefined,
     }));
     for (const s of spaces) {
       if (s.activeTabId && !tabs[s.activeTabId])
         s.activeTabId = [...s.pinnedIds, ...s.tabIds][0];
     }
+    // A new window opens on its start page, not on one of the copied pinned tabs.
+    if (fresh && !keepTabs) for (const s of spaces) s.activeTabId = undefined;
     this.tabs = tabs;
     this.spaces = spaces;
     this.essentials = (file.essentials ?? []).filter((id) => tabs[id]);
@@ -1071,6 +1102,37 @@ class BrowserStore {
     const active = this.activeTab;
     if (active) this.activate(active.id);
   }
+}
+
+/** Gives every tab of a session a new id (the same pages may still be open in the window the
+ *  session came from, and the backend keys webviews by tab id). `forNewWindow` also drops the
+ *  closed-tab list and split views. */
+function renumberTabs(file: SessionFile, forNewWindow: boolean): SessionFile {
+  const ids = new Map<TabId, TabId>();
+  const map = (id: TabId) => {
+    let n = ids.get(id);
+    if (!n) ids.set(id, (n = uid("t")));
+    return n;
+  };
+  const mapAll = (list: TabId[] | undefined) => (list ?? []).map(map);
+  return {
+    ...file,
+    essentials: mapAll(file.essentials),
+    tabs: (file.tabs ?? []).map((t) => ({
+      ...t,
+      id: t.id ? map(t.id) : t.id,
+      openerId: t.openerId ? map(t.openerId) : undefined,
+    })),
+    spaces: file.spaces.map((s) => ({
+      ...s,
+      tabIds: mapAll(s.tabIds),
+      pinnedIds: mapAll(s.pinnedIds),
+      activeTabId: s.activeTabId ? map(s.activeTabId) : undefined,
+      folders: (s.folders ?? []).map((f) => ({ ...f, tabIds: mapAll(f.tabIds) })),
+      split: s.split && !forNewWindow ? { ...s.split, ids: mapAll(s.split.ids) } : undefined,
+    })),
+    closed: forNewWindow ? [] : file.closed,
+  };
 }
 
 function isSplitAnywhere(store: BrowserStore, id: TabId) {

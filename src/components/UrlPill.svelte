@@ -31,7 +31,7 @@
 </script>
 
 <div class="pill {variant}" class:empty class:loading={tab?.loading && tab.live}>
-  <button class="main" onclick={open} title={web ? url : 'Search or enter address (Ctrl+L)'}>
+  <button class="main" onclick={open} title={web ? url : withHint('Search or enter address', 'openPalette')}>
     <span class="lead" class:chrome={!web && !empty}>
       {#if empty}
         <Icon name="search" size={15} />
@@ -47,7 +47,7 @@
   </button>
   <div class="actions">
     {#if zoom !== 100}
-      <button class="zoom" title="Reset zoom (Ctrl+0)" onclick={() => tab && void browser.resetZoom(tab.id)}>{zoom}%</button>
+      <button class="zoom" title={withHint('Reset zoom', 'zoomReset')} onclick={() => tab && void browser.resetZoom(tab.id)}>{zoom}%</button>
     {/if}
     {#if web && tab && tab.media > 0}
       <button

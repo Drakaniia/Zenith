@@ -195,7 +195,7 @@ fn fire(action: String) {
         let windows: Vec<_> = app
             .webview_windows()
             .into_values()
-            .filter(|w| w.label() == crate::host::MAIN || crate::host::is_private_window(w.label()))
+            .filter(|w| crate::host::is_normal_window(w.label()) || crate::host::is_private_window(w.label()))
             .collect();
         let target = windows
             .iter()

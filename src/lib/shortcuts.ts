@@ -1,11 +1,32 @@
 // Browser actions and their default keyboard shortcuts. The backend receives the same
 // strings ("Ctrl+Shift+T") and matches them in WebView2's AcceleratorKeyPressed event, so
 // shortcuts work while a web page has focus.
+//
+// The defaults follow Zen's keyboard shortcuts (docs.zen-browser.app/user-manual/shortcuts),
+// with Firefox's alternatives where Zen keeps them.
+
+/** Sections of the shortcut editor, in the order they are shown. */
+export const GROUPS = [
+  "Tabs",
+  "Windows",
+  "Navigation",
+  "Search",
+  "Page",
+  "Zoom & media",
+  "View",
+  "Compact mode",
+  "Split view",
+  "Spaces",
+  "Bookmarks & history",
+  "Developer tools",
+  "Browser",
+] as const;
+export type ActionGroup = (typeof GROUPS)[number];
 
 export interface ActionDef {
   id: string;
   label: string;
-  group: "Tabs" | "Navigation" | "Page" | "View" | "Spaces" | "Browser";
+  group: ActionGroup;
   keys: string[];
 }
 
@@ -13,215 +34,128 @@ const tabNumbers: ActionDef[] = Array.from({ length: 8 }, (_, i) => ({
   id: `selectTab${i + 1}`,
   label: `Go to tab ${i + 1}`,
   group: "Tabs" as const,
-  keys: [`Ctrl+${i + 1}`],
+  keys: [`Ctrl+${i + 1}`, `Alt+${i + 1}`],
 }));
 
+/** Zen: "Switch to Workspace (1-10)", not set by default. */
+const spaceNumbers: ActionDef[] = Array.from({ length: 10 }, (_, i) => ({
+  id: `switchSpace${i + 1}`,
+  label: `Switch to space ${i + 1}`,
+  group: "Spaces" as const,
+  keys: [],
+}));
+
+const a = (id: string, label: string, group: ActionGroup, keys: string[] = []): ActionDef => ({
+  id,
+  label,
+  group,
+  keys,
+});
+
 export const ACTIONS: ActionDef[] = [
-  { id: "newTab", label: "New tab", group: "Tabs", keys: ["Ctrl+T"] },
-  {
-    id: "closeTab",
-    label: "Close tab",
-    group: "Tabs",
-    keys: ["Ctrl+W", "Ctrl+F4"],
-  },
-  {
-    id: "reopenClosed",
-    label: "Reopen closed tab",
-    group: "Tabs",
-    keys: ["Ctrl+Shift+T"],
-  },
-  {
-    id: "nextTab",
-    label: "Next tab",
-    group: "Tabs",
-    keys: ["Ctrl+Tab", "Ctrl+PageDown"],
-  },
-  {
-    id: "prevTab",
-    label: "Previous tab",
-    group: "Tabs",
-    keys: ["Ctrl+Shift+Tab", "Ctrl+PageUp"],
-  },
+  a("newTab", "New tab", "Tabs", ["Ctrl+T"]),
+  a("closeTab", "Close tab", "Tabs", ["Ctrl+W", "Ctrl+F4"]),
+  a("reopenClosed", "Reopen closed tab", "Tabs", ["Ctrl+Shift+T"]),
+  a("nextTab", "Next tab", "Tabs", ["Ctrl+Tab", "Ctrl+PageDown"]),
+  a("prevTab", "Previous tab", "Tabs", ["Ctrl+Shift+Tab", "Ctrl+PageUp"]),
   ...tabNumbers,
-  { id: "lastTab", label: "Go to last tab", group: "Tabs", keys: ["Ctrl+9"] },
-  { id: "duplicateTab", label: "Duplicate tab", group: "Tabs", keys: [] },
-  { id: "pinTab", label: "Pin or unpin tab", group: "Tabs", keys: [] },
-  {
-    id: "muteTab",
-    label: "Mute or unmute tab",
-    group: "Tabs",
-    keys: ["Ctrl+M"],
-  },
-  { id: "sleepTab", label: "Put tab to sleep", group: "Tabs", keys: [] },
+  a("lastTab", "Go to last tab", "Tabs", ["Ctrl+9", "Alt+9"]),
+  a("showAllTabs", "Show all tabs", "Tabs"),
+  a("duplicateTab", "Duplicate tab", "Tabs"),
+  a("pinTab", "Pin or unpin tab", "Tabs"),
+  a("resetPinned", "Reset pinned tab to its pinned address", "Tabs"),
+  a("sleepTab", "Put tab to sleep", "Tabs"),
 
-  {
-    id: "openPalette",
-    label: "Open address bar",
-    group: "Navigation",
-    keys: ["Ctrl+L", "Alt+D", "F6"],
-  },
-  {
-    id: "commandPalette",
-    label: "Command palette",
-    group: "Navigation",
-    keys: ["Ctrl+K", "Ctrl+Shift+P"],
-  },
-  { id: "back", label: "Back", group: "Navigation", keys: ["Alt+Left"] },
-  { id: "forward", label: "Forward", group: "Navigation", keys: ["Alt+Right"] },
-  {
-    id: "reload",
-    label: "Reload",
-    group: "Navigation",
-    keys: ["F5", "Ctrl+R"],
-  },
-  {
-    id: "hardReload",
-    label: "Reload without cache",
-    group: "Navigation",
-    keys: ["Ctrl+F5", "Ctrl+Shift+R"],
-  },
-  {
-    id: "copyUrl",
-    label: "Copy page address",
-    group: "Navigation",
-    keys: ["Ctrl+Shift+C"],
-  },
+  a("newWindow", "New window", "Windows", ["Ctrl+N"]),
+  a("newIncognitoWindow", "New incognito window", "Windows", ["Ctrl+Shift+P"]),
+  a("closeWindow", "Close window", "Windows", ["Ctrl+Shift+W"]),
+  a("undoCloseWindow", "Reopen closed window", "Windows", ["Ctrl+Shift+N"]),
+  a("quit", "Quit Zenith", "Windows", ["Ctrl+Q", "Ctrl+Shift+Q"]),
 
-  { id: "find", label: "Find in page", group: "Page", keys: ["Ctrl+F"] },
-  { id: "findNext", label: "Find next", group: "Page", keys: ["F3", "Ctrl+G"] },
-  {
-    id: "findPrev",
-    label: "Find previous",
-    group: "Page",
-    keys: ["Shift+F3", "Ctrl+Shift+G"],
-  },
-  {
-    id: "zoomIn",
-    label: "Zoom in",
-    group: "Page",
-    keys: ["Ctrl+Plus", "Ctrl+NumpadAdd"],
-  },
-  {
-    id: "zoomOut",
-    label: "Zoom out",
-    group: "Page",
-    keys: ["Ctrl+Minus", "Ctrl+NumpadSubtract"],
-  },
-  {
-    id: "zoomReset",
-    label: "Reset zoom",
-    group: "Page",
-    keys: ["Ctrl+0", "Ctrl+Numpad0"],
-  },
-  { id: "print", label: "Print", group: "Page", keys: ["Ctrl+P"] },
-  { id: "savePage", label: "Save page as", group: "Page", keys: ["Ctrl+S"] },
-  {
-    id: "downloadMedia",
-    label: "Download video on this page",
-    group: "Page",
-    keys: [],
-  },
-  {
-    id: "viewSource",
-    label: "View page source",
-    group: "Page",
-    keys: ["Ctrl+U"],
-  },
-  {
-    id: "devtools",
-    label: "Developer tools",
-    group: "Page",
-    keys: ["F12", "Ctrl+Shift+I"],
-  },
+  a("openPalette", "Open address bar", "Navigation", ["Ctrl+L", "Alt+D", "F6"]),
+  a("back", "Back", "Navigation", ["Alt+Left", "Ctrl+BracketLeft"]),
+  a("forward", "Forward", "Navigation", ["Alt+Right", "Ctrl+BracketRight"]),
+  a("goHome", "Go to the home page", "Navigation", ["Alt+Home"]),
+  a("reload", "Reload", "Navigation", ["F5", "Ctrl+R"]),
+  a("hardReload", "Reload without cache", "Navigation", ["Ctrl+F5", "Ctrl+Shift+R"]),
+  // Esc also stops a page that is still loading (built in, like Firefox).
+  a("stop", "Stop loading", "Navigation"),
+  a("copyUrl", "Copy page address", "Navigation", ["Ctrl+Shift+C"]),
+  a("copyUrlMarkdown", "Copy page address as Markdown", "Navigation", ["Ctrl+Alt+Shift+C"]),
 
-  {
-    id: "toggleCompact",
-    label: "Toggle compact mode",
-    group: "View",
-    keys: ["Ctrl+Alt+C"],
-  },
-  {
-    id: "toggleSidebar",
-    label: "Expand or collapse the sidebar",
-    group: "View",
-    keys: ["Alt+B"],
-  },
-  {
-    id: "toggleBookmarksSidebar",
-    label: "Show bookmarks sidebar",
-    group: "View",
-    keys: ["Ctrl+B"],
-  },
-  {
-    id: "toggleBookmarksBar",
-    label: "Show bookmarks toolbar",
-    group: "View",
-    keys: ["Ctrl+Shift+B"],
-  },
-  {
-    id: "toggleSplit",
-    label: "Split view with next tab",
-    group: "View",
-    keys: ["Ctrl+Alt+S"],
-  },
-  { id: "fullscreen", label: "Full screen", group: "View", keys: ["F11"] },
+  a("focusSearch", "Search the web", "Search", ["Ctrl+K", "Ctrl+J"]),
+  a("commandPalette", "Command palette", "Search", ["Ctrl+Alt+P"]),
+  a("find", "Find in page", "Search", ["Ctrl+F"]),
+  a("findNext", "Find next", "Search", ["F3", "Ctrl+G"]),
+  a("findPrev", "Find previous", "Search", ["Shift+F3", "Ctrl+Shift+G"]),
 
-  {
-    id: "nextSpace",
-    label: "Next space",
-    group: "Spaces",
-    keys: ["Ctrl+Alt+Right"],
-  },
-  {
-    id: "prevSpace",
-    label: "Previous space",
-    group: "Spaces",
-    keys: ["Ctrl+Alt+Left"],
-  },
-  { id: "newSpace", label: "New space", group: "Spaces", keys: [] },
+  a("savePage", "Save page as", "Page", ["Ctrl+S"]),
+  a("print", "Print", "Page", ["Ctrl+P"]),
+  a("readerMode", "Reader view", "Page", ["Ctrl+Alt+R"]),
+  a("pictureInPicture", "Picture-in-picture", "Page", ["Ctrl+Shift+BracketRight"]),
+  a("viewSource", "View page source", "Page", ["Ctrl+U"]),
+  a("pageInfo", "Page info", "Page", ["Ctrl+I"]),
+  a("screenshot", "Take a screenshot", "Page", ["Ctrl+Shift+S"]),
+  a("switchTextDirection", "Switch text direction", "Page", ["Ctrl+Shift+X"]),
+  a("openFile", "Open file", "Page", ["Ctrl+O"]),
+  a("downloadMedia", "Download video on this page", "Page"),
 
-  {
-    id: "newIncognitoWindow",
-    label: "New incognito window",
-    group: "Browser",
-    keys: ["Ctrl+Shift+N"],
-  },
-  {
-    id: "bookmark",
-    label: "Bookmark this page",
-    group: "Browser",
-    keys: ["Ctrl+D"],
-  },
-  {
-    id: "bookmarkAllTabs",
-    label: "Bookmark all tabs",
-    group: "Browser",
-    keys: ["Ctrl+Shift+D"],
-  },
-  { id: "history", label: "History", group: "Browser", keys: ["Ctrl+H"] },
-  {
-    id: "bookmarks",
-    label: "Show bookmarks library",
-    group: "Browser",
-    keys: ["Ctrl+Shift+O"],
-  },
-  { id: "downloads", label: "Downloads", group: "Browser", keys: ["Ctrl+J"] },
-  { id: "extensions", label: "Extensions", group: "Browser", keys: [] },
-  { id: "passwords", label: "Passwords", group: "Browser", keys: [] },
-  {
-    id: "openNotes",
-    label: "Open notes",
-    group: "Browser",
-    keys: ["Ctrl+Alt+N"],
-  },
-  { id: "settings", label: "Settings", group: "Browser", keys: ["Ctrl+Comma"] },
-  { id: "runSetup", label: "Run setup again", group: "Browser", keys: [] },
-  {
-    id: "quit",
-    label: "Quit Zenith",
-    group: "Browser",
-    keys: ["Ctrl+Shift+Q"],
-  },
+  a("muteTab", "Mute or unmute tab", "Zoom & media", ["Ctrl+M"]),
+  a("zoomIn", "Zoom in", "Zoom & media", ["Ctrl+Plus", "Ctrl+NumpadAdd"]),
+  a("zoomOut", "Zoom out", "Zoom & media", ["Ctrl+Minus", "Ctrl+NumpadSubtract"]),
+  a("zoomReset", "Reset zoom", "Zoom & media", ["Ctrl+0", "Ctrl+Numpad0"]),
+
+  a("toggleSidebar", "Expand or collapse the sidebar", "View", ["Alt+B"]),
+  a("toggleBookmarksSidebar", "Show bookmarks sidebar", "View", ["Ctrl+B"]),
+  a("toggleSidebarPanel", "Show or hide the sidebar panel", "View", ["Ctrl+Alt+Z"]),
+  a("toggleBookmarksBar", "Show bookmarks toolbar", "View", ["Ctrl+Shift+B"]),
+  a("toggleChatbot", "AI chatbot", "View", ["Ctrl+Alt+X"]),
+  a("fullscreen", "Full screen", "View", ["F11"]),
+
+  a("toggleCompact", "Toggle compact mode", "Compact mode", ["Ctrl+Alt+C"]),
+  a("toggleFloatingSidebar", "Show or hide the floating sidebar", "Compact mode", ["Ctrl+Alt+S"]),
+  a("toggleFloatingToolbar", "Show or hide the floating toolbar", "Compact mode", ["Ctrl+Alt+T"]),
+
+  a("splitVertical", "Split view side by side", "Split view", ["Ctrl+Alt+V"]),
+  a("splitHorizontal", "Split view stacked", "Split view", ["Ctrl+Alt+H"]),
+  a("splitGrid", "Split view grid", "Split view", ["Ctrl+Alt+G"]),
+  a("unsplit", "Close split view", "Split view", ["Ctrl+Alt+U"]),
+  a("toggleSplit", "Split view with next tab", "Split view"),
+
+  a("nextSpace", "Next space", "Spaces", ["Ctrl+Alt+E", "Ctrl+Alt+Right"]),
+  a("prevSpace", "Previous space", "Spaces", ["Ctrl+Alt+Q", "Ctrl+Alt+Left"]),
+  ...spaceNumbers,
+  a("newSpace", "New space", "Spaces"),
+
+  a("bookmark", "Bookmark this page", "Bookmarks & history", ["Ctrl+D", "Ctrl+Shift+D"]),
+  a("bookmarkAllTabs", "Bookmark all tabs", "Bookmarks & history"),
+  a("bookmarks", "Show bookmarks library", "Bookmarks & history", ["Ctrl+Shift+O"]),
+  a("historySidebar", "History sidebar", "Bookmarks & history", ["Ctrl+H"]),
+  a("history", "Show all history", "Bookmarks & history", ["Ctrl+Shift+H"]),
+
+  a("devtools", "Developer tools", "Developer tools", ["F12", "Ctrl+Shift+I"]),
+  a("inspector", "Inspector", "Developer tools", ["Ctrl+Shift+L"]),
+  a("webConsole", "Web console", "Developer tools", ["Ctrl+Shift+K"]),
+  // Firefox's Ctrl+Shift+Z is redo in pages, and Zen's Ctrl+Shift+W closes the window.
+  a("jsDebugger", "JavaScript debugger", "Developer tools"),
+  a("networkMonitor", "Network monitor", "Developer tools", ["Ctrl+Shift+E"]),
+  a("styleEditor", "Style editor", "Developer tools", ["Shift+F7"]),
+  a("performance", "Performance", "Developer tools", ["Shift+F5"]),
+  a("storage", "Storage", "Developer tools", ["Shift+F9"]),
+  a("domPanel", "DOM", "Developer tools"),
+  a("accessibility", "Accessibility", "Developer tools", ["Shift+F12"]),
+  a("responsiveDesign", "Responsive design mode", "Developer tools", ["Ctrl+Shift+M"]),
+  a("browserToolbox", "Browser toolbox", "Developer tools", ["Ctrl+Alt+Shift+I"]),
+  a("browserConsole", "Browser console", "Developer tools", ["Ctrl+Shift+J"]),
+  a("taskManager", "Task manager", "Developer tools", ["Shift+Escape"]),
+
+  a("downloads", "Downloads", "Browser", ["Ctrl+Shift+Y"]),
+  a("extensions", "Extensions", "Browser", ["Ctrl+Shift+A"]),
+  a("passwords", "Passwords", "Browser"),
+  a("openNotes", "Open notes", "Browser", ["Ctrl+Alt+N"]),
+  a("settings", "Settings", "Browser", ["Ctrl+Comma"]),
+  a("clearData", "Clear browsing data", "Browser", ["Ctrl+Shift+Delete"]),
+  a("runSetup", "Run setup again", "Browser"),
 ];
 
 export const ACTION_LABELS: Record<string, string> = Object.fromEntries(
@@ -232,11 +166,29 @@ export function defaultShortcuts(): Record<string, string[]> {
   return Object.fromEntries(ACTIONS.map((a) => [a.id, [...a.keys]]));
 }
 
-/** Defaults that moved to Zen's keys (Ctrl+B and Ctrl+Shift+B are the bookmarks sidebar and
- *  toolbar there): a saved binding that is still the old default follows to the new one. */
-const MOVED_DEFAULTS: Record<string, readonly string[]> = {
-  toggleCompact: ["Ctrl+B"],
-  toggleSidebar: ["Ctrl+Shift+B"],
+/** Earlier versions' defaults for actions whose defaults changed (mostly to Zen's keys). A
+ *  saved binding that is still one of these follows to the new default; one the user changed
+ *  stays as it is. */
+const OLD_DEFAULTS: Record<string, readonly (readonly string[])[]> = {
+  toggleCompact: [["Ctrl+B"]],
+  toggleSidebar: [["Ctrl+Shift+B"]],
+  toggleSplit: [["Ctrl+Alt+S"]],
+  nextSpace: [["Ctrl+Alt+Right"]],
+  prevSpace: [["Ctrl+Alt+Left"]],
+  ...Object.fromEntries(
+    Array.from({ length: 8 }, (_, i) => [`selectTab${i + 1}`, [[`Ctrl+${i + 1}`]]]),
+  ),
+  lastTab: [["Ctrl+9"]],
+  back: [["Alt+Left"]],
+  forward: [["Alt+Right"]],
+  commandPalette: [["Ctrl+K", "Ctrl+Shift+P"]],
+  newIncognitoWindow: [["Ctrl+Shift+N"]],
+  bookmark: [["Ctrl+D"]],
+  bookmarkAllTabs: [["Ctrl+Shift+D"]],
+  history: [["Ctrl+H"]],
+  downloads: [["Ctrl+J"]],
+  extensions: [[]],
+  quit: [["Ctrl+Shift+Q"]],
 };
 
 const sameKeys = (a: readonly string[], b: readonly string[]) =>
@@ -254,8 +206,8 @@ export function mergeShortcuts(
   const fresh: string[] = [];
   for (const action of Object.keys(defaults)) {
     const mine = saved?.[action];
-    const moved = MOVED_DEFAULTS[action];
-    if (Array.isArray(mine) && !(moved && sameKeys(mine, moved))) {
+    const old = OLD_DEFAULTS[action] ?? [];
+    if (Array.isArray(mine) && !old.some((o) => sameKeys(mine, o))) {
       out[action] = [...mine];
       for (const k of mine) used.add(k);
     } else fresh.push(action);
@@ -319,7 +271,8 @@ export function chordFromEvent(e: KeyboardEvent): string | null {
   return parts.join("+");
 }
 
-/** Mirrors the backend's reserved-key rule: editing keys always go to the page. */
+/** Mirrors the backend's reserved-key rule (keys.rs `is_reserved`): editing keys always go to
+ *  the page. */
 export function isReserved(chord: string): string | null {
   const parts = chord.split("+");
   const key = parts[parts.length - 1];
@@ -330,9 +283,12 @@ export function isReserved(chord: string): string | null {
     return "Reserved for editing";
   if (ctrl && !alt && shift && ["Z", "V"].includes(key))
     return "Reserved for editing";
+  // Ctrl+Shift+Delete is the browsers' "clear browsing data" key, not a text edit.
+  const clearData = ctrl && !alt && shift && key === "Delete";
   if (
     ctrl &&
     !alt &&
+    !clearData &&
     [
       "Backspace",
       "Delete",
@@ -346,7 +302,9 @@ export function isReserved(chord: string): string | null {
   )
     return "Reserved for text navigation";
   const fn = /^F([1-9]|1[0-9]|2[0-4])$/.test(key);
-  if (!ctrl && !alt && !fn) return "Add Ctrl or Alt (or use a function key)";
+  // Shift+Esc opens the task manager, as in Firefox and Chromium.
+  const taskManager = !ctrl && !alt && shift && key === "Escape";
+  if (!ctrl && !alt && !fn && !taskManager) return "Add Ctrl or Alt (or use a function key)";
   return null;
 }
 
@@ -371,7 +329,33 @@ const DISPLAY: Record<string, string> = {
   NumpadAdd: "Num +",
   NumpadSubtract: "Num −",
   Escape: "Esc",
+  Delete: "Del",
 };
+
+/** Key names spelled as symbols in one-line labels (menus, tooltips): "Ctrl+Shift+]". Plus,
+ *  Minus and the arrows keep their names, which read better joined with "+". */
+const LABEL: Record<string, string> = {
+  Comma: ",",
+  Period: ".",
+  Slash: "/",
+  Backslash: "\\",
+  BracketLeft: "[",
+  BracketRight: "]",
+  Quote: "'",
+  Semicolon: ";",
+  Backquote: "`",
+  PageUp: "PgUp",
+  PageDown: "PgDn",
+  Escape: "Esc",
+  Delete: "Del",
+};
+
+export function chordLabel(chord: string): string {
+  return chord
+    .split("+")
+    .map((p) => LABEL[p] ?? p.replace(/^Numpad/, "Num "))
+    .join("+");
+}
 
 export function displayChord(chord: string): string[] {
   return chord

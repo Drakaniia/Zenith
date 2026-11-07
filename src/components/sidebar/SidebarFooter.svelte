@@ -5,7 +5,7 @@
   import { updates } from '../../lib/updates.svelte';
   import { dnd } from '../../lib/sidebar-dnd.svelte';
   import { createNewMenu, spaceMenu } from '../../lib/menus';
-  import { openNotes } from '../../lib/actions';
+  import { openNotes, withHint } from '../../lib/actions';
   import { settings } from '../../lib/settings.svelte';
   import { internalPage } from '../../lib/url';
 
@@ -50,7 +50,7 @@
 </script>
 
 <footer class="foot" class:collapsed>
-  <button class="icon-btn dl" title="Downloads (Ctrl+J)" onclick={() => (ui.downloadsOpen = !ui.downloadsOpen)} data-downloads-anchor>
+  <button class="icon-btn dl" title={withHint('Downloads', 'downloads')} onclick={() => (ui.downloadsOpen = !ui.downloadsOpen)} data-downloads-anchor>
     <Icon name="download" />
     {#if downloads.progress >= 0}
       <svg class="ring" viewBox="0 0 36 36" aria-hidden="true">

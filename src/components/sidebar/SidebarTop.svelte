@@ -59,10 +59,10 @@
   {/if}
   <span class="spacer" data-tauri-drag-region></span>
   {#if single}
-    <button class="icon-btn" title="Back (Alt+Left)" disabled={!live?.canGoBack} onclick={() => live && api.tabCommand(live.id, 'back')}>
+    <button class="icon-btn" title={withHint('Back', 'back')} disabled={!live?.canGoBack} onclick={() => live && api.tabCommand(live.id, 'back')}>
       <Icon name="back" />
     </button>
-    <button class="icon-btn" title="Forward (Alt+Right)" disabled={!live?.canGoForward} onclick={() => live && api.tabCommand(live.id, 'forward')}>
+    <button class="icon-btn" title={withHint('Forward', 'forward')} disabled={!live?.canGoForward} onclick={() => live && api.tabCommand(live.id, 'forward')}>
       <Icon name="forward" />
     </button>
     {#if live?.loading}
@@ -70,7 +70,7 @@
     {:else}
       <button
         class="icon-btn"
-        title="Reload (F5)"
+        title={withHint('Reload', 'reload')}
         disabled={!live && !active?.crashed}
         onclick={() => active && (active.crashed ? browser.reviveCrashed(active.id) : api.tabCommand(active.id, 'reload'))}
       >
