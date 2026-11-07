@@ -355,26 +355,74 @@ pub fn is_windows_11() -> bool {
 
 /// Puts Unicode text on the clipboard (works even when a page webview has focus).
 pub fn set_clipboard_text(text: &str) -> Result<(), String> {
+    put_clipboard(text, false).map(|_| ())
+}
+
+/// Copies a password: kept out of Windows clipboard history and cloud sync, and cleared after
+/// `clear_after` unless something else was copied meanwhile.
+pub fn copy_secret(text: &str, clear_after: std::time::Duration) -> Result<(), String> {
+    use windows::Win32::System::DataExchange::{CloseClipboard, EmptyClipboard, GetClipboardSequenceNumber, OpenClipboard};
+    let seq = put_clipboard(text, true)?;
+    std::thread::spawn(move || {
+        std::thread::sleep(clear_after);
+        unsafe {
+            if GetClipboardSequenceNumber() == seq && OpenClipboard(None).is_ok() {
+                let _ = EmptyClipboard();
+                let _ = CloseClipboard();
+            }
+        }
+    });
+    Ok(())
+}
+
+/// Returns the clipboard sequence number after the write.
+fn put_clipboard(text: &str, secret: bool) -> Result<u32, String> {
     use windows::Win32::Foundation::HANDLE;
-    use windows::Win32::System::DataExchange::{CloseClipboard, EmptyClipboard, OpenClipboard, SetClipboardData};
+    use windows::Win32::System::DataExchange::{
+        CloseClipboard, EmptyClipboard, GetClipboardSequenceNumber, OpenClipboard, RegisterClipboardFormatW, SetClipboardData,
+    };
     use windows::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalUnlock, GMEM_MOVEABLE};
     const CF_UNICODETEXT: u32 = 13;
-    let wide: Vec<u16> = text.encode_utf16().chain(Some(0)).collect();
-    unsafe {
-        OpenClipboard(None).map_err(|e| e.to_string())?;
-        let result = (|| {
-            EmptyClipboard().map_err(|e| e.to_string())?;
-            let mem = GlobalAlloc(GMEM_MOVEABLE, wide.len() * 2).map_err(|e| e.to_string())?;
-            let ptr = GlobalLock(mem) as *mut u16;
+    let mut wide: Vec<u16> = text.encode_utf16().chain(Some(0)).collect();
+    unsafe fn global(bytes: &[u8]) -> Result<HANDLE, String> {
+        unsafe {
+            let mem = GlobalAlloc(GMEM_MOVEABLE, bytes.len().max(1)).map_err(|e| e.to_string())?;
+            let ptr = GlobalLock(mem) as *mut u8;
             if ptr.is_null() {
                 return Err("could not lock clipboard memory".to_string());
             }
-            std::ptr::copy_nonoverlapping(wide.as_ptr(), ptr, wide.len());
+            std::ptr::copy_nonoverlapping(bytes.as_ptr(), ptr, bytes.len());
             let _ = GlobalUnlock(mem);
-            SetClipboardData(CF_UNICODETEXT, Some(HANDLE(mem.0))).map_err(|e| e.to_string())?;
+            Ok(HANDLE(mem.0))
+        }
+    }
+    let result = unsafe {
+        OpenClipboard(None).map_err(|e| e.to_string())?;
+        let result = (|| {
+            EmptyClipboard().map_err(|e| e.to_string())?;
+            let bytes = std::slice::from_raw_parts(wide.as_ptr() as *const u8, wide.len() * 2);
+            SetClipboardData(CF_UNICODETEXT, Some(global(bytes)?)).map_err(|e| e.to_string())?;
+            if secret {
+                // Documented opt-outs for clipboard history, cloud clipboard and clipboard monitors.
+                for (name, value) in [
+                    ("CanIncludeInClipboardHistory", Some(0u32)),
+                    ("CanUploadToCloudClipboard", Some(0u32)),
+                    ("ExcludeClipboardContentFromMonitorProcessing", None),
+                ] {
+                    let format = RegisterClipboardFormatW(&windows::core::HSTRING::from(name));
+                    if format != 0 {
+                        let data = value.map(|v| v.to_le_bytes().to_vec()).unwrap_or_default();
+                        if let Ok(h) = global(&data) {
+                            let _ = SetClipboardData(format, Some(h));
+                        }
+                    }
+                }
+            }
             Ok(())
         })();
         let _ = CloseClipboard();
-        result
-    }
+        result.map(|_| GetClipboardSequenceNumber())
+    };
+    wide.fill(0);
+    result
 }

@@ -12,6 +12,8 @@
 //! All state here is main-thread only (WebView2 is single-threaded apartment). Commands reach
 //! it through `AppHandle::run_on_main_thread`; WebView2 callbacks already run on that thread.
 
+pub mod autofill;
+pub mod crx;
 pub mod downloads;
 pub mod extensions;
 pub mod tab;
@@ -31,7 +33,7 @@ use windows::core::{Interface, HSTRING, PWSTR};
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
 use windows::Win32::UI::HiDpi::GetDpiForWindow;
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    GetKeyState, VK_CONTROL, VK_ESCAPE, VK_MENU, VK_RMENU, VK_SHIFT,
+    GetFocus, GetKeyState, VK_CONTROL, VK_ESCAPE, VK_MENU, VK_RMENU, VK_SHIFT,
 };
 use windows::Win32::UI::Shell::{DefSubclassProc, SetWindowSubclass};
 use windows::Win32::UI::WindowsAndMessaging::*;
@@ -137,6 +139,24 @@ pub struct RuntimeConfig {
     pub ffmpeg_path: Option<PathBuf>,
     /// Check for updates in the background and install them when Zenith closes.
     pub auto_update: bool,
+    /// Password manager: off means no saving, suggestions or filling.
+    pub passwords_enabled: bool,
+    /// Offer to save logins submitted on pages.
+    pub passwords_offer_save: bool,
+    /// Show saved accounts when a login field is clicked.
+    pub autofill_suggest: bool,
+    pub autofill_usernames: bool,
+    pub autofill_passwords: bool,
+    /// Fill the only saved account as soon as a login form appears (vault unlocked, exact origin).
+    pub autofill_on_load: bool,
+    /// Offer credentials on other subdomains of the site they were saved on.
+    pub autofill_same_site: bool,
+    /// Suggest a generated password in sign-up and change-password forms.
+    pub password_generator: bool,
+    /// Ask for the master password before every fill, reveal or copy, even when unlocked.
+    pub vault_ask_every_time: bool,
+    /// Lock after this many minutes without using a password (0: only when Zenith closes).
+    pub vault_lock_minutes: u32,
 }
 
 impl Default for RuntimeConfig {
@@ -150,6 +170,16 @@ impl Default for RuntimeConfig {
             use_ffmpeg: true,
             ffmpeg_path: None,
             auto_update: true,
+            passwords_enabled: true,
+            passwords_offer_save: true,
+            autofill_suggest: true,
+            autofill_usernames: true,
+            autofill_passwords: true,
+            autofill_on_load: false,
+            autofill_same_site: true,
+            password_generator: true,
+            vault_ask_every_time: false,
+            vault_lock_minutes: 15,
         }
     }
 }
@@ -325,34 +355,123 @@ unsafe extern "system" fn subclass_proc(
                     let w = (lparam.0 & 0xFFFF) as i32;
                     let h = ((lparam.0 >> 16) & 0xFFFF) as i32;
                     on_resize(hwnd, w, h);
+                    // A window brought back from the taskbar or Win+D was activated while still
+                    // minimized, when no webview can take the focus: it is left on the frame.
+                    post(move || restore_focus(hwnd, None, true));
                 }
                 result
             }
-            WM_SETFOCUS => {
-                // wry moves focus to the chrome webview when the window gets focus; give it back
-                // to the page the user was in.
-                let previous = HOST.with(|c| {
-                    c.try_borrow().ok().and_then(|h| {
-                        h.as_ref().and_then(|h| h.wins.values().find(|w| w.hwnd == hwnd).map(|w| w.focus.clone()))
-                    })
-                });
-                let result = DefSubclassProc(hwnd, msg, wparam, lparam);
-                if let Some(Focus::Tab(id)) = previous {
-                    post(move || {
-                        with_host(|h| {
-                            if let Some(t) = h.tabs.get(&id) {
-                                if t.visible {
-                                    let _ = t.view.focus();
-                                }
-                            }
-                        });
-                    });
+            WM_ACTIVATE => {
+                let state = (wparam.0 & 0xFFFF) as u32;
+                let minimized = (wparam.0 >> 16) & 0xFFFF != 0;
+                if state == WA_INACTIVE || minimized {
+                    return DefSubclassProc(hwnd, msg, wparam, lparam);
                 }
+                // Coming back to the window (Alt+Tab, the taskbar, another window closing) puts
+                // the keyboard focus on this frame, and wry then asks the chrome to take it. That
+                // does not reliably land in a webview, and keys sent to the bare frame never
+                // reach the shortcut handlers. Once activation is over, put the focus back where
+                // the user left it. The focus is read now: activation itself refocuses the chrome.
+                let previous = win_state(hwnd).map(|(_, focus)| focus);
+                ACTIVATING.set(true);
+                let result = DefSubclassProc(hwnd, msg, wparam, lparam);
+                ACTIVATING.set(false);
+                // A click puts the focus where the user clicked; only rescue it if it got lost.
+                let only_if_lost = state == WA_CLICKACTIVE;
+                post(move || restore_focus(hwnd, previous, only_if_lost));
                 result
+            }
+            WM_SETFOCUS => {
+                if ACTIVATING.get() {
+                    return DefSubclassProc(hwnd, msg, wparam, lparam);
+                }
+                // wry moves focus to the chrome webview when the frame gets focus; give it back
+                // to the page the user was in.
+                let previous = win_state(hwnd).map(|(_, focus)| focus);
+                let result = DefSubclassProc(hwnd, msg, wparam, lparam);
+                post(move || restore_focus(hwnd, previous, false));
+                result
+            }
+            WM_KEYDOWN | WM_SYSKEYDOWN => {
+                // Keys only reach the frame when no webview has the focus. Shortcuts still run,
+                // and the focus goes back into a webview for the keys that follow.
+                if let Some((label, _)) = win_state(hwnd) {
+                    post(move || restore_focus(hwnd, None, true));
+                    let alt = lparam.0 & (1 << 29) != 0 || key_down(VK_MENU);
+                    let ctrl = key_down(VK_CONTROL);
+                    let shift = key_down(VK_SHIFT);
+                    if let Some(action) = bound_action(ctrl, alt, shift, wparam.0 as u32) {
+                        let repeat = lparam.0 & (1 << 30) != 0;
+                        emit_to_window(&label, "shortcut", ShortcutEvent { action, repeat, source: None });
+                        return LRESULT(0);
+                    }
+                }
+                DefSubclassProc(hwnd, msg, wparam, lparam)
             }
             _ => DefSubclassProc(hwnd, msg, wparam, lparam),
         }
     }
+}
+
+thread_local! {
+    /// Set while `WM_ACTIVATE` runs, so its nested `WM_SETFOCUS` leaves the restore to it.
+    static ACTIVATING: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Label and remembered focus of the window `hwnd`, without waiting for a busy host.
+fn win_state(hwnd: HWND) -> Option<(String, Focus)> {
+    HOST.with(|c| {
+        c.try_borrow().ok().and_then(|h| {
+            h.as_ref().and_then(|h| {
+                h.wins.values().find(|w| w.hwnd == hwnd).map(|w| (w.window.label().to_string(), w.focus.clone()))
+            })
+        })
+    })
+}
+
+/// True when the keyboard focus is in none of the window's webviews. Their focusable HWNDs belong
+/// to the WebView2 browser process, so a focus on a window of this process (the frame, a wry
+/// container) is a focus no webview receives keys from.
+fn focus_lost(hwnd: HWND) -> bool {
+    unsafe {
+        let focus = GetFocus();
+        if focus.is_invalid() || !IsChild(hwnd, focus).as_bool() {
+            return true;
+        }
+        let mut owner = 0u32;
+        GetWindowThreadProcessId(focus, Some(&mut owner as *mut u32));
+        owner == windows::Win32::System::Threading::GetCurrentProcessId()
+    }
+}
+
+/// Gives the keyboard focus of the active window `hwnd` back to the view it was in: the page
+/// `previous` names when that tab is still shown, otherwise the chrome. With `only_if_lost` (or
+/// no known previous focus) a focus already inside a webview is left alone.
+fn restore_focus(hwnd: HWND, previous: Option<Focus>, only_if_lost: bool) {
+    // The user may have switched away again before this ran.
+    if unsafe { GetForegroundWindow() } != hwnd {
+        return;
+    }
+    if (only_if_lost || previous.is_none()) && !focus_lost(hwnd) {
+        return;
+    }
+    with_host(|h| {
+        let Some(win) = h.wins.values().find(|w| w.hwnd == hwnd) else { return };
+        let previous = previous.unwrap_or_else(|| win.focus.clone());
+        let label = win.window.label();
+        let tab = match &previous {
+            Focus::Tab(id) => h.tabs.get(id).filter(|t| t.visible && t.window() == label),
+            Focus::Chrome => None,
+        };
+        match tab {
+            Some(t) => {
+                let _ = t.view.focus();
+            }
+            None => unsafe {
+                let _ = win.chrome.MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
+            },
+        }
+    });
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1006,9 +1125,17 @@ thread_local! {
     static BINDINGS: RefCell<Bindings> = RefCell::new(Bindings::default());
 }
 
-pub fn set_bindings(specs: Vec<BindingSpec>) {
+/// Applies the shortcut bindings, including the system-wide ones. Returns the system-wide
+/// shortcuts that could not be registered.
+pub fn set_bindings(specs: Vec<BindingSpec>) -> Vec<String> {
     let bindings = Bindings::from_specs(&specs);
     BINDINGS.with(|b| *b.borrow_mut() = bindings);
+    crate::hotkey::set(&specs)
+}
+
+/// Runs a browser action in window `label`'s chrome UI, as if its shortcut was pressed there.
+pub fn emit_shortcut(label: &str, action: &str) {
+    emit_to_window(label, "shortcut", ShortcutEvent { action: action.to_string(), repeat: false, source: None });
 }
 
 #[derive(Serialize, Clone)]
@@ -1021,6 +1148,16 @@ struct ShortcutEvent {
 
 fn key_down(vk: windows::Win32::UI::Input::KeyboardAndMouse::VIRTUAL_KEY) -> bool {
     unsafe { GetKeyState(vk.0 as i32) < 0 }
+}
+
+/// The browser action bound to a chord, if any.
+fn bound_action(ctrl: bool, alt: bool, shift: bool, vk: u32) -> Option<String> {
+    // AltGr is reported as Ctrl+Alt: leave those chords to text input.
+    if ctrl && alt && key_down(VK_RMENU) {
+        return None;
+    }
+    let chord = Chord { ctrl, alt, shift, vk };
+    BINDINGS.with(|b| b.borrow().lookup(&chord).map(str::to_string))
 }
 
 /// Routes browser shortcuts from a webview (the chrome when `tab` is `None`) to the chrome UI of
@@ -1057,13 +1194,7 @@ pub fn attach_accelerators(controller: &ICoreWebView2Controller, tab: Option<std
                         return Ok(());
                     }
                 }
-                // AltGr is reported as Ctrl+Alt: leave those chords to text input.
-                if ctrl && alt && key_down(VK_RMENU) {
-                    return Ok(());
-                }
-                let chord = Chord { ctrl, alt, shift, vk };
-                let action = BINDINGS.with(|b| b.borrow().lookup(&chord).map(str::to_string));
-                if let Some(action) = action {
+                if let Some(action) = bound_action(ctrl, alt, shift, vk) {
                     args.SetHandled(true)?;
                     emit_to_window(&label, "shortcut", ShortcutEvent { action, repeat, source });
                 }

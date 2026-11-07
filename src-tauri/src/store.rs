@@ -177,7 +177,15 @@ fn migrate(conn: &Connection) -> rusqlite::Result<()> {
             state TEXT NOT NULL,
             started INTEGER NOT NULL,
             ended INTEGER
-        );",
+        );
+        CREATE TABLE IF NOT EXISTS notes (
+            id TEXT PRIMARY KEY,
+            title TEXT NOT NULL DEFAULT '',
+            body TEXT NOT NULL DEFAULT '',
+            created INTEGER NOT NULL,
+            updated INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS notes_updated ON notes(updated DESC);",
     )
 }
 
@@ -345,7 +353,7 @@ pub fn bookmarks_list(conn: &mut Connection) -> rusqlite::Result<Vec<Bookmark>> 
     rows.collect()
 }
 
-pub fn bookmark_add(conn: &mut Connection, b: &Bookmark) -> rusqlite::Result<i64> {
+pub fn bookmark_add(conn: &Connection, b: &Bookmark) -> rusqlite::Result<i64> {
     if let Some(id) = conn
         .query_row(
             "SELECT id FROM bookmarks WHERE url = ?1 AND folder = ?2",
@@ -366,6 +374,38 @@ pub fn bookmark_add(conn: &mut Connection, b: &Bookmark) -> rusqlite::Result<i64
         params![b.url, b.title, b.folder, position, now_ms()],
     )?;
     Ok(conn.last_insert_rowid())
+}
+
+/// Adds bookmarks in one transaction, skipping any already in the same folder. Returns how many
+/// were new.
+pub fn bookmarks_add_many(conn: &mut Connection, items: &[Bookmark]) -> rusqlite::Result<usize> {
+    let count = |c: &Connection| c.query_row("SELECT COUNT(*) FROM bookmarks", [], |r| r.get::<_, i64>(0));
+    let before = count(conn)?;
+    let tx = conn.transaction()?;
+    for b in items {
+        bookmark_add(&tx, b)?;
+    }
+    tx.commit()?;
+    Ok((count(conn)? - before).max(0) as usize)
+}
+
+/// Merges history entries from another browser: a page already in history keeps the higher
+/// visit count and the later visit, and gains a title if it had none.
+pub fn history_import(conn: &mut Connection, entries: &[(String, String, i64, i64)]) -> rusqlite::Result<usize> {
+    let tx = conn.transaction()?;
+    {
+        let mut stmt = tx.prepare_cached(
+            "INSERT INTO history (url, title, visit_count, last_visit) VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT(url) DO UPDATE SET visit_count = MAX(visit_count, excluded.visit_count),
+               last_visit = MAX(last_visit, excluded.last_visit),
+               title = CASE WHEN title = '' THEN excluded.title ELSE title END",
+        )?;
+        for (url, title, visits, last) in entries {
+            stmt.execute(params![url, title, visits, last])?;
+        }
+    }
+    tx.commit()?;
+    Ok(entries.len())
 }
 
 pub fn bookmark_update(conn: &mut Connection, b: &Bookmark) -> rusqlite::Result<()> {
@@ -553,6 +593,62 @@ pub fn downloads_remove(conn: &mut Connection, id: Option<i64>) -> rusqlite::Res
     Ok(())
 }
 
+// ---------------------------------------------------------------------------------------------
+// Notes (the built-in notes editor, zenith://notes)
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Note {
+    /// Made by the UI, so a new note can be shown and edited before it is saved.
+    pub id: String,
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub body: String,
+    #[serde(default)]
+    pub created: i64,
+    #[serde(default)]
+    pub updated: i64,
+}
+
+/// Notes, most recently edited first.
+pub fn notes_list(conn: &mut Connection) -> rusqlite::Result<Vec<Note>> {
+    let mut stmt = conn.prepare_cached(
+        "SELECT id, title, body, created, updated FROM notes ORDER BY updated DESC, created DESC",
+    )?;
+    let rows = stmt.query_map([], |r| {
+        Ok(Note {
+            id: r.get(0)?,
+            title: r.get(1)?,
+            body: r.get(2)?,
+            created: r.get(3)?,
+            updated: r.get(4)?,
+        })
+    })?;
+    rows.collect()
+}
+
+/// Inserts or updates a note. A save older than the stored copy (another window wrote a newer
+/// edit in the meantime) is ignored. Returns whether the note was written.
+pub fn note_save(conn: &mut Connection, n: &Note) -> rusqlite::Result<bool> {
+    let now = now_ms();
+    let created = if n.created > 0 { n.created } else { now };
+    let updated = if n.updated > 0 { n.updated } else { now };
+    let changed = conn.execute(
+        "INSERT INTO notes (id, title, body, created, updated) VALUES (?1, ?2, ?3, ?4, ?5)
+         ON CONFLICT(id) DO UPDATE SET title = excluded.title, body = excluded.body,
+           updated = excluded.updated
+         WHERE excluded.updated >= notes.updated",
+        params![n.id, n.title, n.body, created, updated],
+    )?;
+    Ok(changed > 0)
+}
+
+pub fn note_delete(conn: &mut Connection, id: &str) -> rusqlite::Result<()> {
+    conn.execute("DELETE FROM notes WHERE id = ?1", params![id])?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -611,6 +707,59 @@ mod tests {
         assert_eq!(parsed[0].title, "A & B");
         assert_eq!(parsed[1].folder, "Work");
         assert_eq!(parsed[2].title, "C \"quoted\"");
+    }
+
+    #[test]
+    fn bulk_imports_merge() {
+        let mut c = mem();
+        let b = |url: &str, folder: &str| Bookmark { id: 0, url: url.into(), title: "t".into(), folder: folder.into(), position: 0, created: 0 };
+        assert_eq!(bookmarks_add_many(&mut c, &[b("https://a.example/", "Chrome"), b("https://b.example/", "Chrome")]).unwrap(), 2);
+        // Importing again adds nothing; the same page in another folder is a new bookmark.
+        assert_eq!(bookmarks_add_many(&mut c, &[b("https://a.example/", "Chrome"), b("https://a.example/", "Edge")]).unwrap(), 1);
+
+        history_add_visit(&mut c, "https://a.example/", "").unwrap();
+        let entries = vec![
+            ("https://a.example/".to_string(), "A".to_string(), 7, 1_000),
+            ("https://c.example/".to_string(), "C".to_string(), 2, 2_000),
+        ];
+        assert_eq!(history_import(&mut c, &entries).unwrap(), 2);
+        let all = history_search(&mut c, "", 10, 0).unwrap();
+        let a = all.iter().find(|e| e.url == "https://a.example/").unwrap();
+        assert_eq!((a.visit_count, a.title.as_str()), (7, "A"));
+        assert!(a.last_visit > 1_000, "keeps the later local visit");
+        assert_eq!(all.len(), 2);
+    }
+
+    #[test]
+    fn notes_save_list_delete() {
+        let mut c = mem();
+        let note = |id: &str, body: &str, updated: i64| Note {
+            id: id.into(),
+            title: format!("Title {id}"),
+            body: body.into(),
+            created: 1,
+            updated,
+        };
+        assert!(note_save(&mut c, &note("a", "first", 10)).unwrap());
+        assert!(note_save(&mut c, &note("b", "second", 20)).unwrap());
+        let list = notes_list(&mut c).unwrap();
+        assert_eq!(list.iter().map(|n| n.id.as_str()).collect::<Vec<_>>(), ["b", "a"]);
+
+        // A newer edit wins; a stale one (from another window) is ignored.
+        assert!(note_save(&mut c, &note("a", "edited", 30)).unwrap());
+        assert!(!note_save(&mut c, &note("a", "stale", 15)).unwrap());
+        let list = notes_list(&mut c).unwrap();
+        assert_eq!(list[0].id, "a");
+        assert_eq!(list[0].body, "edited");
+        assert_eq!(list[0].created, 1, "keeps the creation time");
+
+        // Text round-trips unchanged, including quotes and newlines.
+        let tricky = Note { body: "line 1\n'quoted' \"text\" ; DROP".into(), ..note("c", "", 40) };
+        note_save(&mut c, &tricky).unwrap();
+        assert_eq!(notes_list(&mut c).unwrap()[0], tricky);
+
+        note_delete(&mut c, "a").unwrap();
+        assert_eq!(notes_list(&mut c).unwrap().len(), 2);
     }
 
     #[test]

@@ -5,13 +5,17 @@
 mod blocker;
 mod commands;
 mod host;
+mod hotkey;
+mod importer;
 mod incognito;
 mod keys;
 mod media;
 mod net;
+mod password_commands;
 mod store;
 mod updates;
 mod urls;
+mod vault;
 mod win;
 
 use std::collections::HashSet;
@@ -341,6 +345,11 @@ fn main() {
             commands::bookmark_remove,
             commands::bookmarks_export,
             commands::bookmarks_import,
+            commands::notes_list,
+            commands::note_save,
+            commands::note_delete,
+            commands::import_sources,
+            commands::import_run,
             commands::downloads_active,
             commands::downloads_history,
             commands::download_action,
@@ -359,6 +368,10 @@ fn main() {
             commands::ext_install_folder,
             commands::ext_install_crx,
             commands::ext_install_store,
+            commands::ext_offer_accept,
+            commands::ext_offer_discard,
+            commands::ext_check_updates,
+            commands::ext_update,
             commands::ext_remove,
             commands::ext_set_enabled,
             commands::default_browser_status,
@@ -373,9 +386,38 @@ fn main() {
             commands::update_status,
             commands::update_check,
             commands::update_restart,
+            password_commands::vault_status,
+            password_commands::vault_setup,
+            password_commands::vault_unlock,
+            password_commands::vault_lock,
+            password_commands::vault_change_master,
+            password_commands::vault_recover,
+            password_commands::vault_new_recovery_key,
+            password_commands::vault_reset,
+            password_commands::passwords_list,
+            password_commands::password_reveal,
+            password_commands::password_copy,
+            password_commands::password_add,
+            password_commands::password_update,
+            password_commands::passwords_delete,
+            password_commands::password_generate,
+            password_commands::passwords_never_list,
+            password_commands::passwords_never_remove,
+            password_commands::passwords_export_csv,
+            password_commands::passwords_backup,
+            password_commands::passwords_import_open,
+            password_commands::passwords_import_unlock,
+            password_commands::passwords_import_commit,
+            password_commands::passwords_import_cancel,
+            password_commands::autofill_fill,
+            password_commands::autofill_fill_generated,
+            password_commands::autofill_dismiss,
+            password_commands::password_offer_respond,
         ])
         .setup(move |app| {
             host::init_services(app.handle())?;
+            // Locks the password vault after the configured inactivity.
+            vault::start_timer();
             // `zenith --incognito` with no Zenith running opens only an incognito window.
             if start_incognito {
                 let label = format!("{}{}", incognito::LABEL_PREFIX, NEXT_INCOGNITO.fetch_add(1, Ordering::Relaxed));

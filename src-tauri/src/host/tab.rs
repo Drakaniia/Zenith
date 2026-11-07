@@ -45,6 +45,67 @@ const PAGE_SCRIPT: &str = r#"(() => {
   });
 })();"#;
 
+/// Chrome Web Store pages (main frame only, normal windows): an "Add to Zenith" button. The
+/// store's own "Add to Chrome" button is relabelled and taken over when it is there; otherwise a
+/// floating button appears. A real click calls `window.open` with the reserved `_zenith_ext`
+/// name, which NewWindowRequested accepts only from the store and turns into an install prompt.
+/// Built with DOM calls only and CSSOM styles (the store uses Trusted Types and a strict CSP).
+const STORE_SCRIPT: &str = r#"(() => {
+  if (location.hostname !== 'chromewebstore.google.com') return;
+  const open = window.open.bind(window);
+  const idOf = () => {
+    const m = location.pathname.match(/\/detail\/(?:[^/]+\/)?([a-p]{32})(?:[/?#]|$)/);
+    return m ? m[1] : null;
+  };
+  const install = (e) => {
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    if (!e.isTrusted) return;
+    const id = idOf();
+    if (id) open('https://chromewebstore.google.com/detail/' + id, '_zenith_ext');
+  };
+  let host = null;
+  const pill = () => {
+    if (host) return host;
+    host = document.createElement('div');
+    Object.assign(host.style, { position: 'fixed', right: '24px', bottom: '24px', zIndex: '2147483647', display: 'none' });
+    const root = host.attachShadow({ mode: 'closed' });
+    const b = document.createElement('button');
+    b.textContent = 'Add to Zenith';
+    Object.assign(b.style, {
+      font: '600 14px/1 "Segoe UI Variable", "Segoe UI", system-ui, sans-serif', padding: '12px 20px',
+      borderRadius: '999px', border: '0', color: '#fff', background: '#7c6cf0', cursor: 'pointer',
+      boxShadow: '0 6px 24px rgba(40, 20, 120, .35)',
+    });
+    b.addEventListener('click', install);
+    root.appendChild(b);
+    return host;
+  };
+  const nativeButtons = () => [...document.querySelectorAll('button')].filter((b) => b.dataset.zenith ||
+    /^(add to (chrome|edge)|get)$/i.test((b.textContent || '').trim()));
+  const tick = () => {
+    const id = idOf();
+    let taken = false;
+    if (id) {
+      for (const b of nativeButtons()) {
+        if (!b.dataset.zenith) {
+          b.dataset.zenith = '1';
+          b.addEventListener('click', install, true);
+        }
+        if (b.textContent !== 'Add to Zenith') b.textContent = 'Add to Zenith';
+        b.disabled = false;
+        b.removeAttribute('aria-disabled');
+        if (b.offsetParent) taken = true;
+      }
+    }
+    const p = pill();
+    if (!p.isConnected && document.documentElement) document.documentElement.appendChild(p);
+    p.style.display = id && !taken ? 'block' : 'none';
+  };
+  setInterval(tick, 800);
+  addEventListener('DOMContentLoaded', tick);
+})();"#;
+
 static NEXT_POPUP: AtomicU32 = AtomicU32::new(1);
 static NEXT_PERMISSION: AtomicU32 = AtomicU32::new(1);
 pub static TOTAL_BLOCKED: AtomicU64 = AtomicU64::new(0);
@@ -301,7 +362,7 @@ pub fn create(opts: CreateOptions) -> Result<ICoreWebView2, String> {
     let shared = Rc::new(TabShared::new(&opts.id, &label, opts.glance));
     shared.restore_scroll.set(opts.scroll);
     let rect = pane.as_ref().map(super::logical_rect).unwrap_or_default();
-    let builder = WebViewBuilder::new()
+    let mut builder = WebViewBuilder::new()
         .with_visible(false)
         .with_bounds(rect)
         .with_environment(env.clone())
@@ -314,7 +375,12 @@ pub fn create(opts: CreateOptions) -> Result<ICoreWebView2, String> {
         // Incognito windows: their tabs share one in-memory InPrivate profile, which WebView2
         // discards once the last of them closes.
         .with_incognito(private)
-        .with_initialization_script_for_main_only(PAGE_SCRIPT, false);
+        .with_initialization_script_for_main_only(PAGE_SCRIPT, false)
+        // Login forms: save offers and saved-account suggestions (top-level document only).
+        .with_initialization_script_for_main_only(super::autofill::PAGE_SCRIPT, true);
+    if !private {
+        builder = builder.with_initialization_script_for_main_only(STORE_SCRIPT, true);
+    }
     // The first navigation starts below, after the optional media button script is registered.
     let view = builder.build_as_child(&window).map_err(|e| e.to_string())?;
     let core = view.webview();
@@ -458,6 +524,7 @@ fn wire(view: &wry::WebView, core: &ICoreWebView2, env: &ICoreWebView2Environmen
                 sh.requests.set(0);
                 sh.media.borrow_mut().reset();
                 crate::media::sniff::notify(&sh);
+                super::autofill::on_navigation(&sh.id);
                 TabPatch {
                     loading: Some(true),
                     blocked: Some(0),
@@ -677,10 +744,27 @@ fn wire(view: &wry::WebView, core: &ICoreWebView2, env: &ICoreWebView2Environmen
                 args.SetHandled(true)?;
                 let opener = sh.id.clone();
                 match name.as_str() {
+                    // Login forms (see host::autofill).
+                    "_zenith_pw_field" | "_zenith_pw_dismiss" | "_zenith_pw_capture" | "_zenith_pw_form" => {
+                        let main_frame = super::autofill::from_main_frame(&args);
+                        super::autofill::on_message(&sh, &name, &uri, user.as_bool(), main_frame);
+                    }
                     // The media downloader's button over a video (see media::detect).
                     "_zenith_media" => {
                         if user.as_bool() {
                             crate::media::sniff::request_panel(&opener, &uri);
+                        }
+                    }
+                    // "Add to Zenith" on a Chrome Web Store page (STORE_SCRIPT).
+                    "_zenith_ext" => {
+                        let on_store = sh.page_host.borrow().as_str() == "chromewebstore.google.com";
+                        if let (true, true, Some(id)) = (user.as_bool(), on_store, super::crx::store_id(&uri)) {
+                            let source = "Chrome Web Store".to_string();
+                            if sh.private {
+                                super::extensions::refuse(&opener, source, "Extensions can't be installed from an incognito window.");
+                            } else {
+                                super::extensions::offer(opener, source, super::extensions::Fetch::Store(id));
+                            }
                         }
                     }
                     "_zenith_glance" | "_zenith_bg" => {
@@ -1028,6 +1112,7 @@ fn read_stream(stream: &IStream) -> Option<Vec<u8>> {
 /// Destroys a tab's webview. Tabs with running downloads are kept alive (hidden) until the
 /// downloads finish, because WebView2 cancels downloads of closed webviews.
 pub fn close(id: &str) {
+    super::autofill::forget(id);
     let label = super::window_of_tab(id);
     let removed = with_host(|h| {
         if let Some(w) = h.wins.get_mut(&label) {

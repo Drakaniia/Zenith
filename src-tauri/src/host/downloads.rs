@@ -194,12 +194,62 @@ fn release(id: i64) {
     }
 }
 
+/// A Chrome extension package (by type, saved file name or address).
+fn is_crx(uri: &str, path: &str, mime: &str) -> bool {
+    let ends = |s: &str| s.to_ascii_lowercase().ends_with(".crx");
+    let uri_path = uri.split(['?', '#']).next().unwrap_or("");
+    mime.eq_ignore_ascii_case("application/x-chrome-extension") || ends(path) || (uri.starts_with("http") && ends(uri_path))
+}
+
+/// Reads a blob:/data: download back from the page that made it, as base64.
+const READ_BACK_SCRIPT: &str = r#"(async (u) => {
+  const b = new Uint8Array(await (await fetch(u)).arrayBuffer());
+  let s = '';
+  for (let i = 0; i < b.length; i += 32768) s += String.fromCharCode.apply(null, b.subarray(i, i + 32768));
+  return btoa(s);
+})"#;
+
+/// Hands an extension package download to the extension installer instead of saving it.
+fn take_over_crx(core: &ICoreWebView2, shared: &TabShared, uri: String, name: String) {
+    use super::extensions::{offer, refuse, Fetch};
+    let page = shared.url.borrow().clone();
+    let source = crate::urls::host_of(&page).filter(|h| !h.is_empty()).unwrap_or("this page").to_string();
+    let tab = shared.id.clone();
+    if shared.private {
+        return refuse(&tab, source, "Extensions can't be installed from an incognito window. Open the page in a normal window.");
+    }
+    if uri.starts_with("https://") || uri.starts_with("http://") {
+        let allow_private = crate::urls::host_of(&page).is_some_and(crate::media::detect::is_private_host);
+        let user_agent = crate::media::sniff::user_agent(core);
+        return offer(tab, source, Fetch::Url { url: uri, referer: page, user_agent, allow_private, hint: name });
+    }
+    let expression = format!("{READ_BACK_SCRIPT}({})", serde_json::Value::String(uri));
+    let params = serde_json::json!({ "expression": expression, "awaitPromise": true, "returnByValue": true }).to_string();
+    let core = core.clone();
+    // Not from inside the DownloadStarting handler.
+    post(move || {
+        super::cdp_call(&core, "Runtime.evaluate", &params, move |r| {
+            use base64::Engine as _;
+            let bytes = r.ok().and_then(|json| {
+                let v: serde_json::Value = serde_json::from_str(&json).ok()?;
+                let b64 = v.pointer("/result/value")?.as_str()?;
+                base64::engine::general_purpose::STANDARD.decode(b64).ok()
+            });
+            match bytes {
+                Some(bytes) => offer(tab, source, Fetch::Bytes { bytes, hint: name }),
+                None => refuse(&tab, source, "The page's extension package could not be read."),
+            }
+        });
+    });
+}
+
 pub fn attach(core: &ICoreWebView2, shared: Rc<TabShared>) {
     let Ok(c4) = core.cast::<ICoreWebView2_4>() else { return };
     let mut token = 0i64;
     unsafe {
         let _ = c4.add_DownloadStarting(
-            &DownloadStartingEventHandler::create(Box::new(move |_, args| {
+            // The webview comes from `sender`: capturing it would keep it alive forever.
+            &DownloadStartingEventHandler::create(Box::new(move |sender, args| {
                 let Some(args) = args else { return Ok(()) };
                 let op = args.DownloadOperation()?;
                 // Zenith shows its own downloads UI instead of the default flyout.
@@ -207,23 +257,30 @@ pub fn attach(core: &ICoreWebView2, shared: Rc<TabShared>) {
                 let mut path = PWSTR::null();
                 args.ResultFilePath(&mut path)?;
                 let mut path = take_pwstr(path);
+                let mut uri = PWSTR::null();
+                op.Uri(&mut uri)?;
+                let uri = take_pwstr(uri);
+                let mut mime = PWSTR::null();
+                op.MimeType(&mut mime)?;
+                let mime = take_pwstr(mime);
+                if let (true, Some(core)) = (is_crx(&uri, &path, &mime), sender.as_ref()) {
+                    args.SetCancel(true)?;
+                    take_over_crx(core, &shared, uri, file_name(&path));
+                    return Ok(());
+                }
                 if let Some(dir) = config().download_dir.filter(|d| d.is_dir()) {
                     let target = unique_path(&dir, &file_name(&path));
                     path = target.display().to_string();
                     args.SetResultFilePath(&HSTRING::from(path.as_str()))?;
                 }
-                let mut uri = PWSTR::null();
-                op.Uri(&mut uri)?;
-                let mut mime = PWSTR::null();
-                op.MimeType(&mut mime)?;
                 let mut total = 0i64;
                 op.TotalBytesToReceive(&mut total)?;
                 let id = next_id();
                 let record = DownloadRecord {
                     id,
-                    url: take_pwstr(uri),
+                    url: uri,
                     path,
-                    mime: take_pwstr(mime),
+                    mime,
                     total: total.max(0),
                     received: 0,
                     state: "progress".into(),

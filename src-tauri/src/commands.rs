@@ -15,12 +15,13 @@ use tauri::{AppHandle, Manager, WebviewWindow};
 use tauri_plugin_dialog::DialogExt;
 
 use crate::host::downloads::{self, DownloadEvent};
+use crate::host::crx;
 use crate::host::extensions::{self, ExtensionInfo};
 use crate::host::tab::{self, CreateOptions};
 use crate::host::{self, bookmarks_db, db, paths, LayoutSpec, RuntimeConfig, BLOCKER};
 use crate::keys::BindingSpec;
-use crate::store::{self, Bookmark, DownloadRecord, HistoryEntry};
-use crate::{blocker, net, urls, win};
+use crate::store::{self, Bookmark, DownloadRecord, HistoryEntry, Note};
+use crate::{blocker, importer, net, urls, win};
 
 type CmdResult<T> = Result<T, String>;
 
@@ -286,8 +287,9 @@ pub async fn permission_respond(app: AppHandle, request_id: u32, allow: bool, re
 // ---------------------------------------------------------------------------------------------
 // Settings pushed to the backend
 
+/// Returns the system-wide shortcuts that could not be registered (another app owns them).
 #[tauri::command]
-pub async fn set_shortcuts(app: AppHandle, bindings: Vec<BindingSpec>) -> CmdResult<()> {
+pub async fn set_shortcuts(app: AppHandle, bindings: Vec<BindingSpec>) -> CmdResult<Vec<String>> {
     on_main(&app, move || host::set_bindings(bindings)).await
 }
 
@@ -459,6 +461,45 @@ pub async fn bookmark_remove(id: Option<i64>, url: Option<String>) -> CmdResult<
     .await
 }
 
+// ---------------------------------------------------------------------------------------------
+// Notes. Shared by every window, incognito ones included (notes are the user's own documents,
+// not browsing data). Other windows hear about changes through `notes-changed`.
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct NotesChanged {
+    /// Window that made the change; it already has the new state.
+    origin: String,
+    id: String,
+    deleted: bool,
+}
+
+#[tauri::command]
+pub async fn notes_list() -> CmdResult<Vec<Note>> {
+    bookmarks_db().call(store::notes_list).await
+}
+
+#[tauri::command]
+pub async fn note_save(window: WebviewWindow, note: Note) -> CmdResult<bool> {
+    if note.id.is_empty() || note.id.len() > 64 {
+        return Err("invalid note id".into());
+    }
+    let id = note.id.clone();
+    let written = bookmarks_db().call(move |c| store::note_save(c, &note)).await?;
+    if written {
+        host::emit("notes-changed", NotesChanged { origin: window.label().to_string(), id, deleted: false });
+    }
+    Ok(written)
+}
+
+#[tauri::command]
+pub async fn note_delete(window: WebviewWindow, id: String) -> CmdResult<()> {
+    let key = id.clone();
+    bookmarks_db().call(move |c| store::note_delete(c, &key)).await?;
+    host::emit("notes-changed", NotesChanged { origin: window.label().to_string(), id, deleted: true });
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn bookmarks_export(app: AppHandle) -> CmdResult<Option<String>> {
     let items = bookmarks_db().call(store::bookmarks_list).await?;
@@ -506,6 +547,43 @@ pub async fn bookmarks_import(app: AppHandle) -> CmdResult<usize> {
         Ok(n)
     })
     .await
+}
+
+/// Browser profiles on this PC with bookmarks or history to import.
+#[tauri::command]
+pub async fn import_sources() -> CmdResult<Vec<importer::ImportSource>> {
+    blocking(importer::detect).await
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportResult {
+    /// New bookmarks (ones already present are skipped).
+    bookmarks: usize,
+    /// History entries merged.
+    history: usize,
+    errors: Vec<String>,
+}
+
+/// Imports bookmarks and/or history from a profile found by `import_sources`. History older
+/// than `history_days` (0: any age) is left out, since retention would drop it anyway.
+#[tauri::command]
+pub async fn import_run(
+    window: WebviewWindow,
+    source: String,
+    bookmarks: bool,
+    history: bool,
+    history_days: i64,
+) -> CmdResult<ImportResult> {
+    if private(&window) {
+        return Err("Incognito windows can't import data.".into());
+    }
+    let data = blocking(move || importer::read(&source, bookmarks, history, history_days)).await??;
+    let marks = data.bookmarks;
+    let added = if marks.is_empty() { 0 } else { bookmarks_db().call(move |c| store::bookmarks_add_many(c, &marks)).await? };
+    let visits: Vec<_> = data.history.into_iter().map(|v| (v.url, v.title, v.visit_count, v.last_visit)).collect();
+    let merged = if visits.is_empty() { 0 } else { db().call(move |c| store::history_import(c, &visits)).await? };
+    Ok(ImportResult { bookmarks: added, history: merged, errors: data.errors })
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -705,8 +783,8 @@ pub async fn ext_list(app: AppHandle) -> CmdResult<Vec<ExtensionInfo>> {
     on_main_cb(&app, |done| extensions::list(move |r| done(r))).await?
 }
 
-async fn install_staged(app: &AppHandle, dir: PathBuf) -> CmdResult<ExtensionInfo> {
-    on_main_cb(app, move |done| extensions::install_folder(dir, move |r| done(r))).await?
+async fn install_staged(app: &AppHandle, dir: PathBuf, store_id: Option<String>) -> CmdResult<ExtensionInfo> {
+    on_main_cb(app, move |done| extensions::install_folder(dir, store_id, move |r| done(r))).await?
 }
 
 #[tauri::command]
@@ -728,7 +806,7 @@ pub async fn ext_install_folder(app: AppHandle, window: WebviewWindow, path: Opt
     };
     let Some(source) = picked else { return Ok(None) };
     let staged = blocking(move || extensions::stage_folder(&source)).await??;
-    install_staged(&app, staged).await.map(Some)
+    install_staged(&app, staged, None).await.map(Some)
 }
 
 #[tauri::command]
@@ -745,25 +823,58 @@ pub async fn ext_install_crx(app: AppHandle, window: WebviewWindow) -> CmdResult
     })
     .await?;
     let Some(file) = picked else { return Ok(None) };
+    // Store packages saved by other browsers or mirror sites are named after their id.
+    let hint = file.file_name().map(|n| n.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
     let staged = blocking(move || {
         let bytes = std::fs::read(file).map_err(|e| e.to_string())?;
         extensions::stage_crx(&bytes)
     })
     .await??;
-    install_staged(&app, staged).await.map(Some)
+    let store_id = staged.crx_id.filter(|id| crx::store_id(&hint).as_ref() == Some(id));
+    install_staged(&app, staged.dir, store_id).await.map(Some)
 }
 
 /// Installs from a Chrome Web Store link or extension id.
 #[tauri::command]
 pub async fn ext_install_store(app: AppHandle, window: WebviewWindow, input: String) -> CmdResult<ExtensionInfo> {
     refuse_in_incognito(&window, "Installing extensions")?;
-    let id = extensions::store_id(&input).ok_or("paste a Chrome Web Store link or a 32-letter extension id")?;
-    let staged = blocking(move || {
-        let bytes = net::get(&extensions::store_download_url(&id), 64 * 1024 * 1024, 60_000)?;
-        extensions::stage_crx(&bytes)
-    })
-    .await??;
-    install_staged(&app, staged).await
+    let id = crx::store_id(&input).ok_or("paste a Chrome Web Store link or a 32-letter extension id")?;
+    install_from_store(&app, id).await
+}
+
+async fn install_from_store(app: &AppHandle, id: String) -> CmdResult<ExtensionInfo> {
+    let store_id = id.clone();
+    let staged = blocking(move || extensions::stage_crx(&extensions::download_from_store(&id)?)).await??;
+    install_staged(app, staged.dir, Some(store_id)).await
+}
+
+/// Installs an extension the user accepted in the install prompt.
+#[tauri::command]
+pub async fn ext_offer_accept(app: AppHandle, window: WebviewWindow, token: u64) -> CmdResult<ExtensionInfo> {
+    if private(&window) {
+        extensions::discard(token);
+        return Err("Installing extensions is not available in an incognito window".into());
+    }
+    on_main_cb(&app, move |done| extensions::accept(token, move |r| done(r))).await?
+}
+
+#[tauri::command]
+pub async fn ext_offer_discard(token: u64) -> CmdResult<()> {
+    blocking(move || extensions::discard(token)).await
+}
+
+/// Newer versions of the extensions installed from the Chrome Web Store.
+#[tauri::command]
+pub async fn ext_check_updates() -> CmdResult<Vec<extensions::ExtensionUpdate>> {
+    blocking(extensions::check_updates).await?
+}
+
+/// Reinstalls a store extension from the Web Store's current version.
+#[tauri::command]
+pub async fn ext_update(app: AppHandle, window: WebviewWindow, id: String) -> CmdResult<ExtensionInfo> {
+    refuse_in_incognito(&window, "Updating extensions")?;
+    let store_id = extensions::store_source(&id).ok_or("this extension was not installed from the Chrome Web Store")?;
+    install_from_store(&app, store_id).await
 }
 
 #[tauri::command]

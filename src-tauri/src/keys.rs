@@ -20,6 +20,10 @@ pub struct Chord {
 pub struct BindingSpec {
     pub action: String,
     pub keys: Vec<String>,
+    /// Also registered system-wide, so the shortcut works while another app has the focus
+    /// (see `hotkey.rs`).
+    #[serde(default)]
+    pub global: bool,
 }
 
 #[derive(Default)]
@@ -181,6 +185,7 @@ mod tests {
         let bindings = Bindings::from_specs(&[BindingSpec {
             action: "copy".into(),
             keys: vec!["Ctrl+C".into(), "Ctrl+Shift+C".into()],
+            global: false,
         }]);
         assert_eq!(bindings.len(), 1);
         assert_eq!(
