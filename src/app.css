@@ -28,6 +28,8 @@
   /* --zen-toolbar-height; single-toolbar top buttons use 36px */
   --zen-toolbar-h: 38px;
   --zen-top-buttons-h: 36px;
+  /* The bookmarks toolbar row: 26px buttons with 2px above and below. */
+  --bm-bar-h: 30px;
   /* Tabs: --tab-min-height, --tab-margin-block, --tab-padding-inline */
   --tab-h: 36px;
   --tab-mb: 2px;

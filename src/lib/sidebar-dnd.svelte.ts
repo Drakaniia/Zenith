@@ -2,6 +2,9 @@
 // regular tabs; drop on a space button to move a tab there; drop on the page to split.
 import { browser } from "./browser.svelte";
 import { ui } from "./ui.svelte";
+import { bookmarks } from "./bookmarks.svelte";
+import { ROOT_TOOLBAR } from "./bookmarks";
+import { isWebUrl } from "./url";
 import type { TabId } from "./types";
 
 export type Zone = "essentials" | "pinned" | "tabs";
@@ -15,7 +18,9 @@ export type Target =
     }
   | { zone: "folder"; folderId: string }
   | { zone: "space"; spaceId: string }
-  | { zone: "split"; side: "left" | "right" };
+  | { zone: "split"; side: "left" | "right" }
+  /** The bookmarks toolbar: dropping a tab there bookmarks it at `index` among the shown items. */
+  | { zone: "bookmarks"; index: number };
 
 interface DragState {
   id: TabId;
@@ -39,6 +44,11 @@ class SidebarDnd {
   hitTest(x: number, y: number): Target | null {
     for (const el of document.elementsFromPoint(x, y)) {
       if (!(el instanceof HTMLElement)) continue;
+      const bar = el.closest<HTMLElement>("[data-bm-bar]");
+      if (bar) {
+        const items = [...bar.querySelectorAll<HTMLElement>("[data-bm-list] > [data-bm-node]")];
+        return { zone: "bookmarks", index: items.filter((n) => n.getBoundingClientRect().left + n.offsetWidth / 2 < x).length };
+      }
       const split = el.closest<HTMLElement>("[data-drop-split]");
       if (split)
         return {
@@ -130,6 +140,7 @@ class SidebarDnd {
   }
 
   drop(id: TabId, t: Target) {
+    if (t.zone === "bookmarks") return bookmarkTab(id, t.index);
     if (t.zone === "space") return browser.moveToSpace(id, t.spaceId);
     if (t.zone === "folder") return browser.moveToFolder(id, t.folderId);
     if (t.zone === "split") {
@@ -168,6 +179,22 @@ class SidebarDnd {
   get active() {
     return !!this.drag?.started;
   }
+}
+
+/** A tab dropped on the bookmarks toolbar becomes a bookmark there (at the drop position). */
+function bookmarkTab(id: TabId, shown: number) {
+  const tab = browser.tabs[id];
+  if (!tab || !isWebUrl(tab.url)) {
+    ui.toast("Only web pages can be bookmarked", { icon: "bookmark" });
+    return;
+  }
+  // The drop position counts the items shown in this workspace; the list holds all of them.
+  const visible = bookmarks.visibleKids(ROOT_TOOLBAR);
+  const at = visible[shown]?.position;
+  bookmarks
+    .addBookmark(tab.url, tab.customTitle || tab.title, { parent: ROOT_TOOLBAR, index: at })
+    .then(() => ui.toast("Bookmarked", { icon: "bookmark" }))
+    .catch((e) => ui.toast(`Couldn't bookmark: ${e}`, { icon: "alert" }));
 }
 
 function suppressNextClick() {

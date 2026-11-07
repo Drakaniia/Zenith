@@ -2,6 +2,7 @@
 // the backend owns the webviews and reports their state through `tab-update` patches.
 import { api } from "./ipc";
 import { settings } from "./settings.svelte";
+import { rememberFavicon } from "./favicons";
 import type {
   ClosedTab,
   Folder,
@@ -821,7 +822,12 @@ class BrowserStore {
     this.tabs[draft.id] = draft;
     this.glance = { tabId: draft.id, openerId, popup: false, anchor };
     void api
-      .tabCreate({ id: draft.id, url, glance: true })
+      .tabCreate({
+        id: draft.id,
+        url,
+        glance: true,
+        openerUrl: openerId ? this.tabs[openerId]?.url : null,
+      })
       .catch(() => this.closeGlance());
     focusAfterLayout(draft.id);
     scheduleLayout();
@@ -889,7 +895,10 @@ class BrowserStore {
     }
     if (p.title !== undefined) tab.title = p.title;
     if (p.loading !== undefined) tab.loading = p.loading;
-    if (p.favicon !== undefined) tab.favicon = p.favicon || undefined;
+    if (p.favicon !== undefined) {
+      tab.favicon = p.favicon || undefined;
+      rememberFavicon(tab.url, tab.favicon);
+    }
     if (p.canGoBack !== undefined) tab.canGoBack = p.canGoBack;
     if (p.canGoForward !== undefined) tab.canGoForward = p.canGoForward;
     if (p.audible !== undefined) {

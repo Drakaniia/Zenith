@@ -5,19 +5,62 @@ import { api } from "./ipc";
 
 export type PaletteMode = "navigate" | "newTab" | "command";
 
+/** Keys held (or the middle button) when a menu item was chosen: a bookmark in a menu opens in
+ *  a new tab with Ctrl or the middle button, in Glance with Shift. */
+export interface MenuMods {
+  ctrl: boolean;
+  shift: boolean;
+  alt: boolean;
+  middle: boolean;
+}
+
 export interface MenuItem {
   label?: string;
   icon?: IconName;
+  /** A page's own icon (a bookmark in a menu) in place of a drawn one. */
+  site?: { url: string; favicon?: string };
   hint?: string;
   danger?: boolean;
   checked?: boolean;
   disabled?: boolean;
   separator?: boolean;
+  /** A greyed label with no action (a heading, or "(Empty)"). */
+  heading?: boolean;
   /** Zen's app-menu zoom row (− 100% + and full screen) for the active tab. */
   zoom?: boolean;
-  run?: () => void;
-  children?: MenuItem[];
+  run?: (mods?: MenuMods) => void;
+  /** A submenu, to any depth. A function builds it when it opens (big bookmark folders). */
+  children?: MenuItem[] | (() => MenuItem[]);
 }
+
+/** A rectangle on screen (CSS px) that a popup hangs from. */
+export interface AnchorRect {
+  left: number;
+  right: number;
+  top: number;
+  bottom: number;
+}
+
+export function rectOf(el: Element): AnchorRect {
+  const r = el.getBoundingClientRect();
+  return { left: r.left, right: r.right, top: r.top, bottom: r.bottom };
+}
+
+/** The "Edit bookmark" panel under the address bar's bookmark button. */
+export interface BookmarkPopupState {
+  /** The bookmark being edited. */
+  id: number;
+  anchor: AnchorRect;
+}
+
+/** The detailed bookmark dialogs (Zen: "Bookmark Tab…", "Bookmark Tabs…", new folder). */
+export type BookmarkDialogSpec =
+  /** One page: a new bookmark when `id` is missing, otherwise editing it. */
+  | { kind: "bookmark"; id?: number; url: string; title: string; favicon?: string; parent?: number }
+  /** A folder: new, or renaming `id`. */
+  | { kind: "folder"; id?: number; parent?: number }
+  /** Several tabs into a new folder. */
+  | { kind: "tabs"; tabs: { url: string; title: string; favicon?: string }[] };
 
 export interface Toast {
   id: number;
@@ -58,6 +101,12 @@ class UiStore {
   dragging = $state(false);
   /** A tab label is being edited inline (Zen: zen-renaming-tab). */
   renaming = $state(false);
+  bookmarkPopup = $state<BookmarkPopupState | null>(null);
+  bookmarkDialog = $state<BookmarkDialogSpec | null>(null);
+  /** Tabs picked with Ctrl+click or Shift+click in the sidebar (for "Bookmark Tabs…"). */
+  selectedTabs = $state<TabId[]>([]);
+  /** The "import bookmarks from another browser" dialog is open. */
+  bookmarkImport = $state(false);
   /** Window controls revealed from the top edge (single-toolbar layout). */
   captionReveal = $state(false);
   shortcutRecording = $state(false);
@@ -67,6 +116,7 @@ class UiStore {
     this.menu = null;
     this.downloadsOpen = false;
     this.media = null;
+    this.bookmarkPopup = null;
     this.palette = { open: true, mode, query, selectAll: true };
     void api.focusView(null);
   }
@@ -85,6 +135,28 @@ class UiStore {
 
   openMenu(x: number, y: number, items: MenuItem[]) {
     this.menu = { x, y, items, key: Date.now() };
+  }
+
+  clearTabSelection() {
+    if (this.selectedTabs.length) this.selectedTabs = [];
+  }
+
+  /** Ctrl+click: adds the tab to the picked ones or takes it out; the tab you are on counts as
+   *  picked from the first click on. */
+  toggleTabSelected(id: TabId, activeId?: TabId) {
+    const base = !this.selectedTabs.length && activeId && activeId !== id ? [activeId] : this.selectedTabs;
+    this.selectedTabs = base.includes(id) ? base.filter((t) => t !== id) : [...base, id];
+  }
+
+  /** Shift+click: everything between `from` and `to` in the order tabs are shown. */
+  selectTabRange(order: TabId[], from: TabId | undefined, to: TabId) {
+    const a = from ? order.indexOf(from) : -1;
+    const b = order.indexOf(to);
+    if (a < 0 || b < 0) {
+      this.selectedTabs = [to];
+      return;
+    }
+    this.selectedTabs = order.slice(Math.min(a, b), Math.max(a, b) + 1);
   }
 
   closeMenu() {

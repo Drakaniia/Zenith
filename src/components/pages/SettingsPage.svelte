@@ -7,7 +7,9 @@
   import { settings, SIDEBAR_MAX, SIDEBAR_MIN, type Settings } from '../../lib/settings.svelte';
   import { ui, formatBytes } from '../../lib/ui.svelte';
   import { api } from '../../lib/ipc';
-  import { openInternal, openNotes } from '../../lib/actions';
+  import { openInternal, openNotes, shortcutHint } from '../../lib/actions';
+  import { bookmarks } from '../../lib/bookmarks.svelte';
+  import { backupBookmarksFile, exportBookmarksFile, importBookmarksFile, restoreBookmarks } from '../../lib/bookmark-actions';
   import { displayChord } from '../../lib/shortcuts';
   import { SEARCH_ENGINES } from '../../lib/url';
   import { appInfo, incognito } from '../../lib/app.svelte';
@@ -25,6 +27,7 @@
     { id: 'appearance', label: 'Appearance', icon: 'sun' },
     { id: 'privacy', label: 'Privacy & blocking', icon: 'shield' },
     { id: 'tabs', label: 'Tabs & memory', icon: 'zap' },
+    { id: 'bookmarks', label: 'Bookmarks', icon: 'bookmark' },
     { id: 'downloads', label: 'Downloads', icon: 'download' },
     { id: 'notes', label: 'Notes', icon: 'note' },
     { id: 'shortcuts', label: 'Keyboard shortcuts', icon: 'keyboard' },
@@ -337,7 +340,7 @@
             <Toggle checked={s.showClearButton} onchange={(v) => set('showClearButton', v)} label="Clear button" />
           </div>
           <div class="row">
-            <div class="text"><b>Compact mode</b><span>Hide the sidebar and toolbar; reveal them from the window edges. Ctrl+B.</span></div>
+            <div class="text"><b>Compact mode</b><span>Hide the sidebar and toolbar; reveal them from the window edges.{shortcutHint('toggleCompact') ? ` ${shortcutHint('toggleCompact')}.` : ''}</span></div>
             <Toggle checked={s.compact} onchange={(v) => set('compact', v)} label="Compact mode" />
           </div>
           <div class="row">
@@ -526,6 +529,67 @@
           {:else}
             <p class="note">Measuring…</p>
           {/if}
+        </div>
+      </section>
+
+      <!-- Bookmarks -->
+      <section id="settings-bookmarks">
+        <h2>Bookmarks</h2>
+        <div class="group">
+          <div class="row">
+            <div class="text">
+              <b>Bookmarks toolbar</b>
+              <span>{shortcutHint('toggleBookmarksBar') ? `${shortcutHint('toggleBookmarksBar')} shows or hides it. ` : ''}With the single toolbar layout, a toolbar that isn't showing still appears while the pointer is at the top edge of the window.</span>
+            </div>
+            <Segmented
+              value={s.bookmarksBar}
+              options={[
+                { value: 'always', label: 'Always' },
+                { value: 'newtab', label: 'On a new tab' },
+                { value: 'never', label: 'Never' },
+              ]}
+              onchange={(v) => set('bookmarksBar', v)}
+            />
+          </div>
+          <div class="row">
+            <div class="text"><b>Show Other Bookmarks</b><span>At the end of the toolbar, when something is in it.</span></div>
+            <Toggle checked={s.bookmarksOther} onchange={(v) => set('bookmarksOther', v)} label="Show Other Bookmarks" />
+          </div>
+          <div class="row">
+            <div class="text">
+              <b>Bookmarks sidebar</b>
+              <span>{shortcutHint('toggleBookmarksSidebar') ? `${shortcutHint('toggleBookmarksSidebar')}. ` : ''}All of your bookmarks, with search, beside the page.</span>
+            </div>
+            <button class="btn" onclick={() => set('bookmarksPanel', !s.bookmarksPanel)}>{s.bookmarksPanel ? 'Close' : 'Open'}</button>
+          </div>
+        </div>
+        <h3>Manage</h3>
+        <div class="group">
+          <div class="row">
+            <div class="text">
+              <b>Bookmarks library</b>
+              <span>{bookmarks.count} {bookmarks.count === 1 ? 'bookmark' : 'bookmarks'}. Organize folders, tags and keywords.</span>
+            </div>
+            <button class="btn" onclick={() => openInternal('bookmarks')}><Icon name="library" size={15} />Open library</button>
+          </div>
+          <div class="row">
+            <div class="text"><b>Import</b><span>From another browser on this PC, or from an exported bookmarks file (.html).</span></div>
+            <div class="inline">
+              <button class="btn" onclick={() => (ui.bookmarkImport = true)}><Icon name="importBox" size={15} />From a browser…</button>
+              <button class="btn" onclick={() => void importBookmarksFile()}>From a file…</button>
+            </div>
+          </div>
+          <div class="row">
+            <div class="text">
+              <b>Export and back up</b>
+              <span>An HTML file other browsers can read, or a backup of everything: folders, tags, keywords and workspaces. Zenith also keeps a backup for each day you use it.</span>
+            </div>
+            <div class="inline">
+              <button class="btn" onclick={() => void exportBookmarksFile()}>Export…</button>
+              <button class="btn" onclick={() => void backupBookmarksFile()}>Back up…</button>
+              <button class="btn" onclick={() => void restoreBookmarks()}>Restore…</button>
+            </div>
+          </div>
         </div>
       </section>
 

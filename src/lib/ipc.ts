@@ -4,7 +4,9 @@ import type { UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import type {
   BlockerStats,
-  Bookmark,
+  BookmarkBackup,
+  BookmarkNode,
+  BookmarkPatch,
   DownloadItem,
   ExtensionInfo,
   ExtensionUpdate,
@@ -14,6 +16,7 @@ import type {
   ImportSource,
   MediaReport,
   MemoryStats,
+  NewBookmarkNode,
   OpenRequest,
   PermissionRequest,
   StartupInfo,
@@ -30,6 +33,9 @@ export interface PaneSpec {
   y: number;
   w: number;
   h: number;
+  /** Hidden left/top part of the page while the chrome slides off it (see layout.svelte.ts). */
+  clipX?: number;
+  clipY?: number;
 }
 
 export interface LayoutSpec {
@@ -86,6 +92,8 @@ export const api = {
     zoom?: number;
     scrollX?: number;
     scrollY?: number;
+    /** An extension popup's opener page (what its `tabs.query` should find). */
+    openerUrl?: string | null;
   }) => invoke<void>("tab_create", { args }),
   tabClose: (id: string) => invoke<void>("tab_close", { id }),
   tabNavigate: (id: string, url: string) =>
@@ -140,23 +148,35 @@ export const api = {
     invoke<number>("history_clear", { sinceMs }),
   historyPrune: (days: number) => invoke<void>("history_prune", { days }),
 
-  bookmarksList: () => invoke<Bookmark[]>("bookmarks_list"),
-  bookmarkAdd: (bookmark: Partial<Bookmark> & { url: string }) =>
-    invoke<number>("bookmark_add", {
-      bookmark: {
-        id: 0,
-        title: "",
-        folder: "",
-        position: 0,
-        created: 0,
-        ...bookmark,
-      },
-    }),
-  bookmarkUpdate: (bookmark: Bookmark) =>
-    invoke<void>("bookmark_update", { bookmark }),
-  bookmarkRemove: (id: number | null, url: string | null = null) =>
-    invoke<void>("bookmark_remove", { id, url }),
+  /** Every node of the bookmark tree: the three roots first, then by parent and position. */
+  bookmarksList: () => invoke<BookmarkNode[]>("bookmarks_list"),
+  /** Adds nodes (folders may carry children) under `parent` at `index` (null: at the end);
+   *  returns the ids of the new top-level nodes. */
+  bookmarksAdd: (parent: number, index: number | null, nodes: NewBookmarkNode[]) =>
+    invoke<number[]>("bookmarks_add", { parent, index, nodes }),
+  bookmarkUpdate: (id: number, patch: BookmarkPatch) =>
+    invoke<void>("bookmark_update", { id, patch }),
+  /** `index` counts the destination's children after the node has left its old place. */
+  bookmarkMove: (id: number, parent: number, index: number) =>
+    invoke<void>("bookmark_move", { id, parent, index }),
+  bookmarksReorder: (parent: number, order: number[]) =>
+    invoke<void>("bookmarks_reorder", { parent, order }),
+  bookmarksRemove: (ids: number[]) => invoke<void>("bookmarks_remove", { ids }),
+  bookmarksRemoveUrl: (url: string) =>
+    invoke<void>("bookmarks_remove_url", { url }),
+  /** Netscape HTML (Firefox and Chrome read it); null when the dialog is cancelled. */
   bookmarksExport: () => invoke<string | null>("bookmarks_export"),
+  /** JSON backup of the whole tree; null when the dialog is cancelled. */
+  bookmarksBackup: () => invoke<string | null>("bookmarks_backup"),
+  /** Replaces every bookmark with a backup file's; null when the dialog is cancelled. */
+  bookmarksRestore: () => invoke<number | null>("bookmarks_restore"),
+  bookmarkBackups: () => invoke<BookmarkBackup[]>("bookmark_backups"),
+  bookmarksRestoreBackup: (name: string) =>
+    invoke<number>("bookmarks_restore_backup", { name }),
+  /** A site's `/favicon.ico` as a data URL (fetched by the backend; the page CSP allows no remote images). */
+  faviconFetch: (url: string) => invoke<string | null>("favicon_fetch", { url }),
+  /** Writes today's automatic backup (once a day). */
+  bookmarksAutoBackup: () => invoke<void>("bookmarks_auto_backup"),
 
   notesList: () => invoke<Note[]>("notes_list"),
   /** Saves a note; false when a newer copy (from another window) is already stored. */
@@ -271,6 +291,8 @@ export interface BackendEvents {
   "password-suggest-close": { tabId: string };
   "password-save-offer": PasswordSaveOffer;
   "notes-changed": { origin: string; id: string; deleted: boolean };
+  /** Another window changed the bookmarks. */
+  "bookmarks-changed": { origin: string };
 }
 
 export function on<K extends keyof BackendEvents>(

@@ -2,7 +2,16 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { api } from "./ipc";
 import { browser } from "./browser.svelte";
-import { bookmarks } from "./bookmarks.svelte";
+import {
+  backupBookmarksFile,
+  bookmarkAllTabs,
+  bookmarkPage,
+  exportBookmarksFile,
+  importBookmarksFile,
+  restoreBookmarks,
+  toggleBookmarksBar,
+  toggleBookmarksPanel,
+} from "./bookmark-actions";
 import { settings } from "./settings.svelte";
 import { ui } from "./ui.svelte";
 import type { Tab } from "./types";
@@ -100,10 +109,15 @@ export function openFind(tab: Tab | undefined) {
   requestAnimationFrame(() => document.getElementById("find-input")?.focus());
 }
 
-export async function toggleBookmark(tab: Tab | undefined) {
-  if (!tab || !isWebUrl(tab.url)) return;
-  const added = await bookmarks.toggle(tab.url, tab.title || tab.url);
-  ui.toast(added ? "Bookmarked" : "Bookmark removed", { icon: "star" });
+/** The first key bound to an action, for menu hints and tooltips. */
+export function shortcutHint(action: string): string | undefined {
+  return settings.value.shortcuts[action]?.[0];
+}
+
+/** A tooltip such as "Compact mode (Ctrl+Alt+C)": the label with its shortcut, when it has one. */
+export function withHint(label: string, action: string): string {
+  const key = shortcutHint(action);
+  return key ? `${label} (${key})` : label;
 }
 
 export function toggleSiteBlocking(tab: Tab | undefined) {
@@ -262,13 +276,19 @@ export async function runAction(
       // Zen: expand or collapse the sidebar (single/multiple toolbars <-> collapsed toolbar).
       const collapsed = settings.value.toolbarMode === "collapsed";
       const mode = settings.value.toolbarMode;
+      // Compact mode hides the sidebar entirely, so changing its width would show nothing: leave
+      // compact mode in the same step so the click always has a visible effect.
+      const wasCompact = settings.value.compact;
+      if (wasCompact) ui.flyout = false;
       if (collapsed)
         return settings.update({
           toolbarMode: settings.value.lastExpandedMode ?? "single",
+          ...(wasCompact ? { compact: false } : {}),
         });
       return settings.update({
         toolbarMode: "collapsed",
         lastExpandedMode: mode === "collapsed" ? "single" : mode,
+        ...(wasCompact ? { compact: false } : {}),
       });
     }
     case "quit":
@@ -289,7 +309,13 @@ export async function runAction(
       ui.spaceEditor = { spaceId: null };
       return;
     case "bookmark":
-      return toggleBookmark(tab);
+      return bookmarkPage(tab);
+    case "bookmarkAllTabs":
+      return bookmarkAllTabs();
+    case "toggleBookmarksSidebar":
+      return toggleBookmarksPanel();
+    case "toggleBookmarksBar":
+      return toggleBookmarksBar();
     case "runSetup":
       // An incognito window saves nothing, so setup there would be lost.
       if (incognito)
@@ -350,9 +376,12 @@ const ICONS: Record<string, IconName> = {
   prevSpace: "layers",
   newSpace: "layers",
   newIncognitoWindow: "incognito",
-  bookmark: "star",
+  bookmark: "bookmark",
+  bookmarkAllTabs: "bookmark",
+  toggleBookmarksSidebar: "sidebar",
+  toggleBookmarksBar: "bookmark",
   history: "history",
-  bookmarks: "bookmark",
+  bookmarks: "library",
   downloads: "download",
   extensions: "puzzle",
   passwords: "key",
@@ -439,17 +468,36 @@ export function commands(): Command[] {
       id: "importBookmarks",
       label: "Import bookmarks (HTML)",
       icon: "bookmark",
-      run: () =>
-        void api.bookmarksImport().then((n) => {
-          ui.toast(`Imported ${n} bookmarks`, { icon: "bookmark" });
-          void bookmarks.load(true);
-        }),
+      keywords: "bookmarks firefox chrome file",
+      run: () => void importBookmarksFile(),
+    },
+    {
+      id: "importBookmarksBrowser",
+      label: "Import bookmarks from another browser",
+      icon: "bookmark",
+      keywords: "bookmarks chrome edge firefox",
+      run: () => (ui.bookmarkImport = true),
     },
     {
       id: "exportBookmarks",
       label: "Export bookmarks (HTML)",
       icon: "bookmark",
-      run: () => void api.bookmarksExport(),
+      keywords: "bookmarks",
+      run: () => void exportBookmarksFile(),
+    },
+    {
+      id: "backupBookmarks",
+      label: "Back up bookmarks",
+      icon: "bookmark",
+      keywords: "bookmarks json save",
+      run: () => void backupBookmarksFile(),
+    },
+    {
+      id: "restoreBookmarks",
+      label: "Restore bookmarks from a backup",
+      icon: "bookmark",
+      keywords: "bookmarks json",
+      run: () => void restoreBookmarks(),
     },
     {
       id: "shortcuts",

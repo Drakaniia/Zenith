@@ -265,6 +265,8 @@ pub struct Tab {
     pub shared: Rc<TabShared>,
     pub visible: bool,
     pub last_rect: Option<(f64, f64, f64, f64)>,
+    /// Left/top of the webview hidden by a window region (logical px), see `PaneSpec::clip_x`.
+    pub last_clip: (f64, f64),
     pub find: Option<ICoreWebView2Find>,
 }
 
@@ -334,7 +336,89 @@ pub struct CreateOptions {
     pub muted: bool,
     pub zoom: Option<f64>,
     pub scroll: Option<(f64, f64)>,
+    /// For an extension's toolbar popup: the address of the page it was opened over.
+    pub opener_url: Option<String>,
 }
+
+/// Runs in an extension's toolbar popup. In Chrome a popup is not a tab, so
+/// `tabs.query({ active: true, currentWindow: true })` finds the page under it. Every WebView2
+/// view is its own browser window, so that query would return the popup itself ("not a
+/// website"). Window-scoped queries are answered with the page the popup was opened over.
+const EXT_POPUP_SCRIPT: &str = r#"(() => {
+  const OPENER = __OPENER__;
+  const tabs = globalThis.chrome && chrome.tabs;
+  if (!tabs || typeof tabs.query !== 'function' || window.top !== window) return;
+  const query = tabs.query.bind(tabs);
+  const getCurrent = typeof tabs.getCurrent === 'function' ? tabs.getCurrent.bind(tabs) : null;
+  const call = (fn, ...a) => new Promise((res) => {
+    try { fn(...a, (r) => { void chrome.runtime.lastError; res(r); }); } catch { res(undefined); }
+  });
+  const isExt = (t) => typeof t.url === 'string' && /^chrome-extension:/.test(t.url);
+  const origin = (u) => { try { return new URL(u).origin; } catch { return ''; } };
+  // The opener among `list`: same address, then same site, then the most recently used page.
+  const pick = async (list) => {
+    const self = getCurrent ? await call(getCurrent) : undefined;
+    const pages = (list || []).filter((t) => (!self || t.id !== self.id) && !isExt(t));
+    const recent = (a, b) => (b.lastAccessed || 0) - (a.lastAccessed || 0);
+    return (
+      pages.find((t) => OPENER && t.url === OPENER) ||
+      pages.find((t) => OPENER && t.url && origin(t.url) === origin(OPENER)) ||
+      pages.sort(recent)[0]
+    );
+  };
+  const scoped = (q) => q && (q.currentWindow || q.lastFocusedWindow);
+  const answer = async (q) => {
+    if (!scoped(q)) return (await call(query, q || {})) || [];
+    const rest = { ...q };
+    delete rest.currentWindow;
+    delete rest.lastFocusedWindow;
+    delete rest.windowId;
+    delete rest.active;
+    delete rest.highlighted;
+    const found = (await call(query, rest)) || [];
+    if (q.active || q.highlighted) {
+      const t = await pick(found);
+      return t ? [t] : [];
+    }
+    return found.filter((t) => !isExt(t));
+  };
+  const wrapped = function (q, cb) {
+    const p = answer(q);
+    if (typeof cb === 'function') { p.then(cb, () => cb([])); return; }
+    return p;
+  };
+  const wrappedCurrent = function (cb) {
+    // A popup is not a tab.
+    if (typeof cb === 'function') { setTimeout(() => cb(undefined)); return; }
+    return Promise.resolve(undefined);
+  };
+  const set = (obj, key, fn) => {
+    try { obj[key] = fn; } catch {}
+    if (obj[key] !== fn) { try { Object.defineProperty(obj, key, { value: fn, configurable: true, writable: true }); } catch {} }
+  };
+  set(tabs, 'query', wrapped);
+  if (getCurrent) set(tabs, 'getCurrent', wrappedCurrent);
+  const windows = chrome.windows;
+  if (windows && typeof windows.get === 'function') {
+    const get = windows.get.bind(windows);
+    const current = async (opts) => {
+      const t = await pick((await call(query, {})) || []);
+      if (t) return await call(get, t.windowId, opts || {});
+      return undefined;
+    };
+    for (const key of ['getCurrent', 'getLastFocused']) {
+      if (typeof windows[key] !== 'function') continue;
+      const orig = windows[key].bind(windows);
+      set(windows, key, function (a, b) {
+        const cb = typeof a === 'function' ? a : b;
+        const opts = typeof a === 'function' ? undefined : a;
+        const p = current(opts).then((w) => w || call(orig, opts || {}));
+        if (typeof cb === 'function') { p.then(cb); return; }
+        return p;
+      });
+    }
+  }
+})();"#;
 
 /// Creates the webview for a tab. Must run on the UI thread outside any host borrow.
 pub fn create(opts: CreateOptions) -> Result<ICoreWebView2, String> {
@@ -386,6 +470,10 @@ pub fn create(opts: CreateOptions) -> Result<ICoreWebView2, String> {
     if !private {
         builder = builder.with_initialization_script_for_main_only(STORE_SCRIPT, true);
     }
+    if light_bg && opts.glance {
+        let opener = serde_json::to_string(&opts.opener_url).unwrap_or_else(|_| "null".into());
+        builder = builder.with_initialization_script_for_main_only(&EXT_POPUP_SCRIPT.replace("__OPENER__", &opener), true);
+    }
     // The first navigation starts below, after the optional media button script is registered.
     let view = builder.build_as_child(&window).map_err(|e| e.to_string())?;
     let core = view.webview();
@@ -434,6 +522,7 @@ pub fn create(opts: CreateOptions) -> Result<ICoreWebView2, String> {
         shared,
         visible: false,
         last_rect: None,
+        last_clip: (0.0, 0.0),
         find: None,
     };
     with_host(move |h| {
@@ -801,6 +890,7 @@ fn wire(view: &wry::WebView, core: &ICoreWebView2, env: &ICoreWebView2Environmen
                                 muted: false,
                                 zoom: None,
                                 scroll: None,
+                                opener_url: None,
                             }) {
                                 Ok(core) => {
                                     let _ = args.SetNewWindow(&core);

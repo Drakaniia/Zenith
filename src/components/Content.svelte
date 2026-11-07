@@ -3,7 +3,9 @@
   import FindBar from './FindBar.svelte';
   import NewTab from './pages/NewTab.svelte';
   import Favicon from './Favicon.svelte';
+  import BookmarksPanel from './BookmarksPanel.svelte';
   import { browser } from '../lib/browser.svelte';
+  import { settings } from '../lib/settings.svelte';
   import { ui } from '../lib/ui.svelte';
   import { dnd } from '../lib/sidebar-dnd.svelte';
 
@@ -32,6 +34,11 @@
 <section class="content" class:split={!!split}>
   {#if ui.find.open && browser.tabs[ui.find.tabId]}
     <FindBar />
+  {/if}
+  <!-- Zen's bookmarks sidebar sits beside the page card; the page view follows its width. -->
+  <div class="row">
+  {#if settings.value.bookmarksPanel && !browser.fullscreenTabId}
+    <BookmarksPanel />
   {/if}
   <div class="panes" bind:this={panesEl}>
     {#if ids.length === 0}
@@ -78,6 +85,7 @@
       </div>
     {/if}
   </div>
+  </div>
 </section>
 
 <style>
@@ -88,9 +96,17 @@
     flex-direction: column;
     gap: var(--zen-sep);
   }
+  .row {
+    flex: 1;
+    min-height: 0;
+    min-width: 0;
+    display: flex;
+    gap: var(--zen-sep);
+  }
   .panes {
     position: relative;
     flex: 1;
+    min-width: 0;
     min-height: 0;
     display: flex;
   }

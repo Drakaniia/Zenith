@@ -6,6 +6,7 @@
   import { ui } from '../../lib/ui.svelte';
   import { api } from '../../lib/ipc';
   import { appMenu } from '../../lib/menus';
+  import { withHint } from '../../lib/actions';
   import { incognito } from '../../lib/app.svelte';
 
   // Zen's #zen-sidebar-top-buttons. In the single-toolbar layout it holds the app menu, the
@@ -39,7 +40,7 @@
   {/if}
   <button
     class="icon-btn"
-    title={settings.value.compact ? 'Turn off compact mode (Ctrl+B)' : 'Compact mode (Ctrl+B)'}
+    title={withHint(settings.value.compact ? 'Turn off compact mode' : 'Compact mode', 'toggleCompact')}
     data-action="compact"
     onclick={toggleCompact}
   >

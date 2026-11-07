@@ -9,7 +9,7 @@
   import { ui, type MenuItem } from '../lib/ui.svelte';
   import { api } from '../lib/ipc';
   import { appMenu } from '../lib/menus';
-  import { openInternal, runAction } from '../lib/actions';
+  import { openInternal, runAction, withHint } from '../lib/actions';
   import { appInfo, incognito } from '../lib/app.svelte';
 
   // Zen's #nav-bar for the multiple-toolbars and collapsed layouts (38px): navigation buttons,
@@ -94,19 +94,19 @@
 
 <div class="topbar" class:floating bind:this={bar} data-tauri-drag-region="deep">
   {#if collapsed}
-    <button class="icon-btn" title="Expand sidebar (Ctrl+Shift+B)" data-action="toggle-sidebar" onclick={() => void runAction('toggleSidebar')}>
+    <button class="icon-btn" title={withHint('Expand sidebar', 'toggleSidebar')} data-action="toggle-sidebar" onclick={() => void runAction('toggleSidebar')}>
       <Icon name="sidebarExpand" />
     </button>
     <button
       class="icon-btn"
-      title={settings.value.compact ? 'Turn off compact mode (Ctrl+B)' : 'Compact mode (Ctrl+B)'}
+      title={withHint(settings.value.compact ? 'Turn off compact mode' : 'Compact mode', 'toggleCompact')}
       data-action="compact"
       onclick={() => void runAction('toggleCompact')}
     >
       <Icon name="sidebar" />
     </button>
   {:else}
-    <button class="icon-btn" title="Collapse sidebar (Ctrl+Shift+B)" data-action="toggle-sidebar" onclick={() => void runAction('toggleSidebar')}>
+    <button class="icon-btn" title={withHint('Collapse sidebar', 'toggleSidebar')} data-action="toggle-sidebar" onclick={() => void runAction('toggleSidebar')}>
       <Icon name="sidebarCollapse" />
     </button>
   {/if}

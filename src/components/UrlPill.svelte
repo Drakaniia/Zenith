@@ -3,8 +3,9 @@
   import { browser } from '../lib/browser.svelte';
   import { bookmarks } from '../lib/bookmarks.svelte';
   import { settings } from '../lib/settings.svelte';
-  import { ui } from '../lib/ui.svelte';
-  import { copyText, toggleBookmark, toggleSiteBlocking } from '../lib/actions';
+  import { rectOf, ui } from '../lib/ui.svelte';
+  import { copyText, toggleSiteBlocking, withHint } from '../lib/actions';
+  import { bookmarkPage } from '../lib/bookmark-actions';
   import { pageMenu } from '../lib/menus';
   import { displayHost, hostOf, isInternal, isNewTab, isSecure, isWebUrl, siteOf, titleFor } from '../lib/url';
 
@@ -19,6 +20,8 @@
   const label = $derived(empty ? 'Search or enter address' : isInternal(url) ? titleFor(url, '') : displayHost(url));
   const blockingOff = $derived(web && settings.value.blockerDisabledSites.includes(siteOf(hostOf(url))));
   const starred = $derived(bookmarks.has(url));
+  /** The "Edit bookmark" panel is open for this page: the button looks pressed (Zen). */
+  const editing = $derived(!!ui.bookmarkPopup && bookmarks.node(ui.bookmarkPopup.id)?.url === url);
   const zoom = $derived(tab?.live ? Math.round((tab.zoom || 1) * 100) : 100);
   let copied = $state(false);
 
@@ -82,8 +85,16 @@
           <span class="count">{tab!.blocked > 99 ? '99+' : tab!.blocked}</span>
         {/if}
       </button>
-      <button class="icon-btn sm star" class:on={starred} title={starred ? 'Remove bookmark' : 'Bookmark (Ctrl+D)'} onclick={() => void toggleBookmark(tab)}>
-        <Icon name="star" size={14} fill={starred} />
+      <button
+        class="icon-btn sm star"
+        class:on={starred}
+        class:editing
+        data-action="bookmark"
+        title={starred ? 'Edit bookmark' : withHint('Bookmark this page', 'bookmark')}
+        aria-label={starred ? 'Edit bookmark' : 'Bookmark this page'}
+        onclick={(e) => void bookmarkPage(tab, rectOf(e.currentTarget as HTMLElement))}
+      >
+        <Icon name={starred ? 'bookmarkStar' : 'bookmark'} size={15} />
       </button>
     {/if}
     {#if tab}
@@ -209,8 +220,12 @@
     font-weight: 600;
     font-variant-numeric: tabular-nums;
   }
+  /* Bookmarked: the ribbon with a star, in the space's colour (Zen's starred button). */
   .star.on {
-    color: var(--warn) !important;
+    color: var(--accent-button) !important;
+  }
+  .star.editing {
+    background: var(--element-bg-hover);
   }
   .media {
     color: var(--accent-fg) !important;

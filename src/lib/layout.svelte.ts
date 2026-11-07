@@ -72,24 +72,58 @@ export function focusAfterLayout(id: string | null) {
   scheduleLayout();
 }
 
-function rectOf(el: HTMLElement, id: string): PaneSpec | null {
+/** A pane's window rectangle. Its edges are rounded, not its size, so the right and bottom edges
+ *  stay put to the pixel while the left/top edge moves. `dx`/`dy` move the left/top edge. */
+function rectOf(el: HTMLElement, id: string, dx = 0, dy = 0): PaneSpec | null {
   const r = el.getBoundingClientRect();
   if (r.width < 2 || r.height < 2) return null;
-  return {
-    id,
-    x: Math.round(r.left),
-    y: Math.round(r.top),
-    w: Math.round(r.width),
-    h: Math.round(r.height),
-  };
+  const right = Math.round(r.right);
+  const bottom = Math.round(r.bottom);
+  const x = Math.min(Math.round(r.left + dx), right - 2);
+  const y = Math.min(Math.round(r.top + dy), bottom - 2);
+  return { id, x, y, w: right - x, h: bottom - y };
+}
+
+/** While the chrome animates the page's left/top edge (sidebar, toolbars, compact mode), the page
+ *  webview would be resized on every frame: its right edge stays put but the page reflows and its
+ *  centred content drifts toward the middle. Instead the webview takes its final rectangle as the
+ *  animation starts (right/bottom edges fixed), so the page lays out once and then stays still.
+ *  When the page grows, the part the chrome hasn't uncovered yet is clipped away by the backend,
+ *  so the page is revealed with the sliding edge. Returns how far the page's left/top edges are
+ *  from their final position (positive: the final edge is further in). */
+function layoutHold(): { dx: number; dy: number } {
+  const app = document.querySelector<HTMLElement>(".app");
+  if (!app) return { dx: 0, dy: 0 };
+  let dx = 0;
+  let dy = 0;
+  for (const a of app.getAnimations()) {
+    if (!(a instanceof CSSTransition)) continue;
+    const prop = a.transitionProperty;
+    if (prop !== "--lay-left" && prop !== "--lay-top") continue;
+    const frames = (a.effect as KeyframeEffect | null)?.getKeyframes() ?? [];
+    if (frames.length < 2) continue;
+    const to = parseFloat(String(frames[frames.length - 1][prop]));
+    const cur = parseFloat(getComputedStyle(app).getPropertyValue(prop));
+    if (!Number.isFinite(to) || !Number.isFinite(cur)) continue;
+    if (prop === "--lay-left") dx = to - cur;
+    else dy = to - cur;
+  }
+  return { dx, dy };
 }
 
 async function flush() {
+  const live = [...panes].filter(([el, id]) => el.isConnected && registry.isLive(id));
+  // (Split view keeps following the layout frame by frame: its panes share the width.)
+  const hold = live.length === 1 ? layoutHold() : { dx: 0, dy: 0 };
   const list: PaneSpec[] = [];
-  for (const [el, id] of panes) {
-    if (!el.isConnected || !registry.isLive(id)) continue;
-    const r = rectOf(el, id);
-    if (r) list.push(r);
+  for (const [el, id] of live) {
+    const r = rectOf(el, id, hold.dx, hold.dy);
+    if (!r) continue;
+    // The part of a growing page the chrome still covers.
+    const shown = rectOf(el, id);
+    if (shown && shown.x > r.x) r.clipX = shown.x - r.x;
+    if (shown && shown.y > r.y) r.clipY = shown.y - r.y;
+    list.push(r);
   }
   const glance =
     glanceEl && glanceEl.el.isConnected && registry.isLive(glanceEl.id)
@@ -105,9 +139,9 @@ async function flush() {
   const key = JSON.stringify(spec);
   if (key !== lastSent) {
     lastSent = key;
-    const panesKey = JSON.stringify(list);
-    if (panesKey !== JSON.stringify(overlay.panes))
-      overlay.panes = list.map(({ x, y, w, h }) => ({ x, y, w, h }));
+    // The window tint is cut out where the page shows, not under its clipped part.
+    const shownPanes = list.map(({ x, y, w, h, clipX = 0, clipY = 0 }) => ({ x: x + clipX, y: y + clipY, w: w - clipX, h: h - clipY }));
+    if (JSON.stringify(shownPanes) !== JSON.stringify(overlay.panes)) overlay.panes = shownPanes;
     try {
       await api.setLayout(spec);
     } catch (e) {

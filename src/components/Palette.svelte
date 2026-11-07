@@ -6,12 +6,15 @@
   import { browser } from '../lib/browser.svelte';
   import { bookmarks } from '../lib/bookmarks.svelte';
   import { settings } from '../lib/settings.svelte';
-  import { ui, type PaletteMode } from '../lib/ui.svelte';
+  import { rectOf, ui, type PaletteMode } from '../lib/ui.svelte';
+  import { bookmarkPage } from '../lib/bookmark-actions';
+  import { keywordMatch, nodeLabel, parseRestriction, searchBookmarks, searchTagged } from '../lib/bookmarks';
   import { api } from '../lib/ipc';
   import { focusAfterLayout, overlayLease } from '../lib/layout.svelte';
   import { commands } from '../lib/actions';
+  import { faviconFor, rememberFavicon } from '../lib/favicons';
   import { scoreAny } from '../lib/fuzzy';
-  import { NEW_TAB_URL, SEARCH_ENGINES, normalizeInput, prettyUrl, searchUrl, titleFor } from '../lib/url';
+  import { NEW_TAB_URL, SEARCH_ENGINES, isWebUrl, normalizeInput, prettyUrl, searchUrl, titleFor } from '../lib/url';
   import { autofill, popularCandidates, type Autofill, type AutofillCandidate } from '../lib/autocomplete';
   import type { HistoryEntry } from '../lib/types';
   import type { IconName } from '../lib/icons';
@@ -58,6 +61,8 @@
     fill = null;
     preview = null;
     armed = false;
+    for (const t of browser.closed) rememberFavicon(t.url, t.favicon);
+    for (const t of Object.values(browser.tabs)) rememberFavicon(t.url, t.favicon);
     void tick().then(() => {
       input?.focus();
       if (ui.palette.selectAll) input?.select();
@@ -67,12 +72,15 @@
   const commandMode = $derived(mode === 'command' || query.startsWith('>'));
   const q = $derived(commandMode ? query.replace(/^>\s*/, '').trim() : query.trim());
   const engine = $derived(SEARCH_ENGINES[settings.value.searchEngine] ?? SEARCH_ENGINES.google);
+  /** A lone *, +, ^ or % limits the results to bookmarks, tagged bookmarks, history or open tabs. */
+  const restrict = $derived(commandMode ? { restriction: null, rest: q } : parseRestriction(q));
 
   let seq = 0;
   let historyTimer: ReturnType<typeof setTimeout> | undefined;
   let suggestTimer: ReturnType<typeof setTimeout> | undefined;
   $effect(() => {
-    const text = q;
+    const restricted = restrict.restriction;
+    const text = restricted ? restrict.rest : q;
     const cmd = commandMode;
     clearTimeout(historyTimer);
     clearTimeout(suggestTimer);
@@ -83,13 +91,13 @@
     }
     const mine = ++seq;
     historyTimer = setTimeout(async () => {
-      const r = await api.historySearch(text, 7).catch(() => []);
+      const r = await api.historySearch(text, restricted === 'history' ? 14 : 7).catch(() => []);
       if (mine !== seq) return;
       history = r;
       refreshFill();
     }, text ? 40 : 0);
     const looksLikeUrl = !/\s/.test(text) && text.includes('.');
-    if (settings.value.searchSuggestions && text.length > 1 && !looksLikeUrl) {
+    if (settings.value.searchSuggestions && text.length > 1 && !looksLikeUrl && !restricted) {
       suggestTimer = setTimeout(async () => {
         const r = await api.searchSuggest(settings.value.searchEngine, text).catch(() => []);
         if (mine === seq) suggestions = r;
@@ -138,13 +146,68 @@
           },
         }));
     }
+    // Firefox's restriction tokens: only bookmarks (*), tagged bookmarks (+), history (^) or tabs (%).
+    const only = restrict.restriction;
+    if (only === 'bookmarks' || only === 'tagged') {
+      const hits = only === 'tagged' ? searchTagged(bookmarks.index, restrict.rest) : searchBookmarks(bookmarks.index, restrict.rest, { limit: 12 });
+      return hits.map(
+        (b): Item => ({
+          key: `b:${b.id}`,
+          kind: 'bookmark',
+          title: nodeLabel(b),
+          subtitle: only === 'tagged' ? b.tags.join(', ') : prettyUrl(b.url),
+          url: b.url,
+          icon: 'bookmarkStar',
+          favicon: faviconFor(b.url),
+          run: (h) => go(b.url, h),
+        }),
+      );
+    }
+    if (only === 'history') {
+      return history.map(
+        (h): Item => ({ key: `h:${h.id}`, kind: 'history', title: h.title || prettyUrl(h.url), subtitle: prettyUrl(h.url), url: h.url, icon: 'history', favicon: faviconFor(h.url), run: (how) => go(h.url, how) }),
+      );
+    }
+    if (only === 'tabs') {
+      const open = Object.values(browser.tabs).filter((t) => t.id !== browser.glance?.tabId && t.url && !t.url.startsWith('zenith://newtab'));
+      const hits = restrict.rest ? open.map((t) => ({ t, s: scoreAny(restrict.rest, t.title, t.url) })).filter((x) => x.s > 0).sort((a, b) => b.s - a.s).map((x) => x.t) : [...open].sort((a, b) => b.lastActive - a.lastActive);
+      return hits.slice(0, 12).map(
+        (t): Item => ({
+          key: `t:${t.id}`,
+          kind: 'tab',
+          title: titleFor(t.url, t.title),
+          subtitle: prettyUrl(t.url),
+          favicon: t.favicon,
+          url: t.url,
+          run: () => {
+            close(false);
+            browser.activate(t.id);
+          },
+        }),
+      );
+    }
     const out: Item[] = [];
     const seen = new Set<string>();
+    // A bookmark's keyword typed alone (or with the words for its %s address) opens it first.
+    const kw = q ? keywordMatch(bookmarks.index, q) : null;
+    if (kw) {
+      seen.add(kw.url);
+      out.push({
+        key: `k:${kw.node.id}`,
+        kind: 'bookmark',
+        title: nodeLabel(kw.node),
+        subtitle: prettyUrl(kw.url),
+        url: kw.url,
+        icon: 'bookmarkStar',
+        favicon: faviconFor(kw.url),
+        run: (h) => go(kw.url, h),
+      });
+    }
     if (q) {
       // An inline completion leads; what was typed, taken literally, comes right after it.
       const auto = fill;
       if (auto) {
-        out.push({ key: 'go', kind: 'go', title: prettyUrl(auto.url), subtitle: 'Open address', icon: 'globe', url: auto.url, run: (h) => go(auto.url, h) });
+        out.push({ key: 'go', kind: 'go', title: prettyUrl(auto.url), subtitle: 'Open address', icon: 'globe', url: auto.url, favicon: faviconFor(auto.url), run: (h) => go(auto.url, h) });
         seen.add(auto.url);
       }
       const key = auto ? 'typed' : 'go';
@@ -153,7 +216,7 @@
       out.push(
         isSearch
           ? { key, kind: 'search', title: q, subtitle: `Search ${engine.name}`, icon: 'search', run: (h) => go(target, h) }
-          : { key, kind: 'go', title: prettyUrl(target), subtitle: 'Open address', icon: 'globe', url: target, run: (h) => go(target, h) },
+          : { key, kind: 'go', title: prettyUrl(target), subtitle: 'Open address', icon: 'globe', url: target, favicon: faviconFor(target), run: (h) => go(target, h) },
       );
       seen.add(target);
     }
@@ -183,14 +246,14 @@
       });
     }
     if (q) {
-      const marks = bookmarks.items
-        .map((b) => ({ b, s: scoreAny(q, b.title, b.url) }))
-        .filter((x) => x.s > 0 && !seen.has(x.b.url))
-        .sort((a, b) => b.s - a.s)
-        .slice(0, 3);
-      for (const { b } of marks) {
+      // Bookmarks match on their title, address, tags and keyword.
+      let shown = 0;
+      for (const b of searchBookmarks(bookmarks.index, q)) {
+        if (shown >= 4) break;
+        if (seen.has(b.url)) continue;
         seen.add(b.url);
-        out.push({ key: `b:${b.id}`, kind: 'bookmark', title: b.title || prettyUrl(b.url), subtitle: prettyUrl(b.url), url: b.url, icon: 'star', run: (h) => go(b.url, h) });
+        shown++;
+        out.push({ key: `b:${b.id}`, kind: 'bookmark', title: nodeLabel(b), subtitle: prettyUrl(b.url), url: b.url, icon: 'bookmarkStar', favicon: faviconFor(b.url), run: (h) => go(b.url, h) });
       }
     }
     for (const s of suggestions.slice(0, 4)) {
@@ -201,7 +264,7 @@
     for (const h of history) {
       if (seen.has(h.url)) continue;
       seen.add(h.url);
-      out.push({ key: `h:${h.id}`, kind: 'history', title: h.title || prettyUrl(h.url), subtitle: prettyUrl(h.url), url: h.url, icon: 'history', run: (how) => go(h.url, how) });
+      out.push({ key: `h:${h.id}`, kind: 'history', title: h.title || prettyUrl(h.url), subtitle: prettyUrl(h.url), url: h.url, icon: 'history', favicon: faviconFor(h.url), run: (how) => go(h.url, how) });
     }
     if (q.length >= 2) {
       for (const c of commands()
@@ -223,7 +286,7 @@
   function candidates(): AutofillCandidate[] {
     const out: AutofillCandidate[] = [];
     for (const h of history) out.push({ url: h.url, weight: 10 + Math.min(h.visitCount, 50) });
-    for (const b of bookmarks.items) out.push({ url: b.url, weight: 8 });
+    for (const url of bookmarks.urls) out.push({ url, weight: 8 });
     for (const t of Object.values(browser.tabs)) out.push({ url: t.url, weight: 4 });
     return out.concat(POPULAR);
   }
@@ -322,6 +385,19 @@
     }
   }
 
+  // Zen's bookmark button at the end of the URL bar: only while editing the current page's address.
+  const pageTab = $derived(mode === 'navigate' && !commandMode ? browser.activeTab : undefined);
+  const pageUrl = $derived(pageTab && isWebUrl(pageTab.url) ? pageTab.url : '');
+  const starred = $derived(bookmarks.has(pageUrl));
+
+  /** The button bookmarks the page and hangs the "Edit bookmark" panel from itself; the bar closes. */
+  function bookmarkFromBar(e: MouseEvent) {
+    if (!pageTab || !pageUrl) return;
+    const anchor = rectOf(e.currentTarget as HTMLElement);
+    close(false);
+    void bookmarkPage(pageTab, anchor);
+  }
+
   const placeholder = $derived(
     commandMode ? 'Type a command…' : mode === 'newTab' ? 'Search or enter address' : 'Search or enter address',
   );
@@ -348,7 +424,21 @@
           autocomplete="off"
           aria-label={placeholder}
         />
-        {#if mode === 'newTab' && !commandMode}
+        {#if pageUrl}
+          <button
+            class="star"
+            class:on={starred}
+            data-action="bookmark"
+            title={starred ? 'Edit bookmark' : 'Bookmark this page'}
+            aria-label={starred ? 'Edit bookmark' : 'Bookmark this page'}
+            aria-pressed={starred}
+            tabindex="-1"
+            onmousedown={(e) => e.preventDefault()}
+            onclick={bookmarkFromBar}
+          >
+            <Icon name={starred ? 'bookmarkStar' : 'bookmark'} size={16} />
+          </button>
+        {:else if mode === 'newTab' && !commandMode}
           <span class="chip">New tab</span>
         {:else if commandMode}
           <span class="chip">Commands</span>
@@ -370,10 +460,13 @@
               onclick={(e) => it.run(e.altKey ? 'newTab' : e.shiftKey ? 'glance' : 'enter')}
             >
               <span class="item-icon">
-                {#if it.kind === 'tab'}
+                {#if it.kind === 'tab' || it.favicon}
                   <Favicon url={it.url ?? ''} favicon={it.favicon} />
                 {:else}
                   <Icon name={it.icon ?? 'globe'} size={16} />
+                {/if}
+                {#if it.kind === 'bookmark' || (it.url && bookmarks.has(it.url))}
+                  <span class="badge" title="Bookmarked"><Icon name="star" size={9} fill stroke={1.5} /></span>
                 {/if}
               </span>
               <span class="item-text">
@@ -394,6 +487,7 @@
         <span><span class="kbd">Tab</span> next</span>
         <span><span class="kbd">Alt ↵</span> new tab</span>
         <span><span class="kbd">Shift ↵</span> Glance</span>
+        <span><span class="kbd">*</span> bookmarks <span class="kbd">+</span> tags <span class="kbd">^</span> history <span class="kbd">%</span> tabs</span>
         <span><span class="kbd">&gt;</span> commands</span>
       </div>
     </div>
@@ -476,6 +570,31 @@
     color: var(--accent-fg);
     background: color-mix(in srgb, var(--accent) 22%, transparent);
   }
+  .star {
+    display: grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+    corner-shape: var(--sq);
+    color: var(--text-2);
+    flex: none;
+  }
+  .star:hover {
+    background: var(--hover);
+    color: var(--text);
+  }
+  .star.on {
+    color: var(--accent-button);
+  }
+  .badge {
+    position: absolute;
+    right: -3px;
+    bottom: -3px;
+    display: grid;
+    color: var(--accent-button);
+    pointer-events: none;
+  }
   .results {
     max-height: min(440px, 55vh);
     overflow-y: auto;
@@ -499,6 +618,7 @@
     background: color-mix(in srgb, var(--accent) 20%, var(--element-bg));
   }
   .item-icon {
+    position: relative;
     width: 28px;
     height: 28px;
     border-radius: 8px;

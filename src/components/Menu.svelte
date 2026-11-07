@@ -2,7 +2,8 @@
   import { scale } from 'svelte/transition';
   import { tick } from 'svelte';
   import Icon from './Icon.svelte';
-  import { ui, type MenuItem } from '../lib/ui.svelte';
+  import Favicon from './Favicon.svelte';
+  import { ui, type MenuItem, type MenuMods } from '../lib/ui.svelte';
   import { overlayLease } from '../lib/layout.svelte';
   import { browser } from '../lib/browser.svelte';
   import { zoomActive } from '../lib/actions';
@@ -10,67 +11,119 @@
 
   const zoomPct = $derived(browser.activeTab?.live ? Math.round((browser.activeTab.zoom || 1) * 100) : 100);
 
-  let menuEl: HTMLDivElement | undefined = $state();
-  let subEl: HTMLDivElement | undefined = $state();
-  let pos = $state({ x: 0, y: 0 });
-  let sub = $state<{ items: MenuItem[]; x: number; y: number; index: number } | null>(null);
-  let focusIndex = $state(-1);
+  // A menu and the submenus opened from it, to any depth. Panel 0 is the menu itself; `subs[i]`
+  // is panel i + 1 and hangs from item `parentIndex` of the panel before it.
+  interface Sub {
+    items: MenuItem[];
+    x: number;
+    y: number;
+    /** Left edge of the parent item: where the submenu flips to when it doesn't fit on the right. */
+    flip: number;
+    parentIndex: number;
+  }
+  let subs = $state<Sub[]>([]);
+  let focus = $state({ level: 0, index: -1 });
+  let rootEl: HTMLDivElement | undefined = $state();
 
   const menu = $derived(ui.menu);
+  const panels = $derived(menu ? [menu.items, ...subs.map((s) => s.items)] : []);
+
+  const selectable = (it: MenuItem) => !it.separator && !it.disabled && !it.zoom && !it.heading;
+  const childrenOf = (it: MenuItem) => (typeof it.children === 'function' ? it.children() : it.children);
 
   $effect(() => {
     if (!menu) {
-      sub = null;
+      subs = [];
       return;
     }
     void menu.key;
-    pos = { x: menu.x, y: menu.y };
-    focusIndex = -1;
-    sub = null;
-    void tick().then(() => {
-      if (!menuEl) return;
-      const r = menuEl.getBoundingClientRect();
-      pos = {
-        x: Math.max(6, Math.min(menu.x, window.innerWidth - r.width - 6)),
-        y: Math.max(6, Math.min(menu.y, window.innerHeight - r.height - 6)),
-      };
-      menuEl.focus();
-    });
+    subs = [];
+    focus = { level: 0, index: -1 };
+    void tick().then(() => rootEl?.focus());
   });
 
-  function run(item: MenuItem) {
-    if (item.disabled || item.separator || item.children) return;
-    ui.closeMenu();
-    item.run?.();
+  // Keeps the keyboard-focused item visible in a long menu.
+  $effect(() => {
+    void focus.level;
+    void focus.index;
+    void tick().then(() => rootEl?.querySelector('.item.focus')?.scrollIntoView({ block: 'nearest' }));
+  });
+
+  /** Places a panel at (x, y), moving it back inside the window if it would run off an edge. */
+  function fit(node: HTMLElement, p: { x: number; y: number; flip?: number }) {
+    const apply = (q: { x: number; y: number; flip?: number }) => {
+      const w = node.offsetWidth;
+      const h = node.offsetHeight;
+      let x = q.x;
+      let y = q.y;
+      if (x + w > window.innerWidth - 6) x = q.flip !== undefined ? q.flip - w - 2 : window.innerWidth - w - 6;
+      if (y + h > window.innerHeight - 6) y = window.innerHeight - h - 6;
+      node.style.left = `${Math.max(6, x)}px`;
+      node.style.top = `${Math.max(6, y)}px`;
+    };
+    apply(p);
+    return { update: apply };
   }
 
-  function openSub(item: MenuItem, index: number, el: HTMLElement) {
-    if (!item.children) {
-      sub = null;
-      return;
-    }
+  const modsOf = (e: MouseEvent): MenuMods => ({
+    ctrl: e.ctrlKey || e.metaKey,
+    shift: e.shiftKey,
+    alt: e.altKey,
+    middle: e.button === 1,
+  });
+
+  function run(item: MenuItem, mods?: MenuMods) {
+    if (item.disabled || item.separator || item.heading || item.children) return;
+    ui.closeMenu();
+    item.run?.(mods);
+  }
+
+  /** Opens the submenu of `item` (item `index` of panel `level`) beside `el`; closes deeper ones. */
+  function openSub(level: number, item: MenuItem, index: number, el: HTMLElement) {
+    subs = subs.slice(0, level);
+    const items = childrenOf(item);
+    if (!items || item.disabled) return;
     const r = el.getBoundingClientRect();
-    sub = { items: item.children, x: r.right + 2, y: r.top - 5, index };
-    void tick().then(() => {
-      if (!subEl || !sub) return;
-      const s = subEl.getBoundingClientRect();
-      if (s.right > window.innerWidth - 6) sub.x = r.left - s.width - 2;
-      if (s.bottom > window.innerHeight - 6) sub.y = Math.max(6, window.innerHeight - s.height - 6);
-    });
+    subs = [...subs, { items, x: r.right + 2, y: r.top - 5, flip: r.left, parentIndex: index }];
+  }
+
+  function firstSelectable(items: MenuItem[]) {
+    return items.findIndex(selectable);
   }
 
   function onkeydown(e: KeyboardEvent) {
     if (!menu) return;
-    const items = menu.items;
-    const selectable = items.map((it, i) => (!it.separator && !it.disabled && !it.zoom ? i : -1)).filter((i) => i >= 0);
+    const items = panels[focus.level] ?? [];
+    const sel = items.map((it, i) => (selectable(it) ? i : -1)).filter((i) => i >= 0);
+    const item = items[focus.index];
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault();
-      const cur = selectable.indexOf(focusIndex);
-      const next = e.key === 'ArrowDown' ? (cur + 1) % selectable.length : (cur - 1 + selectable.length) % selectable.length;
-      focusIndex = selectable[next];
-    } else if (e.key === 'Enter' && focusIndex >= 0) {
+      if (!sel.length) return;
+      const cur = sel.indexOf(focus.index);
+      const next = e.key === 'ArrowDown' ? (cur + 1) % sel.length : (cur - 1 + sel.length) % sel.length;
+      focus = { ...focus, index: sel[next] };
+    } else if (e.key === 'Home' || e.key === 'End') {
       e.preventDefault();
-      run(items[focusIndex]);
+      if (sel.length) focus = { ...focus, index: e.key === 'Home' ? sel[0] : sel[sel.length - 1] };
+    } else if (e.key === 'ArrowRight' || ((e.key === 'Enter' || e.key === ' ') && item && item.children)) {
+      if (!item || !item.children || item.disabled) return;
+      e.preventDefault();
+      const el = rootEl?.querySelector<HTMLElement>(`.item[data-level="${focus.level}"][data-index="${focus.index}"]`);
+      if (!el) return;
+      openSub(focus.level, item, focus.index, el);
+      const opened = subs[focus.level];
+      if (opened) focus = { level: focus.level + 1, index: firstSelectable(opened.items) };
+    } else if (e.key === 'ArrowLeft' || (e.key === 'Escape' && focus.level > 0)) {
+      if (focus.level === 0) return;
+      // Closes one submenu and returns to the item it hangs from; the menu itself stays.
+      e.preventDefault();
+      e.stopPropagation();
+      const closing = subs[focus.level - 1];
+      subs = subs.slice(0, focus.level - 1);
+      focus = { level: focus.level - 1, index: closing?.parentIndex ?? -1 };
+    } else if ((e.key === 'Enter' || e.key === ' ') && item) {
+      e.preventDefault();
+      run(item, { ctrl: e.ctrlKey, shift: e.shiftKey, alt: e.altKey, middle: false });
     } else if (e.key === 'Escape') {
       e.preventDefault();
       ui.closeMenu();
@@ -80,7 +133,7 @@
 
 {#if menu}
   {#key menu.key}
-    <div class="root" use:overlayLease>
+    <div class="root menu-root" bind:this={rootEl} role="presentation" tabindex="-1" use:overlayLease {onkeydown}>
       <div
         class="catcher"
         role="presentation"
@@ -90,81 +143,81 @@
           ui.closeMenu();
         }}
       ></div>
-      <div
-        class="menu glass"
-        role="menu"
-        tabindex="-1"
-        bind:this={menuEl}
-        style:left="{pos.x}px"
-        style:top="{pos.y}px"
-        {onkeydown}
-        transition:scale={{ start: 0.97, duration: 120, opacity: 0 }}
-      >
-        {#each menu.items as item, i (i)}
-          {#if item.separator}
-            <div class="sep"></div>
-          {:else if item.zoom}
-            <!-- Zen's app-menu zoom controls: label, −, percentage (resets), +, full screen. -->
-            <div class="zoom-row" class:disabled={item.disabled}>
-              <span class="label">Zoom</span>
-              <button class="zoom-btn" title="Zoom out" disabled={item.disabled} onclick={() => zoomActive(-1)}>
-                <Icon name="minimize" size={14} />
-              </button>
-              <button class="zoom-btn pct" title="Reset zoom" disabled={item.disabled} onclick={() => zoomActive(0)}>{zoomPct}%</button>
-              <button class="zoom-btn" title="Zoom in" disabled={item.disabled} onclick={() => zoomActive(1)}>
-                <Icon name="plus" size={14} />
-              </button>
-              <span class="zoom-sep"></span>
-              <button
-                class="zoom-btn"
-                title="Full screen (F11)"
-                onclick={async () => {
-                  ui.closeMenu();
-                  const w = getCurrentWindow();
-                  await w.setFullscreen(!(await w.isFullscreen()));
-                }}
-              >
-                <Icon name="expand" size={14} />
-              </button>
-            </div>
-          {:else}
-            <button
-              class="item"
-              class:danger={item.danger}
-              class:focus={focusIndex === i}
-              class:open={sub?.index === i}
-              disabled={item.disabled}
-              role="menuitem"
-              onmouseenter={(e) => {
-                focusIndex = i;
-                openSub(item, i, e.currentTarget as HTMLElement);
-              }}
-              onclick={(e) => (item.children ? openSub(item, i, e.currentTarget as HTMLElement) : run(item))}
-            >
-              <span class="icon">
-                {#if item.checked}<Icon name="check" size={15} />{:else if item.icon}<Icon name={item.icon} size={15} />{/if}
-              </span>
-              <span class="label ellipsis">{item.label}</span>
-              {#if item.hint}<span class="hint">{item.hint}</span>{/if}
-              {#if item.children}<Icon name="chevronRight" size={14} />{/if}
-            </button>
-          {/if}
-        {/each}
-      </div>
-      {#if sub}
-        <div class="menu glass" role="menu" tabindex="-1" bind:this={subEl} style:left="{sub.x}px" style:top="{sub.y}px">
-          {#each sub.items as item, i (i)}
+      {#each panels as items, level (level)}
+        <div
+          class="menu glass"
+          class:sub={level > 0}
+          role="menu"
+          tabindex="-1"
+          use:fit={level === 0 ? { x: menu.x, y: menu.y } : { x: subs[level - 1].x, y: subs[level - 1].y, flip: subs[level - 1].flip }}
+          transition:scale={{ start: 0.97, duration: 120, opacity: 0 }}
+        >
+          {#each items as item, i (i)}
             {#if item.separator}
               <div class="sep"></div>
+            {:else if item.heading}
+              <div class="heading ellipsis">{item.label}</div>
+            {:else if item.zoom}
+              <!-- Zen's app-menu zoom controls: label, −, percentage (resets), +, full screen. -->
+              <div class="zoom-row" class:disabled={item.disabled}>
+                <span class="label">Zoom</span>
+                <button class="zoom-btn" title="Zoom out" disabled={item.disabled} onclick={() => zoomActive(-1)}>
+                  <Icon name="minimize" size={14} />
+                </button>
+                <button class="zoom-btn pct" title="Reset zoom" disabled={item.disabled} onclick={() => zoomActive(0)}>{zoomPct}%</button>
+                <button class="zoom-btn" title="Zoom in" disabled={item.disabled} onclick={() => zoomActive(1)}>
+                  <Icon name="plus" size={14} />
+                </button>
+                <span class="zoom-sep"></span>
+                <button
+                  class="zoom-btn"
+                  title="Full screen (F11)"
+                  onclick={async () => {
+                    ui.closeMenu();
+                    const w = getCurrentWindow();
+                    await w.setFullscreen(!(await w.isFullscreen()));
+                  }}
+                >
+                  <Icon name="expand" size={14} />
+                </button>
+              </div>
             {:else}
-              <button class="item" disabled={item.disabled} role="menuitem" onclick={() => run(item)}>
-                <span class="icon">{#if item.checked}<Icon name="check" size={15} />{:else if item.icon}<Icon name={item.icon} size={15} />{/if}</span>
+              <button
+                class="item"
+                class:danger={item.danger}
+                class:focus={focus.level === level && focus.index === i}
+                class:open={subs[level]?.parentIndex === i}
+                disabled={item.disabled}
+                role="menuitem"
+                aria-haspopup={item.children ? 'menu' : undefined}
+                data-level={level}
+                data-index={i}
+                onmouseenter={(e) => {
+                  focus = { level, index: i };
+                  openSub(level, item, i, e.currentTarget as HTMLElement);
+                }}
+                onclick={(e) => (item.children ? openSub(level, item, i, e.currentTarget as HTMLElement) : run(item, modsOf(e)))}
+                onauxclick={(e) => {
+                  if (e.button === 1) run(item, modsOf(e));
+                }}
+              >
+                <span class="icon">
+                  {#if item.checked}
+                    <Icon name="check" size={15} />
+                  {:else if item.site}
+                    <Favicon url={item.site.url} favicon={item.site.favicon} size={16} />
+                  {:else if item.icon}
+                    <Icon name={item.icon} size={15} />
+                  {/if}
+                </span>
                 <span class="label ellipsis">{item.label}</span>
+                {#if item.hint}<span class="hint">{item.hint}</span>{/if}
+                {#if item.children}<Icon name="chevronRight" size={14} />{/if}
               </button>
             {/if}
           {/each}
         </div>
-      {/if}
+      {/each}
     </div>
   {/key}
 {/if}
@@ -174,6 +227,7 @@
     position: fixed;
     inset: 0;
     z-index: 90;
+    outline: none;
   }
   .catcher {
     position: absolute;
@@ -183,7 +237,9 @@
   .menu {
     position: absolute;
     min-width: 230px;
-    max-width: 320px;
+    max-width: 340px;
+    max-height: calc(100vh - 12px);
+    overflow-y: auto;
     padding: 4px 0;
     border-radius: var(--r-panel);
     corner-shape: var(--sq);
@@ -211,6 +267,12 @@
   }
   .item:active:not(:disabled) {
     background: color-mix(in srgb, currentColor 14%, transparent);
+  }
+  .heading {
+    margin: 0 4px;
+    padding: 6px 12px 4px 38px;
+    font-size: 12px;
+    color: var(--text-3);
   }
   .zoom-row {
     display: flex;

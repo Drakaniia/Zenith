@@ -138,11 +138,23 @@ export const ACTIONS: ActionDef[] = [
     id: "toggleCompact",
     label: "Toggle compact mode",
     group: "View",
-    keys: ["Ctrl+B"],
+    keys: ["Ctrl+Alt+C"],
   },
   {
     id: "toggleSidebar",
     label: "Expand or collapse the sidebar",
+    group: "View",
+    keys: ["Alt+B"],
+  },
+  {
+    id: "toggleBookmarksSidebar",
+    label: "Show bookmarks sidebar",
+    group: "View",
+    keys: ["Ctrl+B"],
+  },
+  {
+    id: "toggleBookmarksBar",
+    label: "Show bookmarks toolbar",
     group: "View",
     keys: ["Ctrl+Shift+B"],
   },
@@ -180,10 +192,16 @@ export const ACTIONS: ActionDef[] = [
     group: "Browser",
     keys: ["Ctrl+D"],
   },
+  {
+    id: "bookmarkAllTabs",
+    label: "Bookmark all tabs",
+    group: "Browser",
+    keys: ["Ctrl+Shift+D"],
+  },
   { id: "history", label: "History", group: "Browser", keys: ["Ctrl+H"] },
   {
     id: "bookmarks",
-    label: "Bookmarks",
+    label: "Show bookmarks library",
     group: "Browser",
     keys: ["Ctrl+Shift+O"],
   },
@@ -212,6 +230,41 @@ export const ACTION_LABELS: Record<string, string> = Object.fromEntries(
 
 export function defaultShortcuts(): Record<string, string[]> {
   return Object.fromEntries(ACTIONS.map((a) => [a.id, [...a.keys]]));
+}
+
+/** Defaults that moved to Zen's keys (Ctrl+B and Ctrl+Shift+B are the bookmarks sidebar and
+ *  toolbar there): a saved binding that is still the old default follows to the new one. */
+const MOVED_DEFAULTS: Record<string, readonly string[]> = {
+  toggleCompact: ["Ctrl+B"],
+  toggleSidebar: ["Ctrl+Shift+B"],
+};
+
+const sameKeys = (a: readonly string[], b: readonly string[]) =>
+  a.length === b.length && a.every((k, i) => k === b[i]);
+
+/** The bindings to use: the user's saved ones over the defaults. A default the user never had
+ *  (a new action, or one that moved to another key) doesn't take a key that one of the user's
+ *  own bindings already uses. Bindings for actions this version doesn't know are kept. */
+export function mergeShortcuts(
+  saved: Record<string, string[]> | undefined,
+  defaults: Record<string, string[]> = defaultShortcuts(),
+): Record<string, string[]> {
+  const out: Record<string, string[]> = {};
+  const used = new Set<string>();
+  const fresh: string[] = [];
+  for (const action of Object.keys(defaults)) {
+    const mine = saved?.[action];
+    const moved = MOVED_DEFAULTS[action];
+    if (Array.isArray(mine) && !(moved && sameKeys(mine, moved))) {
+      out[action] = [...mine];
+      for (const k of mine) used.add(k);
+    } else fresh.push(action);
+  }
+  for (const action of fresh) out[action] = defaults[action].filter((k) => !used.has(k));
+  for (const [action, keys] of Object.entries(saved ?? {})) {
+    if (!(action in out) && Array.isArray(keys)) out[action] = [...keys];
+  }
+  return out;
 }
 
 const CODE_NAMES: Record<string, string> = {

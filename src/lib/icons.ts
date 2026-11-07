@@ -6,6 +6,24 @@ const c = (cx: number, cy: number, r: number) =>
 const rect = (x: number, y: number, w: number, h: number, r = 2) =>
   `M${x + r} ${y}h${w - 2 * r}a${r} ${r} 0 0 1 ${r} ${r}v${h - 2 * r}a${r} ${r} 0 0 1 ${-r} ${r}h${-(w - 2 * r)}a${r} ${r} 0 0 1 ${-r} ${-r}v${-(h - 2 * r)}a${r} ${r} 0 0 1 ${r} ${-r}z`;
 
+/** A five-pointed star outline centred on (cx, cy). */
+const starPath = (cx: number, cy: number, ro: number, ri: number) => {
+  const pts: string[] = [];
+  for (let i = 0; i < 10; i++) {
+    const a = -Math.PI / 2 + (i * Math.PI) / 5;
+    const r = i % 2 === 0 ? ro : ri;
+    pts.push(`${(cx + r * Math.cos(a)).toFixed(2)} ${(cy + r * Math.sin(a)).toFixed(2)}`);
+  }
+  return `M${pts.join("L")}Z`;
+};
+/** `n` short spokes around a centre (the teeth of the gear icon). */
+const spokes = (cx: number, cy: number, r1: number, r2: number, n: number) =>
+  Array.from({ length: n }, (_, i) => {
+    const a = (i * 2 * Math.PI) / n;
+    const p = (r: number) => `${(cx + r * Math.cos(a)).toFixed(2)} ${(cy + r * Math.sin(a)).toFixed(2)}`;
+    return `M${p(r1)}L${p(r2)}`;
+  });
+
 export const icons = {
   back: ["M19 12H5", "M12 19l-7-7 7-7"],
   forward: ["M5 12h14", "M12 5l7 7-7 7"],
@@ -278,6 +296,24 @@ export const icons = {
   dice: [rect(4, 4, 16, 16, 3), c(9, 9, 0.6), c(15, 15, 0.6), c(15, 9, 0.6), c(9, 15, 0.6)],
   sliders: ["M4 7.5h9", "M18 7.5h2", c(15.5, 7.5, 2.5), "M4 16.5h2", "M11 16.5h9", c(8.5, 16.5, 2.5)],
   image: [rect(3, 4, 18, 16, 2.5), c(9, 9.5, 1.6), "M21 15.5l-5-5-9 9.5"],
+  /** A bookmarked page: the ribbon with a star in it. */
+  bookmarkStar: ["M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z", starPath(12, 9.3, 3.3, 1.45)],
+  /** The Bookmarks Toolbar folder: a box with a star. */
+  bookmarkToolbar: [rect(2.5, 4.5, 19, 15, 2.5), starPath(12, 12.1, 4, 1.8)],
+  /** The Bookmarks Menu folder: a box with a list. */
+  bookmarkMenu: [rect(2.5, 4, 19, 16, 2.5), "M7 9h10", "M7 12.5h10", "M7 16h6"],
+  folderOpen: [
+    "M3 19V6a2 2 0 0 1 2-2h4l2 2h6a2 2 0 0 1 2 2v2",
+    "M3 19l2.4-8.2a2 2 0 0 1 1.9-1.4H21a1 1 0 0 1 1 1.3l-2.3 7.2a2 2 0 0 1-1.9 1.4H3z",
+  ],
+  tag: ["M20.6 13.4l-7.2 7.2a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z", "M7.5 7.5h.01"],
+  scissors: [c(6, 6, 3), c(6, 18, 3), "M20 4 8.1 15.9", "M14.5 14.5 20 20", "M8.1 8.1 12 12"],
+  /** The Library's "Organize" menu. */
+  gear: [c(12, 12, 5.6), c(12, 12, 1.9), ...spokes(12, 12, 7.4, 10, 8)],
+  sort: ["M7 4v16", "M3.5 16.5 7 20l3.5-3.5", "M17 20V4", "M13.5 7.5 17 4l3.5 3.5"],
+  listView: ["M8.5 6H21", "M8.5 12H21", "M8.5 18H21", "M3.5 6h.01", "M3.5 12h.01", "M3.5 18h.01"],
+  /** "Import bookmarks…": an arrow going into a box. */
+  importBox: ["M14 3h5a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-5", "M3 12h11", "M10 8l4 4-4 4"],
 } satisfies Record<string, string[]>;
 
 export type IconName = keyof typeof icons;

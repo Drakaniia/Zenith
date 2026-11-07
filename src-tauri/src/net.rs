@@ -29,6 +29,16 @@ fn check(h: *mut c_void, what: &str) -> Result<Handle, String> {
 
 /// Performs a blocking GET request. Call from a background thread.
 pub fn get(url: &str, max_bytes: usize, timeout_ms: i32) -> Result<Vec<u8>, String> {
+    fetch(url, max_bytes, timeout_ms, true)
+}
+
+/// Like `get`, but a redirect is an error: for fetches whose address was only checked as given
+/// (a redirect could lead to a private network address).
+pub fn get_no_redirects(url: &str, max_bytes: usize, timeout_ms: i32) -> Result<Vec<u8>, String> {
+    fetch(url, max_bytes, timeout_ms, false)
+}
+
+fn fetch(url: &str, max_bytes: usize, timeout_ms: i32, follow_redirects: bool) -> Result<Vec<u8>, String> {
     let url = Url::parse(url).map_err(|e| e.to_string())?;
     let secure = match url.scheme() {
         "https" => true,
@@ -78,6 +88,10 @@ pub fn get(url: &str, max_bytes: usize, timeout_ms: i32) -> Result<Vec<u8>, Stri
             WINHTTP_OPTION_DECOMPRESSION,
             Some(&decompression.to_ne_bytes()),
         );
+        if !follow_redirects {
+            let never: u32 = WINHTTP_OPTION_REDIRECT_POLICY_NEVER;
+            WinHttpSetOption(Some(request.0), WINHTTP_OPTION_REDIRECT_POLICY, Some(&never.to_ne_bytes())).map_err(|e| e.to_string())?;
+        }
         WinHttpSendRequest(request.0, None, None, 0, 0, 0).map_err(|e| e.to_string())?;
         WinHttpReceiveResponse(request.0, std::ptr::null_mut()).map_err(|e| e.to_string())?;
 

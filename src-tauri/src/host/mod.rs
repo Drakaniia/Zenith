@@ -30,7 +30,8 @@ use std::result::Result;
 use webview2_com::Microsoft::Web::WebView2::Win32::*;
 use webview2_com::*;
 use windows::core::{Interface, HSTRING, PWSTR};
-use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
+use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM};
+use windows::Win32::Graphics::Gdi::{CreateRectRgn, SetWindowRgn};
 use windows::Win32::UI::HiDpi::GetDpiForWindow;
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     GetFocus, GetKeyState, VK_CONTROL, VK_ESCAPE, VK_MENU, VK_RMENU, VK_SHIFT,
@@ -244,6 +245,13 @@ pub struct PaneSpec {
     pub y: f64,
     pub w: f64,
     pub h: f64,
+    /// While the chrome animates the page's left/top edge outward, the webview already has its
+    /// final size and this much of its left/top is hidden (logical px), so the page is revealed
+    /// with the sliding edge instead of being resized on every frame.
+    #[serde(default)]
+    pub clip_x: f64,
+    #[serde(default)]
+    pub clip_y: f64,
 }
 
 #[derive(Deserialize, Clone, Debug, Default)]
@@ -700,6 +708,37 @@ pub(crate) fn logical_rect(p: &PaneSpec) -> Rect {
     }
 }
 
+/// Places a tab's webview. Unlike wry's `set_bounds`, the size comes from the rounded edges (so
+/// the right and bottom edges never wobble by a pixel as the left edge moves), and the container
+/// window is moved synchronously, in step with the page inside it: wry moves it asynchronously
+/// after resizing the page, which shows the page shifted for a frame on every layout change.
+fn place_view(view: &wry::WebView, p: &PaneSpec, scale: f64) {
+    let left = (p.x * scale).round() as i32;
+    let top = (p.y * scale).round() as i32;
+    let w = (((p.x + p.w) * scale).round() as i32 - left).max(1);
+    let h = (((p.y + p.h) * scale).round() as i32 - top).max(1);
+    unsafe {
+        let _ = SetWindowPos(view.hwnd(), None, left, top, w, h, SWP_NOACTIVATE | SWP_NOZORDER);
+        let _ = view.controller().SetBounds(RECT { left: 0, top: 0, right: w, bottom: h });
+    }
+}
+
+/// Hides the left/top `clip` (logical px) of a webview with a window region; (0, 0) removes it.
+fn clip_view(view: &wry::WebView, clip: (f64, f64), scale: f64) {
+    unsafe {
+        let hwnd = view.hwnd();
+        if clip == (0.0, 0.0) {
+            let _ = SetWindowRgn(hwnd, None, true);
+            return;
+        }
+        let x = (clip.0 * scale).round() as i32;
+        let y = (clip.1 * scale).round() as i32;
+        // The window owns the region from here on.
+        let rgn = CreateRectRgn(x, y, 1 << 15, 1 << 15);
+        let _ = SetWindowRgn(hwnd, Some(rgn), true);
+    }
+}
+
 impl Host {
     /// The WebView2 profile pages use: the user's profile (which every chrome uses too), or for
     /// incognito windows the InPrivate profile their tabs share (None while no such tab exists).
@@ -734,6 +773,7 @@ impl Host {
 
 
     pub fn apply_layout(&mut self, label: &str) {
+        let scale = self.scale(label);
         let Some(win) = self.wins.get(label) else { return };
         let mut visible: HashMap<String, PaneSpec> = HashMap::new();
         if let Some(fs) = win.fullscreen_tab.clone().filter(|id| self.tabs.contains_key(id)) {
@@ -745,6 +785,7 @@ impl Host {
                     y: 0.0,
                     w: win.layout.viewport_w,
                     h: win.layout.viewport_h,
+                    ..Default::default()
                 },
             );
         } else {
@@ -761,9 +802,16 @@ impl Host {
             }
             match visible.get(id) {
                 Some(p) => {
+                    // The clip goes first: a webview that grows under the sliding chrome must
+                    // not cover it for a frame.
+                    let clip = (p.clip_x.max(0.0), p.clip_y.max(0.0));
+                    if tab.last_clip != clip {
+                        clip_view(&tab.view, clip, scale);
+                        tab.last_clip = clip;
+                    }
                     let rect = (p.x, p.y, p.w, p.h);
                     if tab.last_rect != Some(rect) {
-                        let _ = tab.view.set_bounds(logical_rect(p));
+                        place_view(&tab.view, p, scale);
                         tab.last_rect = Some(rect);
                     }
                     if !tab.visible {
@@ -855,6 +903,7 @@ impl Host {
                     y: min_y + (p.y - min_y) / ch * nch,
                     w: p.w / cw * ncw,
                     h: p.h / ch * nch,
+                    ..Default::default()
                 })
                 .collect()
         };
@@ -868,6 +917,7 @@ impl Host {
                 y: g.y * fy,
                 w: g.w * fx,
                 h: g.h * fy,
+                ..Default::default()
             });
         }
         win.layout.viewport_w = new_w;

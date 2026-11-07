@@ -3,6 +3,7 @@
 //! Zenith: a lightweight Zen-style browser for Windows (Tauri 2 + WebView2).
 
 mod blocker;
+mod bookmarks;
 mod commands;
 mod host;
 mod hotkey;
@@ -344,11 +345,20 @@ fn main() {
             commands::history_clear,
             commands::history_prune,
             commands::bookmarks_list,
-            commands::bookmark_add,
+            commands::bookmarks_add,
             commands::bookmark_update,
-            commands::bookmark_remove,
+            commands::bookmark_move,
+            commands::bookmarks_reorder,
+            commands::bookmarks_remove,
+            commands::bookmarks_remove_url,
             commands::bookmarks_export,
             commands::bookmarks_import,
+            commands::bookmarks_backup,
+            commands::bookmarks_restore,
+            commands::bookmark_backups,
+            commands::bookmarks_restore_backup,
+            commands::bookmarks_auto_backup,
+            commands::favicon_fetch,
             commands::notes_list,
             commands::note_save,
             commands::note_delete,

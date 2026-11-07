@@ -10,6 +10,8 @@
   import { downloads, permissions, ui } from './lib/ui.svelte';
   import { api, on } from './lib/ipc';
   import { runAction } from './lib/actions';
+  import { barPinned } from './lib/bookmark-actions';
+  import { bmDnd } from './lib/bookmark-dnd.svelte';
   import { followLayout, overlay, overlayHold, overlayLease, scheduleLayout, setLayoutRegistry } from './lib/layout.svelte';
   import { startSleepScheduler } from './lib/sleep';
   import { appInfo, incognito } from './lib/app.svelte';
@@ -18,6 +20,11 @@
   import TopBar from './components/TopBar.svelte';
   import Content from './components/Content.svelte';
   import Palette from './components/Palette.svelte';
+  import BookmarksBar from './components/BookmarksBar.svelte';
+  import BookmarkPopup from './components/BookmarkPopup.svelte';
+  import BookmarkDialog from './components/BookmarkDialog.svelte';
+  import BookmarkGhost from './components/BookmarkGhost.svelte';
+  import BookmarkImport from './components/BookmarkImport.svelte';
   import Glance from './components/Glance.svelte';
   import Menu from './components/Menu.svelte';
   import Toasts from './components/Toasts.svelte';
@@ -50,6 +57,10 @@
   const single = $derived(mode === 'single');
   const showSidebar = $derived(!compact && !pageFullscreen);
   const showTopBar = $derived(!single && !pageFullscreen);
+  /** The bookmarks toolbar has a row of its own. In the single-toolbar layout, when it hasn't, it
+   *  still appears next to the window controls while the pointer is at the top edge. */
+  const barOn = $derived(!pageFullscreen && barPinned());
+  const revealBar = $derived(single && !barOn && settings.value.bookmarksBar !== 'never');
   const space = $derived(browser.activeSpace);
 
   // The page keeps a usable width on narrow windows: the sidebar gives up width first (down to
@@ -66,7 +77,7 @@
   let lastLayoutKey = '';
   let animTimer: ReturnType<typeof setTimeout> | undefined;
   $effect.pre(() => {
-    const key = `${compact}|${mode}`;
+    const key = `${compact}|${mode}|${barOn}`;
     if (key === lastLayoutKey) return;
     const first = !lastLayoutKey;
     lastLayoutKey = key;
@@ -106,6 +117,7 @@
     void settings.value.compact;
     void settings.value.sidebarWidth;
     void settings.value.toolbarMode;
+    void barOn;
     void ui.find.open;
     void pageFullscreen;
     void overlay.holds;
@@ -114,7 +126,7 @@
   });
 
   $effect(() => {
-    overlay.forced = ui.dragging;
+    overlay.forced = ui.dragging || bmDnd.active;
   });
 
   // The window tint is painted by the chrome, which sits below the page webviews, except while
@@ -261,6 +273,8 @@
         if (browser.tabs[tabId]) ui.openMedia(tabId, hint);
       }),
       on('app-close-requested', () => void flushAndClose()),
+      // Another window changed the bookmarks.
+      bookmarks.listen(),
     ];
 
     void (async () => {
@@ -296,6 +310,8 @@
       });
       startSleepScheduler();
       void bookmarks.load();
+      // Today's automatic backup of the bookmarks (the first start of the day writes it).
+      if (!incognito) void api.bookmarksAutoBackup().catch(() => {});
       void vault.refresh();
       void downloads.load();
       void updates.load();
@@ -317,6 +333,9 @@
   function onKeydown(e: KeyboardEvent) {
     if (e.key === 'Escape') {
       if (ui.menu) ui.closeMenu();
+      else if (ui.bookmarkDialog) ui.bookmarkDialog = null;
+      else if (ui.bookmarkPopup) ui.bookmarkPopup = null;
+      else if (ui.selectedTabs.length) ui.clearTabSelection();
       else if (ui.media) ui.media = null;
       else if (extensions.popover) extensions.close();
       else if (ui.downloadsOpen) ui.downloadsOpen = false;
@@ -334,6 +353,7 @@
   class:compact
   class:fullscreen={pageFullscreen}
   class:single
+  class:has-bar={barOn}
   class:collapsed-mode={mode === 'collapsed'}
   class:incognito
   class:animating
@@ -382,6 +402,11 @@
       out:slidePx={{ y: -16, duration: motionMs() * 0.6, easing: cubicOut }}
     >
       <TopBar />
+      {#if barOn}
+        <div class="bar-row" transition:fade={{ duration: 150 }}>
+          <BookmarksBar />
+        </div>
+      {/if}
     </div>
   {/if}
   <main class="stage">
@@ -397,7 +422,31 @@
       onmouseleave={() => hideCaptions(400)}
       data-tauri-drag-region
     ></div>
+    {#if barOn}
+      <!-- The bookmarks toolbar in the strip above the page; hovering it shows the window controls too. -->
+      <div
+        class="single-bar"
+        role="presentation"
+        onmouseenter={revealCaptions}
+        onmouseleave={() => hideCaptions(400)}
+        transition:fade={{ duration: 150 }}
+      >
+        <BookmarksBar />
+      </div>
+    {/if}
     {#if ui.captionReveal}
+      {#if revealBar}
+        <div
+          class="reveal-bar"
+          role="presentation"
+          use:overlayLease
+          onmouseenter={() => clearTimeout(captionTimer)}
+          onmouseleave={() => hideCaptions()}
+          transition:slidePx={{ y: -12, duration: 150, easing: cubicOut }}
+        >
+          <BookmarksBar floating />
+        </div>
+      {/if}
       <div
         class="captions"
         role="presentation"
@@ -458,8 +507,12 @@
   <ExtensionsPopover />
   <MediaPanel />
   <SpaceEditor />
+  <BookmarkPopup />
+  <BookmarkDialog />
+  <BookmarkImport />
   <Palette />
   <Menu />
+  <BookmarkGhost />
   <Toasts />
 </div>
 
@@ -493,6 +546,13 @@
   .app.compact {
     --lay-left: var(--zen-sep);
     --lay-bar-left: 0px;
+  }
+  /* The bookmarks toolbar takes its own row above the page. */
+  .app.has-bar {
+    --lay-top: calc(var(--zen-toolbar-h) + var(--bm-bar-h));
+  }
+  .app.single.has-bar {
+    --lay-top: var(--bm-bar-h);
   }
   .app.animating {
     transition:
@@ -567,6 +627,33 @@
       linear-gradient(160deg, color-mix(in srgb, var(--c) 20%, transparent), color-mix(in srgb, var(--c) 9%, transparent));
   }
 
+  /* Under the toolbar the row spans the page area, not the collapsed layout's icon sidebar. */
+  .bar-row {
+    margin-left: calc(var(--lay-left) - var(--lay-bar-left));
+  }
+  .single-bar {
+    position: absolute;
+    top: 0;
+    left: var(--lay-left);
+    right: 0;
+    height: var(--bm-bar-h);
+    z-index: 6;
+  }
+  /* The hidden toolbar of the single layout, revealed with the window controls. */
+  .reveal-bar {
+    position: absolute;
+    top: 0;
+    left: var(--lay-left);
+    right: 138px;
+    height: var(--bm-bar-h);
+    z-index: 44;
+    overflow: hidden;
+    border-bottom-left-radius: var(--r-panel);
+    border-bottom-right-radius: var(--r-panel);
+    corner-shape: var(--sq);
+    background: var(--compact-bg);
+    box-shadow: var(--zen-big-shadow);
+  }
   .hot-caption {
     position: absolute;
     top: 0;

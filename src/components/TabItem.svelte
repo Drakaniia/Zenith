@@ -33,6 +33,20 @@
   } = $props();
 
   const title = $derived(tabTitle(tab));
+  /** Picked together with other tabs (Ctrl+click, Shift+click), e.g. for "Bookmark Tabs…". */
+  const picked = $derived(ui.selectedTabs.length > 1 && ui.selectedTabs.includes(tab.id));
+
+  /** A click picks the tab (Ctrl: adds it to the picked ones, Shift: all between) or opens it. */
+  function click(e: MouseEvent) {
+    if (e.ctrlKey || e.metaKey) {
+      ui.toggleTabSelected(tab.id, browser.activeTab?.id);
+    } else if (e.shiftKey) {
+      ui.selectTabRange(browser.order(), ui.selectedTabs[0] ?? browser.activeTab?.id, tab.id);
+    } else {
+      ui.clearTabSelection();
+      browser.activate(tab.id);
+    }
+  }
   const sleeping = $derived(!tab.live && needsWebview(tab.url));
   const keep = $derived(tab.pinned || tab.essential);
   /** A pinned tab that navigated away from its pinned page (Zen: zen-pinned-changed). */
@@ -74,6 +88,7 @@
 <div
   class="tab"
   class:active
+  class:picked
   class:sleeping
   class:split={inSplit && !grouped}
   class:dragging
@@ -86,7 +101,7 @@
   data-tab-id={tab.id}
   data-audible={tab.audible ? 'true' : undefined}
   title={renaming ? undefined : title}
-  onclick={() => !renaming && browser.activate(tab.id)}
+  onclick={(e) => !renaming && click(e)}
   onauxclick={(e) => {
     if (e.button === 1) browser.closeTab(tab.id);
   }}
@@ -209,6 +224,13 @@
   .tab.active .bg {
     background: var(--tab-selected);
     box-shadow: var(--tab-shadow);
+  }
+  /* Tabs picked together (Zen: multiselected). */
+  .tab.picked .bg {
+    background: color-mix(in srgb, var(--accent) 24%, var(--hover));
+  }
+  .tab.picked.active .bg {
+    background: color-mix(in srgb, var(--accent) 30%, var(--tab-selected));
   }
   .tab.dragging {
     opacity: 0.4;

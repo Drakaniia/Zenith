@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug)]
@@ -179,15 +179,7 @@ fn migrate(conn: &Connection) -> rusqlite::Result<()> {
             last_visit INTEGER NOT NULL
         );
         CREATE INDEX IF NOT EXISTS history_last_visit ON history(last_visit DESC);
-        CREATE TABLE IF NOT EXISTS bookmarks (
-            id INTEGER PRIMARY KEY,
-            url TEXT NOT NULL,
-            title TEXT NOT NULL DEFAULT '',
-            folder TEXT NOT NULL DEFAULT '',
-            position INTEGER NOT NULL DEFAULT 0,
-            created INTEGER NOT NULL
-        );
-        CREATE INDEX IF NOT EXISTS bookmarks_url ON bookmarks(url);
+
         CREATE TABLE IF NOT EXISTS downloads (
             id INTEGER PRIMARY KEY,
             url TEXT NOT NULL,
@@ -207,7 +199,9 @@ fn migrate(conn: &Connection) -> rusqlite::Result<()> {
             updated INTEGER NOT NULL
         );
         CREATE INDEX IF NOT EXISTS notes_updated ON notes(updated DESC);",
-    )
+    )?;
+    // Bookmarks have their own tables, and the old flat list is converted on the first run.
+    crate::bookmarks::migrate(conn)
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -339,6 +333,10 @@ pub fn history_prune(conn: &mut Connection, days: i64, max_rows: i64) -> rusqlit
 
 // ---------------------------------------------------------------------------------------------
 // Bookmarks
+//
+// The bookmark tree lives in bookmarks.rs. What stays here is the flat record the importers for
+// other browsers produce (the folder is a path like "Chrome / Dev"); `bookmarks::import_paths`
+// places those in the tree.
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -356,59 +354,6 @@ pub struct Bookmark {
     pub created: i64,
 }
 
-pub fn bookmarks_list(conn: &mut Connection) -> rusqlite::Result<Vec<Bookmark>> {
-    let mut stmt = conn.prepare_cached(
-        "SELECT id, url, title, folder, position, created FROM bookmarks
-         ORDER BY folder COLLATE NOCASE, position, id",
-    )?;
-    let rows = stmt.query_map([], |r| {
-        Ok(Bookmark {
-            id: r.get(0)?,
-            url: r.get(1)?,
-            title: r.get(2)?,
-            folder: r.get(3)?,
-            position: r.get(4)?,
-            created: r.get(5)?,
-        })
-    })?;
-    rows.collect()
-}
-
-pub fn bookmark_add(conn: &Connection, b: &Bookmark) -> rusqlite::Result<i64> {
-    if let Some(id) = conn
-        .query_row(
-            "SELECT id FROM bookmarks WHERE url = ?1 AND folder = ?2",
-            params![b.url, b.folder],
-            |r| r.get::<_, i64>(0),
-        )
-        .optional()?
-    {
-        return Ok(id);
-    }
-    let position: i64 = conn.query_row(
-        "SELECT COALESCE(MAX(position), -1) + 1 FROM bookmarks WHERE folder = ?1",
-        params![b.folder],
-        |r| r.get(0),
-    )?;
-    conn.execute(
-        "INSERT INTO bookmarks (url, title, folder, position, created) VALUES (?1, ?2, ?3, ?4, ?5)",
-        params![b.url, b.title, b.folder, position, now_ms()],
-    )?;
-    Ok(conn.last_insert_rowid())
-}
-
-/// Adds bookmarks in one transaction, skipping any already in the same folder. Returns how many
-/// were new.
-pub fn bookmarks_add_many(conn: &mut Connection, items: &[Bookmark]) -> rusqlite::Result<usize> {
-    let count = |c: &Connection| c.query_row("SELECT COUNT(*) FROM bookmarks", [], |r| r.get::<_, i64>(0));
-    let before = count(conn)?;
-    let tx = conn.transaction()?;
-    for b in items {
-        bookmark_add(&tx, b)?;
-    }
-    tx.commit()?;
-    Ok((count(conn)? - before).max(0) as usize)
-}
 
 /// Merges history entries from another browser: a page already in history keeps the higher
 /// visit count and the later visit, and gains a title if it had none.
@@ -429,133 +374,8 @@ pub fn history_import(conn: &mut Connection, entries: &[(String, String, i64, i6
     Ok(entries.len())
 }
 
-pub fn bookmark_update(conn: &mut Connection, b: &Bookmark) -> rusqlite::Result<()> {
-    conn.execute(
-        "UPDATE bookmarks SET url = ?2, title = ?3, folder = ?4 WHERE id = ?1",
-        params![b.id, b.url, b.title, b.folder],
-    )?;
-    Ok(())
-}
 
-pub fn bookmark_remove(conn: &mut Connection, id: i64) -> rusqlite::Result<()> {
-    conn.execute("DELETE FROM bookmarks WHERE id = ?1", params![id])?;
-    Ok(())
-}
 
-pub fn bookmark_remove_url(conn: &mut Connection, url: &str) -> rusqlite::Result<()> {
-    conn.execute("DELETE FROM bookmarks WHERE url = ?1", params![url])?;
-    Ok(())
-}
-
-fn html_escape(s: &str) -> String {
-    s.replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-}
-
-fn html_unescape(s: &str) -> String {
-    s.replace("&lt;", "<")
-        .replace("&gt;", ">")
-        .replace("&quot;", "\"")
-        .replace("&#39;", "'")
-        .replace("&amp;", "&")
-}
-
-/// Exports bookmarks in the Netscape bookmark file format understood by every browser.
-pub fn bookmarks_to_html(items: &[Bookmark]) -> String {
-    let mut out = String::from(
-        "<!DOCTYPE NETSCAPE-Bookmark-file-1>\n<META HTTP-EQUIV=\"Content-Type\" CONTENT=\"text/html; charset=UTF-8\">\n<TITLE>Bookmarks</TITLE>\n<H1>Bookmarks</H1>\n<DL><p>\n",
-    );
-    let mut current: Option<&str> = None;
-    for b in items {
-        let folder = b.folder.as_str();
-        if current != Some(folder) {
-            if current.is_some_and(|f| !f.is_empty()) {
-                out.push_str("    </DL><p>\n");
-            }
-            if !folder.is_empty() {
-                out.push_str(&format!("    <DT><H3>{}</H3>\n    <DL><p>\n", html_escape(folder)));
-            }
-            current = Some(folder);
-        }
-        let indent = if folder.is_empty() { "    " } else { "        " };
-        out.push_str(&format!(
-            "{indent}<DT><A HREF=\"{}\" ADD_DATE=\"{}\">{}</A>\n",
-            html_escape(&b.url),
-            b.created / 1000,
-            html_escape(&b.title)
-        ));
-    }
-    if current.is_some_and(|f| !f.is_empty()) {
-        out.push_str("    </DL><p>\n");
-    }
-    out.push_str("</DL><p>\n");
-    out
-}
-
-/// Parses a Netscape bookmark file. Nested folders are flattened to "Parent / Child".
-pub fn bookmarks_from_html(html: &str) -> Vec<Bookmark> {
-    let mut out = Vec::new();
-    let mut folders: Vec<String> = Vec::new();
-    let mut pending_folder: Option<String> = None;
-    let lower = html.to_ascii_lowercase();
-    let mut i = 0;
-    while i < html.len() {
-        let Some(rel) = lower[i..].find('<') else { break };
-        let start = i + rel;
-        let tag_end = match lower[start..].find('>') {
-            Some(e) => start + e + 1,
-            None => break,
-        };
-        let tag = &lower[start..tag_end];
-        if tag.starts_with("<h3") {
-            if let Some(close) = lower[tag_end..].find("</h3>") {
-                pending_folder = Some(html_unescape(html[tag_end..tag_end + close].trim()));
-                i = tag_end + close + 5;
-                continue;
-            }
-        } else if tag.starts_with("<dl") {
-            folders.push(pending_folder.take().unwrap_or_default());
-        } else if tag.starts_with("</dl") {
-            folders.pop();
-        } else if tag.starts_with("<a ") {
-            let raw_tag = &html[start..tag_end];
-            let href = attr(raw_tag, "href");
-            if let (Some(href), Some(close)) = (href, lower[tag_end..].find("</a>")) {
-                let title = html_unescape(html[tag_end..tag_end + close].trim());
-                let folder = folders
-                    .iter()
-                    .filter(|f| !f.is_empty())
-                    .cloned()
-                    .collect::<Vec<_>>()
-                    .join(" / ");
-                if href.starts_with("http://") || href.starts_with("https://") {
-                    out.push(Bookmark {
-                        id: 0,
-                        url: html_unescape(&href),
-                        title,
-                        folder,
-                        position: 0,
-                        created: 0,
-                    });
-                }
-                i = tag_end + close + 4;
-                continue;
-            }
-        }
-        i = tag_end;
-    }
-    out
-}
-
-fn attr(tag: &str, name: &str) -> Option<String> {
-    let lower = tag.to_ascii_lowercase();
-    let key = format!("{name}=\"");
-    let pos = lower.find(&key)? + key.len();
-    let end = tag[pos..].find('"')? + pos;
-    Some(tag[pos..end].to_string())
-}
 
 // ---------------------------------------------------------------------------------------------
 // Download records
@@ -699,45 +519,10 @@ mod tests {
         assert!(history_search(&mut c, "", 10, 0).unwrap().is_empty());
     }
 
-    #[test]
-    fn bookmarks_html_roundtrip() {
-        let mut c = mem();
-        for (url, title, folder) in [
-            ("https://a.example/", "A & B", ""),
-            ("https://b.example/", "B", "Work"),
-            ("https://c.example/", "C \"quoted\"", "Work"),
-        ] {
-            bookmark_add(
-                &mut c,
-                &Bookmark {
-                    id: 0,
-                    url: url.into(),
-                    title: title.into(),
-                    folder: folder.into(),
-                    position: 0,
-                    created: 0,
-                },
-            )
-            .unwrap();
-        }
-        let list = bookmarks_list(&mut c).unwrap();
-        assert_eq!(list.len(), 3);
-        let html = bookmarks_to_html(&list);
-        let parsed = bookmarks_from_html(&html);
-        assert_eq!(parsed.len(), 3);
-        assert_eq!(parsed[0].title, "A & B");
-        assert_eq!(parsed[1].folder, "Work");
-        assert_eq!(parsed[2].title, "C \"quoted\"");
-    }
 
     #[test]
-    fn bulk_imports_merge() {
+    fn history_imports_merge() {
         let mut c = mem();
-        let b = |url: &str, folder: &str| Bookmark { id: 0, url: url.into(), title: "t".into(), folder: folder.into(), position: 0, created: 0 };
-        assert_eq!(bookmarks_add_many(&mut c, &[b("https://a.example/", "Chrome"), b("https://b.example/", "Chrome")]).unwrap(), 2);
-        // Importing again adds nothing; the same page in another folder is a new bookmark.
-        assert_eq!(bookmarks_add_many(&mut c, &[b("https://a.example/", "Chrome"), b("https://a.example/", "Edge")]).unwrap(), 1);
-
         history_add_visit(&mut c, "https://a.example/", "").unwrap();
         let entries = vec![
             ("https://a.example/".to_string(), "A".to_string(), 7, 1_000),

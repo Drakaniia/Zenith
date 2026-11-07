@@ -1,7 +1,7 @@
 // User settings: owned by the UI, persisted as JSON by the backend, and pushed to the backend
 // wherever Rust needs them (appearance, shortcuts, blocker, downloads).
 import { api } from "./ipc";
-import { defaultShortcuts } from "./shortcuts";
+import { defaultShortcuts, mergeShortcuts } from "./shortcuts";
 import { SEARCH_ENGINES } from "./url";
 import { defaultStartPage, normalizeStartPage, type StartPageSettings } from "./startpage";
 import { GALLERY_IDS } from "./wallpapers";
@@ -27,8 +27,19 @@ export interface Settings {
   sidebarWidth: number;
   /** Zen's "Clear" button between pinned and regular tabs. */
   showClearButton: boolean;
-  /** The "sidebar hidden, Ctrl+B brings it back" hint was shown once. */
+  /** The "sidebar hidden, compact mode brings it back" hint was shown once. */
   compactHintSeen?: boolean;
+  /** Zen's bookmarks toolbar: always shown, only on a new tab, or never (Firefox's
+   *  browser.toolbars.bookmarks.visibility). Ctrl+Shift+B switches between always and never. */
+  bookmarksBar: BookmarksBarMode;
+  /** Show "Other Bookmarks" at the end of the toolbar (when something is in it). */
+  bookmarksOther: boolean;
+  /** The bookmarks sidebar (Ctrl+B): open or not, its width, and what it lists. */
+  bookmarksPanel: boolean;
+  bookmarksPanelWidth: number;
+  bookmarksPanelView: "bookmarks" | "history";
+  /** Folder new bookmarks go into: the one picked last (the Bookmarks Toolbar at first). */
+  lastBookmarkFolder: number;
   /** A key of SEARCH_ENGINES. */
   searchEngine: string;
   /** Page opened when a window starts without tabs, and by Enter in an empty new-tab bar.
@@ -103,6 +114,12 @@ export interface Settings {
 }
 
 export type ToolbarMode = "single" | "multiple" | "collapsed";
+export type BookmarksBarMode = "always" | "newtab" | "never";
+
+/** Width limits of the bookmarks sidebar. */
+export const PANEL_MIN = 200;
+export const PANEL_MAX = 520;
+export const PANEL_DEFAULT = 260;
 
 /** Actions whose shortcuts also work while another app has the focus. */
 export const GLOBAL_ACTIONS = new Set(["openNotes"]);
@@ -144,6 +161,12 @@ export function defaultSettings(): Settings {
     toolbarMode: "single",
     sidebarWidth: SIDEBAR_DEFAULT,
     showClearButton: true,
+    bookmarksBar: "newtab",
+    bookmarksOther: true,
+    bookmarksPanel: false,
+    bookmarksPanelWidth: PANEL_DEFAULT,
+    bookmarksPanelView: "bookmarks",
+    lastBookmarkFolder: 1,
     searchEngine: "google",
     homepage: "",
     searchSuggestions: false,
@@ -216,7 +239,7 @@ class SettingsStore {
         const saved = JSON.parse(raw) as Partial<Settings>;
         const base = defaultSettings();
         // Keep defaults for new actions; respect user edits (including cleared bindings).
-        const shortcuts = { ...base.shortcuts, ...(saved.shortcuts ?? {}) };
+        const shortcuts = mergeShortcuts(saved.shortcuts, base.shortcuts);
         const lists = [...base.filterLists];
         for (const l of saved.filterLists ?? []) {
           const i = lists.findIndex((x) => x.id === l.id);
@@ -238,6 +261,16 @@ class SettingsStore {
           !["single", "multiple", "collapsed"].includes(this.value.toolbarMode)
         )
           this.value.toolbarMode = "single";
+        if (!["always", "newtab", "never"].includes(this.value.bookmarksBar))
+          this.value.bookmarksBar = "newtab";
+        this.value.bookmarksPanelWidth = Math.min(
+          PANEL_MAX,
+          Math.max(PANEL_MIN, Number(this.value.bookmarksPanelWidth) || PANEL_DEFAULT),
+        );
+        if (this.value.bookmarksPanelView !== "history")
+          this.value.bookmarksPanelView = "bookmarks";
+        if (!Number.isInteger(this.value.lastBookmarkFolder))
+          this.value.lastBookmarkFolder = 1;
         if (!SEARCH_ENGINES[this.value.searchEngine])
           this.value.searchEngine = "google";
         if (typeof this.value.homepage !== "string") this.value.homepage = "";

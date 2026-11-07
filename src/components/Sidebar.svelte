@@ -11,6 +11,7 @@
   import { settings, SIDEBAR_COLLAPSE_AT, SIDEBAR_DEFAULT, SIDEBAR_MAX, SIDEBAR_MIN } from '../lib/settings.svelte';
   import { ui } from '../lib/ui.svelte';
   import { slideX } from '../lib/motion';
+  import { shortcutHint } from '../lib/actions';
 
   // Zen's sidebar (#navigator-toolbox): top buttons, address bar (single toolbar), Essentials,
   // the active space (sliding between spaces), media controls and the footer.
@@ -82,7 +83,7 @@
         settings.update({ compact: true });
         if (!settings.value.compactHintSeen) {
           settings.update({ compactHintSeen: true });
-          ui.toast('Sidebar hidden — press Ctrl+B to bring it back', { icon: 'sidebar', timeout: 5000 });
+          ui.toast(`Sidebar hidden — press ${shortcutHint('toggleCompact') ?? 'the compact mode shortcut'} to bring it back`, { icon: 'sidebar', timeout: 5000 });
         }
         up();
         return;
