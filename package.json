@@ -1,7 +1,7 @@
 {
   "name": "zenith",
   "private": true,
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Zenith: a lightweight, Zen-style web browser for Windows built on Tauri 2 and WebView2",
   "type": "module",
   "scripts": {
