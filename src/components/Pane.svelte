@@ -7,6 +7,8 @@
   import BookmarksPage from './pages/BookmarksPage.svelte';
   import DownloadsPage from './pages/DownloadsPage.svelte';
   import ExtensionsPage from './pages/ExtensionsPage.svelte';
+  import NotesPage from './pages/NotesPage.svelte';
+  import PasswordsPage from './pages/PasswordsPage.svelte';
   import { browser } from '../lib/browser.svelte';
   import { pane } from '../lib/layout.svelte';
   import { displayHost, internalPage, isNewTab, titleFor } from '../lib/url';
@@ -31,6 +33,10 @@
       <DownloadsPage />
     {:else if page === 'extensions'}
       <ExtensionsPage />
+    {:else if page === 'notes'}
+      <NotesPage />
+    {:else if page === 'passwords'}
+      <PasswordsPage {section} />
     {/if}
   </div>
 {:else if tab.crashed}

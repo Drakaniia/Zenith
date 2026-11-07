@@ -7,7 +7,11 @@ import type {
   Bookmark,
   DownloadItem,
   ExtensionInfo,
+  ExtensionUpdate,
   HistoryEntry,
+  InstallEvent,
+  ImportResult,
+  ImportSource,
   MediaReport,
   MemoryStats,
   OpenRequest,
@@ -17,6 +21,8 @@ import type {
   TabPatch,
   UpdateStatus,
 } from "./types";
+import type { Note } from "./notes";
+import type { PasswordSaveOffer, PasswordSuggest, VaultStatus } from "./passwords";
 
 export interface PaneSpec {
   id: string;
@@ -43,6 +49,17 @@ export interface RuntimeConfig {
   useFfmpeg: boolean;
   ffmpegPath: string | null;
   autoUpdate: boolean;
+  /** Password manager and autofill (see settings.svelte.ts). */
+  passwordsEnabled: boolean;
+  passwordsOfferSave: boolean;
+  autofillSuggest: boolean;
+  autofillUsernames: boolean;
+  autofillPasswords: boolean;
+  autofillOnLoad: boolean;
+  autofillSameSite: boolean;
+  passwordGenerator: boolean;
+  vaultAskEveryTime: boolean;
+  vaultLockMinutes: number;
 }
 
 export interface Appearance {
@@ -91,8 +108,11 @@ export const api = {
   permissionRespond: (requestId: number, allow: boolean, remember: boolean) =>
     invoke<void>("permission_respond", { requestId, allow, remember }),
 
-  setShortcuts: (bindings: { action: string; keys: string[] }[]) =>
-    invoke<void>("set_shortcuts", { bindings }),
+  /** Applies shortcut bindings; `global` ones also work while another app has the focus.
+   *  Returns the global shortcuts that could not be registered (another app owns them). */
+  setShortcuts: (
+    bindings: { action: string; keys: string[]; global?: boolean }[],
+  ) => invoke<string[] | null>("set_shortcuts", { bindings }),
   applySettings: (config: RuntimeConfig, appearance: Appearance) =>
     invoke<{ material: string }>("apply_settings", { config, appearance }),
   clearBrowsingData: (
@@ -131,7 +151,26 @@ export const api = {
   bookmarkRemove: (id: number | null, url: string | null = null) =>
     invoke<void>("bookmark_remove", { id, url }),
   bookmarksExport: () => invoke<string | null>("bookmarks_export"),
+
+  notesList: () => invoke<Note[]>("notes_list"),
+  /** Saves a note; false when a newer copy (from another window) is already stored. */
+  noteSave: (note: Note) => invoke<boolean>("note_save", { note }),
+  noteDelete: (id: string) => invoke<void>("note_delete", { id }),
   bookmarksImport: () => invoke<number>("bookmarks_import"),
+  /** Other browsers' profiles on this PC with bookmarks or history to import. */
+  importSources: () => invoke<ImportSource[]>("import_sources"),
+  importRun: (
+    source: string,
+    bookmarks: boolean,
+    history: boolean,
+    historyDays: number,
+  ) =>
+    invoke<ImportResult>("import_run", {
+      source,
+      bookmarks,
+      history,
+      historyDays,
+    }),
 
   downloadsActive: () => invoke<DownloadItem[]>("downloads_active"),
   downloadsHistory: (limit = 200) =>
@@ -174,6 +213,13 @@ export const api = {
   extInstallCrx: () => invoke<ExtensionInfo | null>("ext_install_crx"),
   extInstallStore: (input: string) =>
     invoke<ExtensionInfo>("ext_install_store", { input }),
+  /** Installs an extension the user accepted in the install prompt. */
+  extOfferAccept: (token: number) =>
+    invoke<ExtensionInfo>("ext_offer_accept", { token }),
+  extOfferDiscard: (token: number) =>
+    invoke<void>("ext_offer_discard", { token }),
+  extCheckUpdates: () => invoke<ExtensionUpdate[]>("ext_check_updates"),
+  extUpdate: (id: string) => invoke<ExtensionInfo>("ext_update", { id }),
   extRemove: (id: string) => invoke<void>("ext_remove", { id }),
   extSetEnabled: (id: string, enabled: boolean) =>
     invoke<void>("ext_set_enabled", { id, enabled }),
@@ -213,6 +259,12 @@ export interface BackendEvents {
   "media-changed": { tabId: string; count: number };
   "media-request": { tabId: string; hint: string };
   "update-status": UpdateStatus;
+  "ext-install": InstallEvent;
+  "vault-status": VaultStatus;
+  "password-suggest": PasswordSuggest;
+  "password-suggest-close": { tabId: string };
+  "password-save-offer": PasswordSaveOffer;
+  "notes-changed": { origin: string; id: string; deleted: boolean };
 }
 
 export function on<K extends keyof BackendEvents>(

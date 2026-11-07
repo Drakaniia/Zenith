@@ -22,9 +22,19 @@
   import Menu from './components/Menu.svelte';
   import Toasts from './components/Toasts.svelte';
   import PermissionPrompt from './components/PermissionPrompt.svelte';
+  import PasswordSavePrompt from './components/PasswordSavePrompt.svelte';
+  import PasswordSuggest from './components/PasswordSuggest.svelte';
+  import { vault } from './lib/vault.svelte';
+  import ExtensionInstallPrompt from './components/ExtensionInstallPrompt.svelte';
+  import ExtensionsPopover from './components/ExtensionsPopover.svelte';
+  import { extensions } from './lib/extensions.svelte';
   import DownloadsPopover from './components/DownloadsPopover.svelte';
   import MediaPanel from './components/MediaPanel.svelte';
   import SpaceEditor from './components/SpaceEditor.svelte';
+  import Onboarding from './components/onboarding/Onboarding.svelte';
+  import { onboarding } from './lib/onboarding.svelte';
+  import { shouldOnboard } from './lib/onboarding-flow';
+  import { notes } from './lib/notes.svelte';
 
   setLayoutRegistry({
     isLive: (id) => {
@@ -132,6 +142,7 @@
   async function flushAndClose() {
     clearTimeout(saveTimer);
     try {
+      await notes.flush().catch(() => {});
       if (!incognito) await api.sessionSave(browser.snapshot());
     } finally {
       await api.windowClose();
@@ -153,7 +164,7 @@
   function scheduleHideFlyout() {
     clearTimeout(hideTimer);
     hideTimer = setTimeout(() => {
-      if (!ui.menu && !ui.downloadsOpen && !ui.media && !ui.spaceEditor && !ui.palette.open && !ui.renaming && !ui.dragging)
+      if (!ui.menu && !ui.downloadsOpen && !extensions.popover && !ui.media && !ui.spaceEditor && !ui.palette.open && !ui.renaming && !ui.dragging)
         ui.flyout = false;
     }, 150);
   }
@@ -191,6 +202,7 @@
         if (browser.glance?.tabId === id) browser.closeGlance();
         else browser.removeTab(id, false);
         permissions.dropTab(id);
+        vault.dropTab(id);
       }),
       on('tab-focused', ({ id }) => {
         if (browser.activeSplit?.ids.includes(id) && browser.activeTab?.id !== id) browser.activate(id, { focus: false });
@@ -203,8 +215,21 @@
           action: { label: 'Open', run: () => browser.openTab(url, { openerId: tabId }) },
         });
       }),
-      on('shortcut', (s) => void runAction(s.action, s.source, s.repeat)),
+      // The setup assistant is modal: only Quit gets through.
+      on('shortcut', (s) => {
+        if (onboarding.open && s.action !== 'quit') return;
+        void runAction(s.action, s.source, s.repeat);
+      }),
       on('permission-request', (p) => permissions.push(p)),
+      on('vault-status', (s) => vault.apply(s)),
+      on('password-suggest', (s) => {
+        if (browser.isVisible(s.tabId) && !onboarding.open) vault.suggest = s;
+      }),
+      on('password-suggest-close', ({ tabId }) => {
+        if (vault.suggest?.tabId === tabId) vault.closeSuggest(false);
+      }),
+      on('password-save-offer', (o) => vault.pushOffer(o)),
+      on('ext-install', (e) => extensions.handleEvent(e)),
       on('download', (d) => {
         const known = downloads.items.some((x) => x.id === d.id);
         downloads.upsert(d);
@@ -244,6 +269,9 @@
       const pushed = settings.push().catch((e) => console.warn('apply_settings failed', e));
       void settings.pushShortcuts();
       const s = settings.value;
+      // First launch (or setup not finished yet): the setup assistant shows before the window
+      // does, so returning users never see it flash by.
+      if (shouldOnboard(s, incognito)) onboarding.begin();
       const weekly = Date.now() - s.filterListsUpdated > 7 * 86_400_000;
       void api
         .blockerConfigure(settings.enabledLists(), weekly && s.blockerEnabled, s.blockerDisabledSites)
@@ -262,13 +290,23 @@
         const info = await api.uiReady();
         appInfo.info = info;
         for (const url of info.startupUrls) browser.openTab(url);
-        if (!s.onboarded) settings.update({ onboarded: true });
+        // A window with nothing to show opens the home page.
+        if (!incognito && !info.startupUrls.length && s.homepage && !browser.activeTab) browser.openTab(s.homepage);
         scheduleLayout();
       });
       startSleepScheduler();
       void bookmarks.load();
+      void vault.refresh();
       void downloads.load();
       void updates.load();
+      // Pinned extension icons need the list; store updates are checked once a day at most.
+      setTimeout(() => void extensions.refresh(), 1500);
+      if (!incognito && s.extensionUpdates && Date.now() - (s.extensionUpdatesChecked ?? 0) > 86_400_000) {
+        setTimeout(() => {
+          settings.update({ extensionUpdatesChecked: Date.now() });
+          void extensions.checkUpdates(true);
+        }, 20_000);
+      }
     })();
 
     return () => {
@@ -280,6 +318,7 @@
     if (e.key === 'Escape') {
       if (ui.menu) ui.closeMenu();
       else if (ui.media) ui.media = null;
+      else if (extensions.popover) extensions.popover = null;
       else if (ui.downloadsOpen) ui.downloadsOpen = false;
       else if (browser.glance && !ui.palette.open) browser.closeGlance();
       else if (ui.flyout) ui.flyout = false;
@@ -298,6 +337,7 @@
   class:collapsed-mode={mode === 'collapsed'}
   class:incognito
   class:animating
+  inert={onboarding.open}
   style:--sidebar-w="{sideW}px"
   oncontextmenu={(e) => {
     if (!(e.target as HTMLElement).closest('input, textarea, [contenteditable]')) e.preventDefault();
@@ -411,13 +451,19 @@
 
   <Glance />
   <PermissionPrompt />
+  <PasswordSavePrompt />
+  <PasswordSuggest />
+  <ExtensionInstallPrompt />
   <DownloadsPopover />
+  <ExtensionsPopover />
   <MediaPanel />
   <SpaceEditor />
   <Palette />
   <Menu />
   <Toasts />
 </div>
+
+<Onboarding />
 
 <style>
   /* Layout (Zen): the sidebar on the left, the page inset by the element separation (8px) on

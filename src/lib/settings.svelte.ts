@@ -2,6 +2,7 @@
 // wherever Rust needs them (appearance, shortcuts, blocker, downloads).
 import { api } from "./ipc";
 import { defaultShortcuts } from "./shortcuts";
+import { SEARCH_ENGINES } from "./url";
 
 export interface FilterListSetting {
   id: string;
@@ -26,7 +27,11 @@ export interface Settings {
   showClearButton: boolean;
   /** The "sidebar hidden, Ctrl+B brings it back" hint was shown once. */
   compactHintSeen?: boolean;
-  searchEngine: "google" | "yandex";
+  /** A key of SEARCH_ENGINES. */
+  searchEngine: string;
+  /** Page opened when a window starts without tabs, and by Enter in an empty new-tab bar.
+   *  Empty: Zenith's own start page. */
+  homepage: string;
   searchSuggestions: boolean;
   sleepMinutes: number;
   suspendHidden: boolean;
@@ -47,15 +52,56 @@ export interface Settings {
   ffmpegPath: string | null;
   /** Download updates in the background and install them when Zenith closes. */
   autoUpdate: boolean;
+  /** Extensions whose icons show next to the extensions button (WebView2 extension ids). */
+  pinnedExtensions: string[];
+  /** Check the Chrome Web Store for extension updates at startup. */
+  extensionUpdates: boolean;
+  /** When the startup extension update check last ran. */
+  extensionUpdatesChecked?: number;
   shortcuts: Record<string, string[]>;
+  /** The notes shortcut also works while another app has the focus (a system-wide hotkey). */
+  notesGlobalShortcut: boolean;
+  /** The notes editor's list of notes is shown (wide windows). */
+  notesSidebar: boolean;
+  /** The note text uses the whole width instead of a centred column. */
+  notesWide: boolean;
+  /** Password manager: saving, suggestions and filling. Off turns all of it off. */
+  passwordsEnabled: boolean;
+  /** Offer to save logins submitted on pages. */
+  passwordsOfferSave: boolean;
+  /** Show saved accounts when a login field is clicked. */
+  autofillSuggest: boolean;
+  /** Fill usernames and emails. */
+  autofillUsernames: boolean;
+  /** Fill passwords (off: usernames only). */
+  autofillPasswords: boolean;
+  /** Fill the only account saved for a site as soon as its login form appears (while unlocked). */
+  autofillOnLoad: boolean;
+  /** Offer credentials on other subdomains of the site they were saved on. */
+  autofillSameSite: boolean;
+  /** Suggest a strong generated password in sign-up forms. */
+  passwordGenerator: boolean;
+  /** Ask for the master password before every fill, reveal or copy. */
+  vaultAskEveryTime: boolean;
+  /** Lock the password manager after this many idle minutes (0: only when Zenith closes). */
+  vaultLockMinutes: number;
   siteZoom: Record<string, number>;
   restoreSession: boolean;
   showTopSites: boolean;
   newTabsAtTop: boolean;
+  /** The setup assistant was completed (or skipped with "Use the defaults"). Until then it
+   *  opens on every launch of the normal window. */
   onboarded: boolean;
+  /** When setup was completed. */
+  onboardedAt?: number;
+  /** Setup step to resume at if Zenith was closed during setup. */
+  onboardingStep?: string;
 }
 
 export type ToolbarMode = "single" | "multiple" | "collapsed";
+
+/** Actions whose shortcuts also work while another app has the focus. */
+export const GLOBAL_ACTIONS = new Set(["openNotes"]);
 
 /** Zen's sidebar width limits (expanded --zen-toolbox-min-width, zen.view.sidebar-expanded.max-width)
  *  and the width below which dragging the edge collapses the sidebar into compact mode. */
@@ -95,6 +141,7 @@ export function defaultSettings(): Settings {
     sidebarWidth: SIDEBAR_DEFAULT,
     showClearButton: true,
     searchEngine: "google",
+    homepage: "",
     searchSuggestions: false,
     sleepMinutes: 5,
     suspendHidden: true,
@@ -112,7 +159,22 @@ export function defaultSettings(): Settings {
     useFfmpeg: true,
     ffmpegPath: null,
     autoUpdate: true,
+    pinnedExtensions: [],
+    extensionUpdates: true,
     shortcuts: defaultShortcuts(),
+    notesGlobalShortcut: true,
+    notesSidebar: true,
+    notesWide: false,
+    passwordsEnabled: true,
+    passwordsOfferSave: true,
+    autofillSuggest: true,
+    autofillUsernames: true,
+    autofillPasswords: true,
+    autofillOnLoad: false,
+    autofillSameSite: true,
+    passwordGenerator: true,
+    vaultAskEveryTime: false,
+    vaultLockMinutes: 15,
     siteZoom: {},
     restoreSession: true,
     showTopSites: true,
@@ -124,6 +186,8 @@ export function defaultSettings(): Settings {
 class SettingsStore {
   value = $state<Settings>(defaultSettings());
   systemDark = $state(true);
+  /** System-wide shortcuts another app already owns (they still work inside Zenith). */
+  globalShortcutConflicts = $state<string[]>([]);
   #saveTimer: ReturnType<typeof setTimeout> | undefined;
 
   resolvedTheme = $derived<"light" | "dark">(
@@ -163,6 +227,9 @@ class SettingsStore {
           !["single", "multiple", "collapsed"].includes(this.value.toolbarMode)
         )
           this.value.toolbarMode = "single";
+        if (!SEARCH_ENGINES[this.value.searchEngine])
+          this.value.searchEngine = "google";
+        if (typeof this.value.homepage !== "string") this.value.homepage = "";
       }
     } catch (e) {
       console.warn("settings could not be read, using defaults", e);
@@ -203,6 +270,16 @@ class SettingsStore {
         useFfmpeg: s.useFfmpeg,
         ffmpegPath: s.ffmpegPath,
         autoUpdate: s.autoUpdate,
+        passwordsEnabled: s.passwordsEnabled,
+        passwordsOfferSave: s.passwordsOfferSave,
+        autofillSuggest: s.autofillSuggest,
+        autofillUsernames: s.autofillUsernames,
+        autofillPasswords: s.autofillPasswords,
+        autofillOnLoad: s.autofillOnLoad,
+        autofillSameSite: s.autofillSameSite,
+        passwordGenerator: s.passwordGenerator,
+        vaultAskEveryTime: s.vaultAskEveryTime,
+        vaultLockMinutes: s.vaultLockMinutes,
       },
       {
         theme: s.theme,
@@ -216,10 +293,15 @@ class SettingsStore {
   }
 
   async pushShortcuts() {
+    const global = this.value.notesGlobalShortcut;
     const bindings = Object.entries(this.value.shortcuts).map(
-      ([action, keys]) => ({ action, keys }),
+      ([action, keys]) => ({
+        action,
+        keys,
+        global: global && GLOBAL_ACTIONS.has(action),
+      }),
     );
-    await api.setShortcuts(bindings);
+    this.globalShortcutConflicts = (await api.setShortcuts(bindings)) ?? [];
   }
 
   enabledLists() {

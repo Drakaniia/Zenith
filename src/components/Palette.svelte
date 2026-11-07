@@ -12,6 +12,7 @@
   import { commands } from '../lib/actions';
   import { scoreAny } from '../lib/fuzzy';
   import { NEW_TAB_URL, SEARCH_ENGINES, normalizeInput, prettyUrl, searchUrl, titleFor } from '../lib/url';
+  import { autofill, popularCandidates, type Autofill, type AutofillCandidate } from '../lib/autocomplete';
   import type { HistoryEntry } from '../lib/types';
   import type { IconName } from '../lib/icons';
 
@@ -34,6 +35,14 @@
   let history = $state<HistoryEntry[]>([]);
   let suggestions = $state<string[]>([]);
   let mode = $state<PaletteMode>('navigate');
+  // `query` is what the user typed and drives the result list. The input can also show an
+  // inline completion after it (`fill`, the added part selected) or the address of a result
+  // picked with Tab or the arrow keys (`preview`); neither changes the list.
+  let fill = $state<Autofill | null>(null);
+  let preview = $state<string | null>(null);
+  /** The last edit typed a character at the end, so an inline completion may be offered. */
+  let armed = false;
+  const POPULAR = popularCandidates();
 
   const open = $derived(ui.palette.open);
 
@@ -46,6 +55,9 @@
     selected = ui.palette.query.trim() || ui.palette.mode === 'command' ? 0 : -1;
     history = [];
     suggestions = [];
+    fill = null;
+    preview = null;
+    armed = false;
     void tick().then(() => {
       input?.focus();
       if (ui.palette.selectAll) input?.select();
@@ -72,7 +84,9 @@
     const mine = ++seq;
     historyTimer = setTimeout(async () => {
       const r = await api.historySearch(text, 7).catch(() => []);
-      if (mine === seq) history = r;
+      if (mine !== seq) return;
+      history = r;
+      refreshFill();
     }, text ? 40 : 0);
     const looksLikeUrl = !/\s/.test(text) && text.includes('.');
     if (settings.value.searchSuggestions && text.length > 1 && !looksLikeUrl) {
@@ -127,12 +141,19 @@
     const out: Item[] = [];
     const seen = new Set<string>();
     if (q) {
+      // An inline completion leads; what was typed, taken literally, comes right after it.
+      const auto = fill;
+      if (auto) {
+        out.push({ key: 'go', kind: 'go', title: prettyUrl(auto.url), subtitle: 'Open address', icon: 'globe', url: auto.url, run: (h) => go(auto.url, h) });
+        seen.add(auto.url);
+      }
+      const key = auto ? 'typed' : 'go';
       const target = normalizeInput(q, settings.value.searchEngine);
       const isSearch = target === searchUrl(q, settings.value.searchEngine);
       out.push(
         isSearch
-          ? { key: 'go', kind: 'search', title: q, subtitle: `Search ${engine.name}`, icon: 'search', run: (h) => go(target, h) }
-          : { key: 'go', kind: 'go', title: prettyUrl(target), subtitle: 'Open address', icon: 'globe', url: target, run: (h) => go(target, h) },
+          ? { key, kind: 'search', title: q, subtitle: `Search ${engine.name}`, icon: 'search', run: (h) => go(target, h) }
+          : { key, kind: 'go', title: prettyUrl(target), subtitle: 'Open address', icon: 'globe', url: target, run: (h) => go(target, h) },
       );
       seen.add(target);
     }
@@ -198,34 +219,104 @@
     list?.querySelector('.item.sel')?.scrollIntoView({ block: 'nearest' });
   }
 
+  /** Everything that can complete an address, the user's own browsing weighted above the bundled sites. */
+  function candidates(): AutofillCandidate[] {
+    const out: AutofillCandidate[] = [];
+    for (const h of history) out.push({ url: h.url, weight: 10 + Math.min(h.visitCount, 50) });
+    for (const b of bookmarks.items) out.push({ url: b.url, weight: 8 });
+    for (const t of Object.values(browser.tabs)) out.push({ url: t.url, weight: 4 });
+    return out.concat(POPULAR);
+  }
+
+  /** Offers (or updates) the inline completion, but only while the caret is where typing left it. */
+  function refreshFill() {
+    const el = input;
+    if (!el || !armed || preview !== null || commandMode || document.activeElement !== el) return;
+    const caret = fill ? query.length : el.value.length;
+    if (el.selectionStart !== caret || el.selectionEnd !== el.value.length) return;
+    fill = autofill(query, candidates());
+  }
+
+  function oninput(e: Event) {
+    const el = e.currentTarget as HTMLInputElement;
+    const ev = e as InputEvent;
+    query = el.value;
+    preview = null;
+    fill = null;
+    // Deleting, pasting or editing mid-text never completes (Backspace removes a completion).
+    armed = ev.inputType === 'insertText' && !ev.isComposing && el.selectionEnd === el.value.length;
+    refreshFill();
+  }
+
+  // Mirror the typed text, completion or preview into the input. The value is only rewritten
+  // when it differs, so ordinary typing keeps the caret where the user put it.
+  const display = $derived(preview ?? fill?.text ?? query);
+  $effect(() => {
+    const el = input;
+    const text = display;
+    const from = preview === null && fill ? query.length : text.length;
+    if (!el || el.value === text) return;
+    el.value = text;
+    el.setSelectionRange(from, text.length);
+  });
+
+  /** What the input shows while a result is picked from the keyboard; null keeps the typed text. */
+  function previewOf(it: Item): string | null {
+    if (it.key === 'go' || it.kind === 'command') return null;
+    if (it.key === 'typed') return query;
+    return it.url ?? it.title;
+  }
+
+  function pick(i: number) {
+    selected = i;
+    const it = items[i];
+    preview = it ? previewOf(it) : null;
+    armed = false;
+    void scrollSelected();
+  }
+
   function onkeydown(e: KeyboardEvent) {
     const n = items.length;
     if (e.key === 'ArrowDown' && n) {
       e.preventDefault();
-      selected = (selected + 1) % n;
-      void scrollSelected();
+      pick((selected + 1) % n);
     } else if (e.key === 'ArrowUp' && n) {
       e.preventDefault();
-      selected = selected < 0 ? n - 1 : (selected - 1 + n) % n;
-      void scrollSelected();
+      pick(selected < 0 ? n - 1 : (selected - 1 + n) % n);
+    } else if (e.key === 'Tab' && n) {
+      // Tab walks the results (Shift+Tab back), writing each one's address into the bar.
+      e.preventDefault();
+      pick(e.shiftKey ? (selected <= 0 ? n - 1 : selected - 1) : (selected + 1) % n);
+    } else if (
+      (e.key === 'ArrowRight' || e.key === 'End') &&
+      fill &&
+      preview === null &&
+      input &&
+      input.selectionStart !== input.selectionEnd &&
+      input.selectionEnd === input.value.length
+    ) {
+      // Accept the completion as typed text; the default action moves the caret to the end.
+      query = fill.text;
+      fill = null;
+      armed = false;
     } else if (e.key === 'Enter') {
       e.preventDefault();
       const it = items[selected];
       if (it) it.run(e.altKey ? 'newTab' : e.shiftKey ? 'glance' : 'enter');
       else if (!q && mode === 'newTab') {
         close(false);
-        browser.openTab(NEW_TAB_URL);
+        browser.openTab(settings.value.homepage || NEW_TAB_URL);
       } else if (!q) close();
     } else if (e.key === 'Escape') {
       e.preventDefault();
       e.stopPropagation();
-      close();
-    } else if (e.key === 'Tab' && !e.shiftKey) {
-      const it = items[selected];
-      if (it?.url && it.kind !== 'tab') {
-        e.preventDefault();
-        query = prettyUrl(it.url);
-      }
+      // First Escape drops a completion or preview and goes back to what was typed.
+      if (fill || preview !== null) {
+        fill = null;
+        preview = null;
+        armed = false;
+        selected = initialSelection();
+      } else close();
     } else if (e.key === 'Backspace' && commandMode && query === '' && mode === 'command') {
       mode = 'navigate';
     }
@@ -250,7 +341,7 @@
         <span class="lead"><Icon name={commandMode ? 'command' : 'search'} size={18} /></span>
         <input
           bind:this={input}
-          bind:value={query}
+          {oninput}
           {onkeydown}
           {placeholder}
           spellcheck="false"
@@ -271,7 +362,11 @@
               class:sel={i === selected}
               role="option"
               aria-selected={i === selected}
-              onmousemove={() => (selected = i)}
+              onmousemove={() => {
+                if (selected === i) return;
+                selected = i;
+                preview = null;
+              }}
               onclick={(e) => it.run(e.altKey ? 'newTab' : e.shiftKey ? 'glance' : 'enter')}
             >
               <span class="item-icon">
@@ -296,6 +391,7 @@
       {/if}
       <div class="hints">
         <span><span class="kbd">↵</span> open</span>
+        <span><span class="kbd">Tab</span> next</span>
         <span><span class="kbd">Alt ↵</span> new tab</span>
         <span><span class="kbd">Shift ↵</span> Glance</span>
         <span><span class="kbd">&gt;</span> commands</span>

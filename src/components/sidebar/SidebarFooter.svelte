@@ -5,6 +5,12 @@
   import { updates } from '../../lib/updates.svelte';
   import { dnd } from '../../lib/sidebar-dnd.svelte';
   import { createNewMenu, spaceMenu } from '../../lib/menus';
+  import { openNotes } from '../../lib/actions';
+  import { settings } from '../../lib/settings.svelte';
+  import { internalPage } from '../../lib/url';
+
+  const notesKey = $derived(settings.value.shortcuts.openNotes?.[0]);
+  const onNotes = $derived(internalPage(browser.activeTab?.url ?? '') === 'notes');
 
   // Zen's #zen-sidebar-foot-buttons: downloads, the space switcher and the "+" create button.
   let { collapsed = false }: { collapsed?: boolean } = $props();
@@ -53,6 +59,9 @@
     {:else if downloads.active.length}
       <span class="dot"></span>
     {/if}
+  </button>
+  <button class="icon-btn" class:on={onNotes} title={notesKey ? `Notes (${notesKey})` : 'Notes'} data-action="notes" onclick={() => openNotes()}>
+    <Icon name="note" />
   </button>
   {#if updates.ready}
     <button
@@ -194,6 +203,9 @@
   .dl,
   .update {
     position: relative;
+  }
+  .icon-btn.on {
+    background: var(--element-bg);
   }
   .update {
     color: var(--accent-fg);

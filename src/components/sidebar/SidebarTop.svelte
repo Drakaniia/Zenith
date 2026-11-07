@@ -1,11 +1,11 @@
 <script lang="ts">
   import Icon from '../Icon.svelte';
+  import ExtensionButtons from '../ExtensionButtons.svelte';
   import { browser } from '../../lib/browser.svelte';
   import { settings } from '../../lib/settings.svelte';
   import { ui } from '../../lib/ui.svelte';
   import { api } from '../../lib/ipc';
   import { appMenu } from '../../lib/menus';
-  import { openInternal } from '../../lib/actions';
   import { incognito } from '../../lib/app.svelte';
 
   // Zen's #zen-sidebar-top-buttons. In the single-toolbar layout it holds the app menu, the
@@ -35,9 +35,7 @@
     >
       <Icon name="more" />
     </button>
-    <button class="icon-btn" title="Extensions" onclick={() => openInternal('extensions')}>
-      <Icon name="puzzle" />
-    </button>
+    <ExtensionButtons maxPinned={2} />
   {/if}
   <button
     class="icon-btn"

@@ -9,22 +9,57 @@ export const INTERNAL_PAGES = [
   "bookmarks",
   "downloads",
   "extensions",
+  "notes",
+  "passwords",
 ] as const;
 export type InternalPage = (typeof INTERNAL_PAGES)[number];
 
-export const SEARCH_ENGINES: Record<
-  string,
-  { name: string; url: string; home: string }
-> = {
+export interface SearchEngine {
+  name: string;
+  url: string;
+  home: string;
+  /** One line about what sets it apart, for the setup assistant. */
+  blurb: string;
+}
+
+/** Search engines in the order they are offered. The backend's suggestion endpoints
+ *  (net.rs `suggest_endpoint`) use the same keys. */
+export const SEARCH_ENGINES: Record<string, SearchEngine> = {
   google: {
     name: "Google",
     url: "https://www.google.com/search?q=%s",
     home: "https://www.google.com/",
+    blurb: "The largest index, and the results most people expect.",
+  },
+  bing: {
+    name: "Bing",
+    url: "https://www.bing.com/search?q=%s",
+    home: "https://www.bing.com/",
+    blurb: "Microsoft's search, with Copilot answers alongside.",
+  },
+  duckduckgo: {
+    name: "DuckDuckGo",
+    url: "https://duckduckgo.com/?q=%s",
+    home: "https://duckduckgo.com/",
+    blurb: "Doesn't keep a profile of you or your searches.",
+  },
+  brave: {
+    name: "Brave Search",
+    url: "https://search.brave.com/search?q=%s",
+    home: "https://search.brave.com/",
+    blurb: "Its own independent index, without tracking.",
+  },
+  ecosia: {
+    name: "Ecosia",
+    url: "https://www.ecosia.org/search?q=%s",
+    home: "https://www.ecosia.org/",
+    blurb: "Spends its profits on planting trees.",
   },
   yandex: {
     name: "Yandex",
     url: "https://yandex.com/search/?text=%s",
     home: "https://yandex.com/",
+    blurb: "Strongest for Russian-language results.",
   },
 };
 
@@ -185,6 +220,8 @@ export function titleFor(url: string, title: string): string {
       bookmarks: "Bookmarks",
       downloads: "Downloads",
       extensions: "Extensions",
+      notes: "Notes",
+      passwords: "Passwords",
     }[page];
   }
   if (isNewTab(url)) return "New Tab";

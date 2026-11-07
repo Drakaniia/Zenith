@@ -189,7 +189,15 @@ export const ACTIONS: ActionDef[] = [
   },
   { id: "downloads", label: "Downloads", group: "Browser", keys: ["Ctrl+J"] },
   { id: "extensions", label: "Extensions", group: "Browser", keys: [] },
+  { id: "passwords", label: "Passwords", group: "Browser", keys: [] },
+  {
+    id: "openNotes",
+    label: "Open notes",
+    group: "Browser",
+    keys: ["Ctrl+Alt+N"],
+  },
   { id: "settings", label: "Settings", group: "Browser", keys: ["Ctrl+Comma"] },
+  { id: "runSetup", label: "Run setup again", group: "Browser", keys: [] },
   {
     id: "quit",
     label: "Quit Zenith",

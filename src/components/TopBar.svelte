@@ -2,6 +2,7 @@
   import { tick } from 'svelte';
   import Icon from './Icon.svelte';
   import UrlPill from './UrlPill.svelte';
+  import ExtensionButtons from './ExtensionButtons.svelte';
   import WindowControls from './WindowControls.svelte';
   import { browser } from '../lib/browser.svelte';
   import { settings } from '../lib/settings.svelte';
@@ -163,9 +164,7 @@
     </button>
   {/if}
   {#if !hidden.has('extensions')}
-    <button class="icon-btn" title="Extensions" onclick={() => openInternal('extensions')}>
-      <Icon name="puzzle" />
-    </button>
+    <ExtensionButtons />
   {/if}
   {#if spilled > 0}
     <button

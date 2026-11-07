@@ -5,6 +5,7 @@ import {
   copyText,
   openIncognito,
   openInternal,
+  openNotes,
   runAction,
   toggleBookmark,
   toggleSiteBlocking,
@@ -14,6 +15,11 @@ import { settings } from "./settings.svelte";
 import { ui, type MenuItem } from "./ui.svelte";
 import type { Space, Tab } from "./types";
 import { hostOf, isWebUrl, siteOf } from "./url";
+
+/** The first shortcut bound to an action, for menu hints. */
+function hintFor(action: string): string | undefined {
+  return settings.value.shortcuts[action]?.[0];
+}
 
 export function tabMenu(
   tab: Tab,
@@ -360,6 +366,11 @@ export function createNewMenu(): MenuItem[] {
       run: () => (ui.spaceEditor = { spaceId: null }),
     },
     {
+      label: "New note",
+      icon: "note",
+      run: () => openNotes({ create: true }),
+    },
+    {
       label: "New incognito window",
       icon: "incognito",
       hint: "Ctrl+Shift+N",
@@ -450,6 +461,17 @@ export function appMenu(): MenuItem[] {
       label: "Extensions",
       icon: "puzzle",
       run: () => openInternal("extensions"),
+    },
+    {
+      label: "Passwords",
+      icon: "key",
+      run: () => openInternal("passwords"),
+    },
+    {
+      label: "Notes",
+      icon: "note",
+      hint: hintFor("openNotes"),
+      run: () => openNotes(),
     },
     { separator: true },
     {

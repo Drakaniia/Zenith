@@ -5,27 +5,19 @@
   import { api } from '../../lib/ipc';
   import { browser } from '../../lib/browser.svelte';
   import { ui } from '../../lib/ui.svelte';
+  import { settings } from '../../lib/settings.svelte';
+  import { extensions, storeUrl } from '../../lib/extensions.svelte';
   import type { ExtensionInfo } from '../../lib/types';
   import { incognito } from '../../lib/app.svelte';
 
-  let items = $state<ExtensionInfo[]>([]);
-  const userItems = $derived(items.filter((e) => !e.builtin));
-  const builtinItems = $derived(items.filter((e) => e.builtin));
-  let loading = $state(true);
+  const userItems = $derived(extensions.user);
+  const builtinItems = $derived(extensions.builtin);
+  const loading = $derived(extensions.loading);
+  const error = $derived(extensions.error);
   let busy = $state(false);
   let storeInput = $state('');
-  let error = $state('');
 
-  async function refresh() {
-    try {
-      items = await api.extList();
-      error = '';
-    } catch (e) {
-      error = String(e);
-    } finally {
-      loading = false;
-    }
-  }
+  const refresh = () => extensions.refresh();
 
   async function install(fn: () => Promise<ExtensionInfo | null>) {
     busy = true;
@@ -50,7 +42,7 @@
   async function setEnabled(ext: ExtensionInfo, enabled: boolean) {
     try {
       await api.extSetEnabled(ext.id, enabled);
-      ext.enabled = enabled;
+      await refresh();
     } catch (e) {
       ui.toast(String(e), { icon: 'alert' });
       await refresh();
@@ -60,6 +52,7 @@
   async function remove(ext: ExtensionInfo) {
     try {
       await api.extRemove(ext.id);
+      if (extensions.isPinned(ext.id)) extensions.togglePin(ext.id);
       ui.toast(`Removed ${ext.name}`, { icon: 'trash' });
     } catch (e) {
       ui.toast(String(e), { icon: 'alert' });
@@ -75,11 +68,12 @@
     <header>
       <div>
         <h1>Extensions</h1>
-        <p class="lead">Chromium extensions run through WebView2's extension support. Content scripts and background logic work; some browser APIs (toolbar popups, some tab APIs) are limited by WebView2.</p>
+        <p class="lead">Install Chrome extensions from the Chrome Web Store: open the catalogue and click <strong>Add to Zenith</strong>, or open any downloaded <code>.crx</code>. They run on WebView2's Chromium extension support: content scripts, background service workers, storage and network rules work; a few Chrome-only APIs (some tab, window and identity APIs) are limited by WebView2.</p>
         {#if incognito}
           <p class="lead"><strong>Extensions don't run in incognito windows.</strong> Manage them from a normal Zenith window.</p>
         {/if}
       </div>
+      <button class="btn primary catalogue" onclick={() => extensions.openStore()}><Icon name="globe" size={15} />Extension catalogue</button>
     </header>
 
     <div class="install">
@@ -91,7 +85,21 @@
       <div class="buttons">
         <button class="btn" disabled={busy} onclick={() => install(api.extInstallFolder)}><Icon name="folder" size={15} />Load unpacked folder</button>
         <button class="btn" disabled={busy} onclick={() => install(api.extInstallCrx)}><Icon name="file" size={15} />Install .crx file</button>
+        <span class="grow"></span>
+        {#if extensions.updates.length}
+          <button class="btn primary" disabled={extensions.updating.length > 0} onclick={() => void extensions.updateAll()}>
+            <Icon name="arrowDownToLine" size={15} />{extensions.updating.length ? 'Updating…' : `Update all (${extensions.updates.length})`}
+          </button>
+        {:else}
+          <button class="btn" disabled={extensions.checking || incognito} onclick={() => void extensions.checkUpdates()}>
+            <Icon name="reload" size={15} />{extensions.checking ? 'Checking…' : 'Check for updates'}
+          </button>
+        {/if}
       </div>
+      <label class="auto">
+        <input type="checkbox" checked={settings.value.extensionUpdates} onchange={(e) => settings.update({ extensionUpdates: e.currentTarget.checked })} />
+        Check the Chrome Web Store for extension updates when Zenith starts
+      </label>
     </div>
 
     {#if error}
@@ -100,16 +108,29 @@
 
     <div class="list">
       {#each userItems as ext (ext.id)}
+        {@const upd = extensions.updateFor(ext.id)}
         <div class="card" class:off={!ext.enabled}>
           <div class="icon">
             {#if ext.icon}<img src={ext.icon} alt="" width="32" height="32" />{:else}<Icon name="puzzle" size={22} />{/if}
           </div>
           <div class="meta">
-            <div class="name"><b class="ellipsis">{ext.name}</b>{#if ext.version}<span class="ver">{ext.version}</span>{/if}</div>
+            <div class="name">
+              <b class="ellipsis">{ext.name}</b>{#if ext.version}<span class="ver">{ext.version}</span>{/if}
+              {#if ext.storeId}<span class="badge">Web Store</span>{/if}
+            </div>
             {#if ext.description}<p class="desc">{ext.description}</p>{/if}
             <div class="links">
+              {#if upd}
+                <button class="btn sm primary" disabled={extensions.updating.includes(ext.id)} onclick={() => void extensions.update(upd)}>
+                  <Icon name="arrowDownToLine" size={13} />{extensions.updating.includes(ext.id) ? 'Updating…' : `Update to ${upd.latest}`}
+                </button>
+              {/if}
               {#if ext.popupUrl}<button class="btn ghost sm" onclick={() => browser.openGlance(ext.popupUrl!, browser.activeTab?.id)}><Icon name="eye" size={13} />Open popup</button>{/if}
               {#if ext.optionsUrl}<button class="btn ghost sm" onclick={() => browser.openTab(ext.optionsUrl!)}><Icon name="settings" size={13} />Options</button>{/if}
+              <button class="btn ghost sm" onclick={() => extensions.togglePin(ext.id)}>
+                <Icon name={extensions.isPinned(ext.id) ? 'unpin' : 'pin'} size={13} />{extensions.isPinned(ext.id) ? 'Unpin' : 'Pin to toolbar'}
+              </button>
+              {#if ext.storeId}<button class="btn ghost sm" onclick={() => browser.openTab(storeUrl(ext.storeId!))}><Icon name="external" size={13} />View in store</button>{/if}
               <button class="btn ghost sm danger" onclick={() => remove(ext)}><Icon name="trash" size={13} />Remove</button>
             </div>
           </div>
@@ -119,7 +140,8 @@
         {#if !loading && !error}
           <div class="empty">
             <Icon name="puzzle" size={28} />
-            <p>No extensions yet. Install one from the Chrome Web Store, a .crx file or an unpacked folder.</p>
+            <p>No extensions yet. Browse the catalogue and click <strong>Add to Zenith</strong>, or install a .crx file or an unpacked folder.</p>
+            <button class="btn primary" onclick={() => extensions.openStore()}><Icon name="globe" size={15} />Open the extension catalogue</button>
           </div>
         {/if}
       {/each}
@@ -145,6 +167,36 @@
     max-width: 860px;
     margin: 0 auto;
     padding: 28px 32px 60px;
+  }
+  header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+  }
+  .catalogue {
+    flex: none;
+    gap: 6px;
+  }
+  .grow {
+    flex: 1;
+  }
+  .auto {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--text-2);
+  }
+  .badge {
+    font-size: 10.5px;
+    padding: 1px 6px;
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--accent) 18%, transparent);
+    color: var(--text-2);
+  }
+  .links {
+    flex-wrap: wrap;
   }
   h1 {
     margin: 0;

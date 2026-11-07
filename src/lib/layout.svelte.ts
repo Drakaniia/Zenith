@@ -127,6 +127,18 @@ async function flush() {
   }
 }
 
+/** Where a live tab's page is on screen (window CSS px), or null when it isn't showing. */
+export function paneRectOf(id: string): Rect | null {
+  const els = [...panes].filter(([, t]) => t === id).map(([el]) => el);
+  if (glanceEl?.id === id) els.push(glanceEl.el);
+  for (const el of els) {
+    if (!el.isConnected) continue;
+    const r = el.getBoundingClientRect();
+    if (r.width > 1 && r.height > 1) return { x: r.left, y: r.top, w: r.width, h: r.height };
+  }
+  return null;
+}
+
 /** `use:pane={tabId}` on the element a web page should cover. */
 export function pane(node: HTMLElement, id: string) {
   panes.set(node, id);

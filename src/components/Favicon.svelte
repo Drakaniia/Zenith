@@ -18,6 +18,8 @@
     bookmarks: 'bookmark',
     downloads: 'download',
     extensions: 'puzzle',
+    notes: 'note',
+    passwords: 'key',
   };
   const internal = $derived<IconName | null>(
     isNewTab(url) ? 'search' : (INTERNAL_ICONS[internalPage(url) ?? ''] ?? null),

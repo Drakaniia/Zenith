@@ -2,7 +2,8 @@
 // It stands in for the Rust backend with Tauri's own IPC mocks and a seeded session, so the shell
 // can be checked visually without building the app. Page webviews do not exist here: live tabs
 // show a placeholder page. Query parameters: ?mode=single|multiple|collapsed, ?theme=light|dark,
-// ?compact=1, ?split=1, ?collapsedPins=1.
+// ?compact=1, ?split=1, ?collapsedPins=1, ?fre=1 (first run: the setup assistant, with an
+// empty session), ?fre=import (also: no other browsers found).
 //
 // main.ts only imports this module when running under Vite's dev server outside Tauri, so it
 // never ships in a build.
@@ -184,9 +185,11 @@ function session(): string {
       activeTabId: "r1",
     },
   ];
+  // ?page=passwords/settings opens an internal page in the active tab.
+  const page = params.get("page");
   const tabs = seeds.map((s) => ({
     id: s.id,
-    url: s.url,
+    url: page && s.id === "t2" ? `zenith://${page}` : s.url,
     title: s.title,
     favicon: s.fav,
     spaceId: s.spaceId ?? "",
@@ -212,8 +215,11 @@ function session(): string {
   });
 }
 
+const firstRun = params.has("fre");
+
 function settingsJson(): string {
   const mode = params.get("mode");
+  if (firstRun) return "";
   return JSON.stringify({
     onboarded: true,
     theme: params.get("theme") ?? "dark",
@@ -222,6 +228,70 @@ function settingsJson(): string {
     toolbarMode: mode === "multiple" || mode === "collapsed" ? mode : "single",
     sidebarWidth: Number(params.get("width")) || undefined,
   });
+}
+
+// Notes for the notes editor (zenith://notes), kept in memory.
+const HOUR = 3_600_000;
+const previewNotes = [
+  {
+    id: "n1",
+    title: "Shell redesign",
+    body: "Sidebar\n- Essentials grid: 4 per row\n- Space switcher in the footer\n\nToolbar\n- Single toolbar by default\n- Compact mode on Ctrl+B",
+    created: Date.now() - 50 * HOUR,
+    updated: Date.now() - 0.2 * HOUR,
+  },
+  {
+    id: "n2",
+    title: "",
+    body: "Groceries\nmilk, eggs, coffee beans\nbasil for Friday",
+    created: Date.now() - 30 * HOUR,
+    updated: Date.now() - 26 * HOUR,
+  },
+  {
+    id: "n3",
+    title: "Reading list",
+    body: "On squircles — corner-shape in CSS\nThe Zen Browser source tour",
+    created: Date.now() - 400 * HOUR,
+    updated: Date.now() - 120 * HOUR,
+  },
+];
+
+// Password vault for zenith://passwords, kept in memory. ?vault=setup|locked (default unlocked).
+const vaultParam = params.get("vault");
+const previewVault = {
+  exists: vaultParam !== "setup",
+  unlocked: !vaultParam,
+  entries: [
+    ["https://accounts.google.com", "ann.lee@gmail.com", "Personal", "Tr0ub4dor&3-horse"],
+    ["https://accounts.google.com", "ann@work.example", "Work", "x7#Qm2!vR9pL"],
+    ["https://www.facebook.com", "ann.lee@gmail.com", "", "sunflower-Bicycle-42"],
+    ["https://github.com", "annlee", "", "gh-9f!Kq2Lz"],
+    ["https://www.netflix.com", "ann.lee@gmail.com", "Family", "popcorn&Couch7"],
+    ["https://login.microsoftonline.com", "ann@work.example", "Work", "Spring2026!Team"],
+  ].map(([origin, username, label, password], i) => ({
+    id: `v${i}`,
+    origin,
+    site: new URL(origin).hostname.replace(/^www\./, ""),
+    username,
+    label,
+    password,
+    created: Date.now() - (i + 2) * 86_400_000,
+    updated: Date.now() - (i + 2) * 86_400_000,
+    lastUsed: i % 2 ? Date.now() - i * 3_600_000 : 0,
+    timesUsed: i,
+    hasNotes: i === 1,
+  })),
+};
+
+function vaultStatus() {
+  return {
+    exists: previewVault.exists,
+    unlocked: previewVault.unlocked,
+    hasRecovery: true,
+    count: previewVault.exists ? previewVault.entries.length : 0,
+    damaged: null,
+    retryAfter: 0,
+  };
 }
 
 /** Simulates the backend's reports for a newly created page webview. */
@@ -266,7 +336,48 @@ export function installPreviewMock() {
         case "settings_load":
           return settingsJson();
         case "session_load":
-          return session();
+          return firstRun ? null : session();
+        case "import_sources":
+          return new Promise((r) =>
+            setTimeout(
+              () =>
+                r(
+                  params.get("fre") === "import"
+                    ? []
+                    : [
+                        { id: "chrome:Default", browser: "chrome", name: "Google Chrome", profile: "Person 1", bookmarks: true, history: true },
+                        { id: "chrome:Profile 1", browser: "chrome", name: "Google Chrome", profile: "Work", bookmarks: true, history: true },
+                        { id: "edge:Default", browser: "edge", name: "Microsoft Edge", profile: "Profile 1", bookmarks: true, history: true },
+                        { id: "firefox:ab12.default-release", browser: "firefox", name: "Firefox", profile: "default-release", bookmarks: true, history: true },
+                      ],
+                ),
+              600,
+            ),
+          );
+        case "import_run":
+          return new Promise((r) =>
+            setTimeout(() => r({ bookmarks: a.bookmarks ? 214 : 0, history: a.history ? 1820 : 0, errors: [] }), 900),
+          );
+        case "bookmarks_import":
+          return 12;
+        case "notes_list":
+          return previewNotes.map((n) => ({ ...n }));
+        case "note_save": {
+          const note = a.note as (typeof previewNotes)[number];
+          const i = previewNotes.findIndex((n) => n.id === note.id);
+          if (i >= 0) previewNotes[i] = { ...note };
+          else previewNotes.push({ ...note });
+          return true;
+        }
+        case "note_delete": {
+          const i = previewNotes.findIndex((n) => n.id === a.id);
+          if (i >= 0) previewNotes.splice(i, 1);
+          return null;
+        }
+        case "set_shortcuts":
+          return [];
+        case "default_browser_status":
+          return { registered: false, isDefault: false };
         case "apply_settings":
           return { material: "solid" };
         case "ui_ready":
@@ -291,6 +402,7 @@ export function installPreviewMock() {
         case "downloads_active":
         case "downloads_history":
         case "ext_list":
+        case "ext_check_updates":
         case "search_suggest":
           return [];
         case "blocker_configure":
@@ -300,6 +412,34 @@ export function installPreviewMock() {
           return { state: "idle", currentVersion: "0.0.0-preview" };
         case "media_list":
           return { items: [], blobs: 0, drm: 0, ffmpeg: false };
+        case "vault_status":
+          return vaultStatus();
+        case "vault_setup":
+          previewVault.exists = previewVault.unlocked = true;
+          return "8K2D-Q4M7-ZP3X-T9WA-H6RC-1VJN-5BEG-YF0S";
+        case "vault_unlock":
+          if (a.master !== "preview") return Promise.reject("That master password isn't right.");
+          previewVault.unlocked = true;
+          return vaultStatus();
+        case "vault_lock":
+          previewVault.unlocked = false;
+          return null;
+        case "passwords_list":
+          if (!previewVault.unlocked) return Promise.reject("The password manager is locked.");
+          return previewVault.entries.map(({ password: _, ...e }) => e);
+        case "password_reveal": {
+          const e = previewVault.entries.find((x) => x.id === a.id);
+          return { password: e?.password ?? "", notes: e?.hasNotes ? "Recovery codes are in the safe." : "" };
+        }
+        case "password_generate":
+          return "pR7-kQz!m2Vx9Lw_4hTc";
+        case "passwords_never_list":
+          return ["bank.example"];
+        case "passwords_delete": {
+          const ids = a.ids as string[];
+          previewVault.entries = previewVault.entries.filter((x) => !ids.includes(x.id));
+          return ids.length;
+        }
         case "plugin:window|is_maximized":
         case "plugin:window|is_fullscreen":
           return false;

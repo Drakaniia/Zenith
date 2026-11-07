@@ -71,7 +71,11 @@
     }
     assign(recording, chord);
     message = '';
-    void stopRecording();
+    void stopRecording().then(() => {
+      // System-wide shortcuts (the notes shortcut) can be owned by another app.
+      if (settings.globalShortcutConflicts.includes(chord))
+        message = `${displayChord(chord).join(' ')} is taken by another app, so it only works inside Zenith.`;
+    });
   }
 
   function remove(action: string, chord: string) {

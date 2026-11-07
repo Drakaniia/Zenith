@@ -6,9 +6,18 @@ import { bookmarks } from "./bookmarks.svelte";
 import { settings } from "./settings.svelte";
 import { ui } from "./ui.svelte";
 import type { Tab } from "./types";
-import { hostOf, isWebUrl, siteOf, type InternalPage } from "./url";
+import {
+  hostOf,
+  internalPage,
+  isWebUrl,
+  siteOf,
+  type InternalPage,
+} from "./url";
 import type { IconName } from "./icons";
 import { ACTIONS } from "./shortcuts";
+import { incognito } from "./app.svelte";
+import { onboarding } from "./onboarding.svelte";
+import { notes } from "./notes.svelte";
 
 const ZOOM_LEVELS = [
   0.25, 0.33, 0.5, 0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3, 4,
@@ -44,6 +53,22 @@ export function openInternal(page: InternalPage, section?: string) {
     browser.activate(existing.id);
   } else browser.openTab(url);
 }
+
+/** Opens the notes editor (or brings its tab forward) with the keyboard in the open note;
+ *  `create` starts a new note. */
+export function openNotes(opts: { create?: boolean } = {}) {
+  openInternal("notes");
+  ui.closeMenu();
+  if (ui.palette.open) ui.palette.open = false;
+  // The notes page is part of the chrome UI: take the keyboard from the page webviews.
+  void api.focusView(null);
+  void notes.load().then(() => {
+    if (opts.create || !notes.items.length) notes.create();
+    else notes.focusEditor++;
+  });
+}
+
+const onNotesPage = () => internalPage(browser.activeTab?.url ?? "") === "notes";
 
 export async function copyText(text: string) {
   try {
@@ -117,6 +142,7 @@ export async function openIncognito(urls: string[] = []) {
 /** Saves the session, then quits. */
 export async function quitApp() {
   try {
+    await notes.flush();
     await api.sessionSave(browser.snapshot());
   } finally {
     await api.quit();
@@ -195,6 +221,11 @@ export async function runAction(
       }
       return;
     case "find":
+      // On the notes page Ctrl+F searches the notes.
+      if (!live && onNotesPage()) {
+        notes.focusSearch++;
+        return;
+      }
       return openFind(live);
     case "findNext":
     case "findPrev":
@@ -259,12 +290,22 @@ export async function runAction(
       return;
     case "bookmark":
       return toggleBookmark(tab);
+    case "runSetup":
+      // An incognito window saves nothing, so setup there would be lost.
+      if (incognito)
+        return ui.toast("Run setup from a normal window", { icon: "incognito" });
+      return onboarding.restart();
     case "history":
     case "bookmarks":
     case "downloads":
     case "settings":
     case "extensions":
+    case "passwords":
       return openInternal(action);
+    case "openNotes":
+      return openNotes();
+    case "newNote":
+      return openNotes({ create: true });
     default: {
       const m = /^selectTab(\d)$/.exec(action);
       if (m) browser.activateIndex(Number(m[1]) - 1);
@@ -314,7 +355,10 @@ const ICONS: Record<string, IconName> = {
   bookmarks: "bookmark",
   downloads: "download",
   extensions: "puzzle",
+  passwords: "key",
   settings: "settings",
+  runSetup: "sparkle",
+  openNotes: "note",
 };
 
 /** Commands offered by the palette's command mode. */
@@ -332,6 +376,13 @@ export function commands(): Command[] {
     run: () => void runAction(a.id),
   }));
   list.push(
+    {
+      id: "newNote",
+      label: "New note",
+      icon: "note",
+      keywords: "notes editor text write",
+      run: () => openNotes({ create: true }),
+    },
     {
       id: "clearSpace",
       label: "Close all unpinned tabs in this space",

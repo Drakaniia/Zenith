@@ -7,9 +7,12 @@
   import { settings, SIDEBAR_MAX, SIDEBAR_MIN, type Settings } from '../../lib/settings.svelte';
   import { ui, formatBytes } from '../../lib/ui.svelte';
   import { api } from '../../lib/ipc';
-  import { openInternal } from '../../lib/actions';
+  import { openInternal, openNotes } from '../../lib/actions';
+  import { displayChord } from '../../lib/shortcuts';
   import { SEARCH_ENGINES } from '../../lib/url';
-  import { appInfo } from '../../lib/app.svelte';
+  import { appInfo, incognito } from '../../lib/app.svelte';
+  import { onboarding } from '../../lib/onboarding.svelte';
+  import { normalizeHomepage } from '../../lib/onboarding-flow';
   import { updates, updateLine } from '../../lib/updates.svelte';
   import { timeAgo } from '../../lib/ui.svelte';
   import type { BlockerStats, MemoryStats } from '../../lib/types';
@@ -23,6 +26,7 @@
     { id: 'privacy', label: 'Privacy & blocking', icon: 'shield' },
     { id: 'tabs', label: 'Tabs & memory', icon: 'zap' },
     { id: 'downloads', label: 'Downloads', icon: 'download' },
+    { id: 'notes', label: 'Notes', icon: 'note' },
     { id: 'shortcuts', label: 'Keyboard shortcuts', icon: 'keyboard' },
     { id: 'default', label: 'Default browser', icon: 'globe' },
     { id: 'about', label: 'About', icon: 'info' },
@@ -45,6 +49,27 @@
 
   function set<K extends keyof Settings>(key: K, value: Settings[K]) {
     settings.update({ [key]: value } as Partial<Settings>);
+  }
+
+  const notesKeys = $derived(s.shortcuts.openNotes ?? []);
+  const notesConflicts = $derived(notesKeys.filter((k) => settings.globalShortcutConflicts.includes(k)));
+
+  function setNotesGlobal(v: boolean) {
+    set('notesGlobalShortcut', v);
+    void settings.pushShortcuts();
+  }
+
+  let homepageText = $state(settings.value.homepage);
+  let homepageError = $state('');
+  function saveHomepage() {
+    const r = normalizeHomepage(homepageText);
+    if (!r.ok) {
+      homepageError = r.error;
+      return;
+    }
+    homepageError = '';
+    homepageText = r.url;
+    set('homepage', r.url);
   }
 
   async function refreshMemory() {
@@ -170,6 +195,11 @@
         {sec.label}
       </button>
     {/each}
+    <button class="nav-item" onclick={() => openInternal('passwords', 'settings')}>
+      <Icon name="key" size={16} />
+      Passwords & autofill
+      <Icon name="external" size={13} class="faint-icon" />
+    </button>
     <button class="nav-item" onclick={() => openInternal('extensions')}>
       <Icon name="puzzle" size={16} />
       Extensions
@@ -192,12 +222,27 @@
             <Toggle checked={s.newTabsAtTop} onchange={(v) => set('newTabsAtTop', v)} label="New tabs at top" />
           </div>
           <div class="row">
-            <div class="text"><b>Search engine</b><span>Used for searches from the address bar.</span></div>
-            <Segmented
-              value={s.searchEngine}
-              options={Object.entries(SEARCH_ENGINES).map(([value, e]) => ({ value: value as Settings['searchEngine'], label: e.name }))}
-              onchange={(v) => set('searchEngine', v)}
+            <div class="text">
+              <b>Home page</b>
+              <span class:err={!!homepageError}>{homepageError || 'Opens in a window with no tabs, and when you press Enter in an empty new tab. Leave empty for the Zenith start page.'}</span>
+            </div>
+            <input
+              class="field homepage"
+              type="url"
+              spellcheck="false"
+              placeholder="Zenith start page"
+              aria-label="Home page"
+              aria-invalid={!!homepageError}
+              bind:value={homepageText}
+              onchange={saveHomepage}
+              onkeydown={(e) => e.key === 'Enter' && saveHomepage()}
             />
+          </div>
+          <div class="row">
+            <div class="text"><b>Search engine</b><span>Used for searches from the address bar.</span></div>
+            <select class="field select" aria-label="Search engine" value={s.searchEngine} onchange={(e) => set('searchEngine', (e.currentTarget as HTMLSelectElement).value)}>
+              {#each Object.entries(SEARCH_ENGINES) as [id, e] (id)}<option value={id}>{e.name}</option>{/each}
+            </select>
           </div>
           <div class="row">
             <div class="text">
@@ -210,6 +255,15 @@
             <div class="text"><b>Show most visited sites on new tabs</b><span>Taken from your local history only.</span></div>
             <Toggle checked={s.showTopSites} onchange={(v) => set('showTopSites', v)} label="Top sites" />
           </div>
+          {#if !incognito}
+            <div class="row">
+              <div class="text">
+                <b>Setup assistant</b>
+                <span>{s.onboardedAt ? `Completed ${new Date(s.onboardedAt).toLocaleDateString()}. ` : ''}Walk through theme, search, home page, import and privacy again.</span>
+              </div>
+              <button class="btn" onclick={() => onboarding.restart()}>Run setup again</button>
+            </div>
+          {/if}
         </div>
       </section>
 
@@ -516,6 +570,43 @@
         </div>
       </section>
 
+      <!-- Notes -->
+      <section id="settings-notes">
+        <h2>Notes</h2>
+        <div class="group">
+          <div class="row">
+            <div class="text">
+              <b>Notes shortcut</b>
+              <span>
+                {#if notesKeys.length}
+                  {#each notesKeys as chord, ci (chord)}{#if ci > 0}{' or '}{/if}{#each displayChord(chord) as part, i (i)}<span class="kbd">{part}</span>{/each}{/each}
+                  opens your notes.
+                {:else}
+                  No shortcut is set.
+                {/if}
+              </span>
+            </div>
+            <div class="inline">
+              <button class="btn ghost" onclick={() => jump('shortcuts')}>Change</button>
+              <button class="btn" onclick={() => openNotes()}><Icon name="note" size={15} />Open notes</button>
+            </div>
+          </div>
+          <div class="row">
+            <div class="text">
+              <b>Use the shortcut in every app</b>
+              <span class:err={s.notesGlobalShortcut && notesConflicts.length > 0}>
+                {#if s.notesGlobalShortcut && notesConflicts.length}
+                  {notesConflicts.join(', ')} is already taken by another app, so it only works inside Zenith. Choose another shortcut below.
+                {:else}
+                  Brings Zenith to the front with your notes, even while you're in another app. While Zenith is running, other apps don't receive this key combination.
+                {/if}
+              </span>
+            </div>
+            <Toggle checked={s.notesGlobalShortcut} onchange={setNotesGlobal} label="Use the notes shortcut in every app" />
+          </div>
+        </div>
+      </section>
+
       <!-- Shortcuts -->
       <section id="settings-shortcuts">
         <h2>Keyboard shortcuts</h2>
@@ -728,6 +819,10 @@
   }
   .err {
     color: var(--danger);
+  }
+  .homepage {
+    width: min(280px, 45%);
+    flex: none;
   }
   .add-row {
     display: flex;
