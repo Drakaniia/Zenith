@@ -27,6 +27,8 @@ Native window (Mica/Acrylic, no title bar)
 | Webview placement and overlay leases                      | `src/lib/layout.svelte.ts`                                                                                                                                    |
 | Tab sleeping                                              | `src/lib/sleep.ts`                                                                                                                                            |
 | Actions, shortcuts, settings                              | `src/lib/actions.ts`, `src/lib/shortcuts.ts`, `src/lib/settings.svelte.ts`                                                                                    |
+| First-run setup assistant                                 | `src/lib/onboarding-flow.ts` (steps, rules), `src/lib/onboarding.svelte.ts` (state), `src/components/onboarding/`                                             |
+| Import from other browsers                                | `src-tauri/src/importer.rs`                                                                                                                                   |
 
 ## Tab webviews
 
@@ -94,6 +96,32 @@ An incognito window is another window of the running Zenith process, labelled `i
 - An incognito window never records history or downloads, never loads or saves a session, window geometry or settings, and refuses to install extensions or update. It starts from the user's settings; changes made there last only as long as the window. Bookmarks and filter lists are shared with the user's profile.
 - Closing a window first lets its UI save (`app-close-requested`, answered with `window_close`). Closing the last window quits Zenith. Closing the normal window while incognito windows are open keeps them, and a second launch then reopens the normal window.
 - Earlier versions ran incognito as a separate process on a throwaway profile in `%TEMP%\zenith-incognito`. Leftover folders are still swept at startup, and `--purge-incognito <dir>` still works.
+
+## First-run setup
+
+The first time the normal window starts (`settings.onboarded` is false), a setup assistant opens over it before the window is shown, so a returning user never sees it flash by. Incognito windows never show it. It has seven steps: welcome, appearance (theme, accent colour, layout), search engine, start page (restore tabs, home page), import, privacy, and a summary. Every choice is applied and saved the moment it is made, so the window behind the card previews it, and closing Zenith mid-setup resumes at the same step (`onboardingStep`). Skipping an optional step restores the settings it owns to their values when the step opened (`STEP_FIELDS`). Only "Start browsing" (or "Skip setup and use the defaults") sets `onboarded`; after that the assistant opens again only from Settings › General › Run setup again or the "Run setup again" command.
+
+While it is open the rest of the UI is `inert` and shortcuts other than Quit are ignored. Its progress indicator is the sun climbing an arc from the horizon (first step, 0°) to the zenith (last step, 90°); steps already reached can be revisited from their marker.
+
+To add a step: add it to `STEPS` and `STEP_FIELDS` in `onboarding-flow.ts`, write its component in `components/onboarding/steps/`, and register it in `VIEWS` in `Onboarding.svelte`.
+
+Test instances: `run.ps1 -SkipSetup` writes `{"onboarded":true}` into a new profile so the e2e tests start at the browser.
+
+### Importing from other browsers
+
+`importer.rs` finds profiles of Chrome, Edge, Brave, Vivaldi, Chromium, Opera, Opera GX, Firefox and Zen in their standard folders for the current Windows user. The UI only passes back a source id from that scan, never a path. Chromium `Bookmarks` (JSON) is read directly; `History` and Firefox's `places.sqlite` are copied (with their WAL) to a temporary folder and read there, because the other browser may be running and its files must never be changed. Imported bookmarks go into a folder named after the browser, with nested folders kept as "Chrome / Dev"; a bookmark already in that folder is skipped, so importing twice adds nothing. History is limited to the retention period (and 20,000 entries) and merged: an existing page keeps the higher visit count and the later visit. Passwords, cookies and open tabs are not imported.
+
+## Password manager
+
+`vault/` (crypto, CSV, the vault), `host/autofill.rs` (pages), `password_commands.rs` (commands); UI in `components/pages/PasswordsPage.svelte`, `components/passwords/`, `PasswordSavePrompt.svelte`, `PasswordSuggest.svelte`.
+
+- **Keys.** A random 256-bit vault key encrypts each password and note with AES-256-GCM (fresh nonce; the entry's id, origin and username are authenticated with it, so ciphertexts can't be moved between entries). The vault key is stored only wrapped twice: by an Argon2id key from the master password (46 MiB, 2 passes) and by one from the recovery key shown once at setup. The master password is never stored; a wrong one simply fails to unwrap. Five wrong attempts start a doubling wait (up to a minute).
+- **Metadata** (origins, usernames, labels, "never save" sites, 32-bit keyed password fingerprints) is encrypted with Windows DPAPI for the current user. It is readable while the vault is locked, so login pages can be offered accounts and repeated logins recognised without the master password.
+- **File.** `%APPDATA%\dev.zenith.browser\vault.json`, written atomically. A file that can't be read (damaged, another Windows account) is never overwritten; "start over" renames it aside.
+- **Locking.** The unlocked key lives only in memory: Zenith starts locked, locks after the configured idle time (default 15 min) and on Lock. "Ask every time" requires the master password for each fill, reveal and copy.
+- **Pages.** A main-frame script reports login-field clicks, submitted logins and login forms through reserved `window.open` names (`_zenith_pw_*`), like the other page scripts. Only top-level-document messages count (`OriginalSourceFrameInfo`), and clicks and submissions need a user gesture. The origin is always taken from the tab's own address, never from the message. Filling runs `ExecuteScript` after the backend checks the tab's origin against the entry (same origin, or same registrable site with that setting; never HTTPS→HTTP, IPs, or shared hosting suffixes such as github.io), and the fill script re-checks `location.origin`. Passwords cross into the chrome UI only when revealed in the manager; copy uses a clipboard write excluded from history and cloud sync and cleared after 30 s.
+- **Import/export.** CSV from Chrome, Edge, Firefox, Bitwarden, 1Password and others (column names detected), previewed with new/duplicate/conflict rows before saving. Export writes Chrome-format CSV after the master password and a plain-text warning; backups are the same entries encrypted with the master password (`.zenithpasswords`), restorable with Import.
+- Incognito windows never offer to save. Wallet & cards and Personal data are placeholders.
 
 ## Persistence
 
