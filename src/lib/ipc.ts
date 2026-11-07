@@ -127,6 +127,10 @@ export const api = {
   sessionSave: (data: string) => invoke<void>("session_save", { data }),
   settingsLoad: () => invoke<string | null>("settings_load"),
   settingsSave: (data: string) => invoke<void>("settings_save", { data }),
+  /** Start-page backgrounds the user uploaded, stored as data URLs. */
+  wallpaperSave: (id: string, data: string) => invoke<void>("wallpaper_save", { id, data }),
+  wallpaperLoad: (id: string) => invoke<string | null>("wallpaper_load", { id }),
+  wallpaperDelete: (id: string) => invoke<void>("wallpaper_delete", { id }),
 
   historySearch: (text: string, limit = 50, offset = 0) =>
     invoke<HistoryEntry[]>("history_search", { text, limit, offset }),

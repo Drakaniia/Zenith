@@ -276,6 +276,8 @@ export const icons = {
   idCard: [rect(2.5, 4.5, 19, 15, 2), c(8.5, 11, 2.2), "M5.5 16.5a3.2 3.2 0 0 1 6 0", "M14 10h4", "M14 14h3"],
   upload: ["M12 15V3", "M7 8l5-5 5 5", "M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"],
   dice: [rect(4, 4, 16, 16, 3), c(9, 9, 0.6), c(15, 15, 0.6), c(15, 9, 0.6), c(9, 15, 0.6)],
+  sliders: ["M4 7.5h9", "M18 7.5h2", c(15.5, 7.5, 2.5), "M4 16.5h2", "M11 16.5h9", c(8.5, 16.5, 2.5)],
+  image: [rect(3, 4, 18, 16, 2.5), c(9, 9.5, 1.6), "M21 15.5l-5-5-9 9.5"],
 } satisfies Record<string, string[]>;
 
 export type IconName = keyof typeof icons;

@@ -3,6 +3,8 @@
 import { api } from "./ipc";
 import { defaultShortcuts } from "./shortcuts";
 import { SEARCH_ENGINES } from "./url";
+import { defaultStartPage, normalizeStartPage, type StartPageSettings } from "./startpage";
+import { GALLERY_IDS } from "./wallpapers";
 
 export interface FilterListSetting {
   id: string;
@@ -88,6 +90,8 @@ export interface Settings {
   siteZoom: Record<string, number>;
   restoreSession: boolean;
   showTopSites: boolean;
+  /** The start page's layout and background (customised from its settings button). */
+  startPage: StartPageSettings;
   newTabsAtTop: boolean;
   /** The setup assistant was completed (or skipped with "Use the defaults"). Until then it
    *  opens on every launch of the normal window. */
@@ -178,6 +182,7 @@ export function defaultSettings(): Settings {
     siteZoom: {},
     restoreSession: true,
     showTopSites: true,
+    startPage: defaultStartPage(),
     newTabsAtTop: true,
     onboarded: false,
   };
@@ -218,7 +223,13 @@ class SettingsStore {
           if (i >= 0) lists[i] = { ...lists[i], enabled: l.enabled };
           else if (l.custom) lists.push(l);
         }
-        this.value = { ...base, ...saved, shortcuts, filterLists: lists };
+        this.value = {
+          ...base,
+          ...saved,
+          shortcuts,
+          filterLists: lists,
+          startPage: normalizeStartPage(saved.startPage, GALLERY_IDS),
+        };
         this.value.sidebarWidth = Math.min(
           SIDEBAR_MAX,
           Math.max(SIDEBAR_MIN, this.value.sidebarWidth || SIDEBAR_DEFAULT),

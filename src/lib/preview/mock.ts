@@ -230,6 +230,9 @@ function settingsJson(): string {
   });
 }
 
+// Uploaded start-page backgrounds, kept in memory.
+const previewWallpapers = new Map<string, string>();
+
 // Notes for the notes editor (zenith://notes), kept in memory.
 const HOUR = 3_600_000;
 const previewNotes = [
@@ -360,6 +363,14 @@ export function installPreviewMock() {
           );
         case "bookmarks_import":
           return 12;
+        case "wallpaper_save":
+          previewWallpapers.set(a.id as string, a.data as string);
+          return null;
+        case "wallpaper_load":
+          return previewWallpapers.get(a.id as string) ?? null;
+        case "wallpaper_delete":
+          previewWallpapers.delete(a.id as string);
+          return null;
         case "notes_list":
           return previewNotes.map((n) => ({ ...n }));
         case "note_save": {

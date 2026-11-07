@@ -416,6 +416,43 @@ pub async fn settings_save(window: WebviewWindow, data: String) -> CmdResult<()>
     blocking(move || store::write_atomic(&paths().settings(), data.as_bytes()).map_err(|e| e.to_string())).await?
 }
 
+fn wallpaper_file(id: &str) -> CmdResult<PathBuf> {
+    if !store::valid_wallpaper_id(id) {
+        return Err("invalid background id".into());
+    }
+    Ok(paths().wallpapers().join(format!("{id}.txt")))
+}
+
+/// Stores a start-page background the user uploaded (a downscaled image as a data URL).
+#[tauri::command]
+pub async fn wallpaper_save(window: WebviewWindow, id: String, data: String) -> CmdResult<()> {
+    refuse_in_incognito(&window, "Adding a background")?;
+    if !store::valid_wallpaper_data(&data) {
+        return Err("This image can't be used as a background. Try a JPEG, PNG or WebP file.".into());
+    }
+    let path = wallpaper_file(&id)?;
+    blocking(move || store::write_atomic(&path, data.as_bytes()).map_err(|e| e.to_string())).await?
+}
+
+#[tauri::command]
+pub async fn wallpaper_load(id: String) -> CmdResult<Option<String>> {
+    let path = wallpaper_file(&id)?;
+    blocking(move || store::read_text(&path)).await
+}
+
+#[tauri::command]
+pub async fn wallpaper_delete(window: WebviewWindow, id: String) -> CmdResult<()> {
+    if private(&window) {
+        return Ok(());
+    }
+    let path = wallpaper_file(&id)?;
+    blocking(move || match std::fs::remove_file(&path) {
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e.to_string()),
+        _ => Ok(()),
+    })
+    .await?
+}
+
 #[tauri::command]
 pub async fn history_search(text: String, limit: Option<i64>, offset: Option<i64>) -> CmdResult<Vec<HistoryEntry>> {
     let (limit, offset) = (limit.unwrap_or(50).clamp(1, 500), offset.unwrap_or(0).max(0));
