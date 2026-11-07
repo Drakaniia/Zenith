@@ -202,6 +202,12 @@ fn create_window(app: &AppHandle, label: &str) -> tauri::Result<()> {
     } else {
         restore_window_state(&window);
     }
+    // A profile with a picture shows it as its window (and taskbar) icon.
+    if !private {
+        if let Some(icon) = profile_commands::window_icon() {
+            let _ = window.set_icon(icon);
+        }
+    }
     let w = window.clone();
     window.with_webview(move |pw| host::attach_chrome(w, pw.controller(), pw.environment()))?;
     Ok(())

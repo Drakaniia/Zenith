@@ -1,11 +1,13 @@
 //! Tauri commands for browser profiles (see profiles.rs). Each profile runs in its own Zenith
 //! process; these list and edit the shared profile list and start or focus other profiles.
 
+use base64::Engine;
 use serde::Serialize;
+use tauri::image::Image;
 use tauri::{AppHandle, Manager, WebviewWindow};
 
 use crate::host;
-use crate::profiles::{self, Profile};
+use crate::profiles::{self, Look, Profile};
 
 type CmdResult<T> = Result<T, String>;
 
@@ -29,16 +31,54 @@ pub struct ProfileInfo {
     pub name: String,
     pub color: String,
     pub is_default: bool,
+    /// `image`, `emoji:<name>`, or absent for the initial on the colour.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub avatar: Option<String>,
+    /// The chosen picture as a `data:image/png` URL (only for the `image` avatar).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub image: Option<String>,
 }
 
 impl From<&Profile> for ProfileInfo {
     fn from(p: &Profile) -> Self {
-        Self { id: p.id.clone(), name: p.name.clone(), color: p.color.clone(), is_default: p.id == profiles::DEFAULT }
+        let image = (p.avatar.as_deref() == Some("image"))
+            .then(|| profiles::icon_png(&profiles::active().base, p))
+            .flatten()
+            .map(|png| format!("data:image/png;base64,{}", base64::engine::general_purpose::STANDARD.encode(png)));
+        // An image whose file went missing shows the initial rather than nothing.
+        let avatar = p.avatar.clone().filter(|a| a != "image" || image.is_some());
+        Self { id: p.id.clone(), name: p.name.clone(), color: p.color.clone(), is_default: p.id == profiles::DEFAULT, avatar, image }
     }
 }
 
 pub fn current_info() -> ProfileInfo {
     ProfileInfo::from(&profiles::active().profile())
+}
+
+/// The window icon for this process's profile: its picture, or `None` for the app icon.
+pub fn window_icon() -> Option<Image<'static>> {
+    let active = profiles::active();
+    let png = profiles::icon_png(&active.base, &active.profile())?;
+    Image::from_bytes(&png).ok().map(|i| i.to_owned())
+}
+
+/// Puts the profile's picture (or the app icon) on this process's normal windows. Incognito
+/// windows keep the app icon.
+pub fn apply_window_icon(app: &AppHandle) {
+    let icon = window_icon().or_else(|| app.default_window_icon().cloned().map(|i| i.to_owned()));
+    let Some(icon) = icon else { return };
+    for (label, w) in app.webview_windows() {
+        if !host::is_private_window(&label) {
+            let _ = w.set_icon(icon.clone());
+        }
+    }
+}
+
+/// The rendered picture the UI sends: base64 PNG, optionally as a `data:` URL.
+fn decode_icon(icon: Option<String>) -> CmdResult<Option<Vec<u8>>> {
+    let Some(icon) = icon else { return Ok(None) };
+    let b64 = icon.split_once(";base64,").map_or(icon.as_str(), |(_, b)| b);
+    base64::engine::general_purpose::STANDARD.decode(b64.trim()).map(Some).map_err(|_| "That picture can't be used.".into())
 }
 
 #[derive(Serialize)]
@@ -92,11 +132,21 @@ pub async fn profiles_list() -> CmdResult<ProfilesView> {
 }
 
 /// Adds a profile; with `shortcut`, also puts a desktop shortcut for it on the desktop.
+/// `avatar` and `icon` are the picture (see `profiles::Look`).
 #[tauri::command]
-pub async fn profile_create(window: WebviewWindow, name: String, color: String, shortcut: bool) -> CmdResult<ProfileInfo> {
+pub async fn profile_create(
+    window: WebviewWindow,
+    name: String,
+    color: String,
+    avatar: Option<String>,
+    icon: Option<String>,
+    shortcut: bool,
+) -> CmdResult<ProfileInfo> {
     refuse_in_incognito(&window)?;
     blocking(move || {
-        let p = profiles::create(&profiles::active().base, &name, &color)?;
+        let icon = decode_icon(icon)?;
+        let look = Look { color: &color, avatar: avatar.as_deref(), icon: icon.as_deref() };
+        let p = profiles::create(&profiles::active().base, &name, look)?;
         if shortcut {
             // The profile exists either way; a failed shortcut is reported but not fatal.
             if let Err(e) = profiles::create_shortcut(&p.id) {
@@ -109,13 +159,33 @@ pub async fn profile_create(window: WebviewWindow, name: String, color: String, 
 }
 
 #[tauri::command]
-pub async fn profile_update(app: AppHandle, window: WebviewWindow, id: String, name: String, color: String) -> CmdResult<ProfileInfo> {
+pub async fn profile_update(
+    app: AppHandle,
+    window: WebviewWindow,
+    id: String,
+    name: String,
+    color: String,
+    avatar: Option<String>,
+    icon: Option<String>,
+) -> CmdResult<ProfileInfo> {
     refuse_in_incognito(&window)?;
-    let p = blocking(move || profiles::update(&profiles::active().base, &id, &name, &color)).await??;
+    let (p, info) = blocking(move || {
+        let icon = decode_icon(icon)?;
+        let look = Look { color: &color, avatar: avatar.as_deref(), icon: icon.as_deref() };
+        let p = profiles::update(&profiles::active().base, &id, &name, look)?;
+        // The desktop shortcut follows the picture; the profile is saved either way.
+        if let Err(e) = profiles::refresh_shortcut(&p.id) {
+            eprintln!("[zenith] {e}");
+        }
+        let info = ProfileInfo::from(&p);
+        Ok::<_, String>((p, info))
+    })
+    .await??;
     if p.id == profiles::active().id {
         retitle(&app);
+        apply_window_icon(&app);
     }
-    Ok(ProfileInfo::from(&p))
+    Ok(info)
 }
 
 /// Opens a profile: focuses this process's window for its own profile, otherwise starts (or

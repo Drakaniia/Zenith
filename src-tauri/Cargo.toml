@@ -22,7 +22,8 @@ tauri-build = { version = "2.7", features = [] }
 [dependencies]
 # Pin the Tauri/wry minor versions: tab webviews are built directly on wry and WebView2,
 # and the multi-webview surface has no semver guarantees.
-tauri = { version = "~2.12.5", features = [] }
+# image-png: decodes a profile's picture for its window icon.
+tauri = { version = "~2.12.5", features = ["image-png"] }
 wry = { version = "~0.57.1", default-features = false }
 webview2-com = "0.39"
 windows-core = "0.62"

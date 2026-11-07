@@ -203,7 +203,14 @@
               >
                 <span class="icon">
                   {#if item.swatch}
-                    <span class="swatch" style:background={item.swatch.color} style:color={item.swatch.fg}>{item.swatch.text}</span>
+                    <span
+                      class="swatch"
+                      class:photo={item.swatch.photo}
+                      style:background={item.swatch.photo ? 'transparent' : item.swatch.color}
+                      style:color={item.swatch.fg}
+                    >
+                      {#if item.swatch.img}<img src={item.swatch.img} alt="" draggable="false" />{:else}{item.swatch.text}{/if}
+                    </span>
                   {:else if item.checked}
                     <Icon name="check" size={15} />
                   {:else if item.site}
@@ -334,10 +341,21 @@
     height: 18px;
     display: grid;
     place-items: center;
+    overflow: hidden;
     border-radius: 50%;
     font-size: 10.5px;
     font-weight: 700;
     line-height: 1;
+  }
+  .swatch img {
+    width: 62%;
+    height: 62%;
+    display: block;
+  }
+  .swatch.photo img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
   }
   .item.danger .icon {
     color: var(--danger);

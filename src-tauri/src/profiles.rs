@@ -18,8 +18,15 @@
 //!
 //! Profile ids are generated slugs checked by `valid_id`; a name typed by the user never becomes
 //! part of a path, and only `Profiles\<valid id>` folders are ever deleted.
+//!
+//! A profile's picture is its initial on its colour, a bundled emoji on its colour, or an image
+//! the user chose. The UI renders the emoji and image kinds to a 256 px PNG (`valid_icon_png`),
+//! kept as `<base roaming>\Avatars\<id>-<rev>.png` with an `.ico` next to it: every profile's
+//! process can show it, and it becomes the window icon and the desktop shortcut's icon. The
+//! revision changes with every new picture so Explorer's icon cache never shows an old one.
 
 use std::fs::{self, File, OpenOptions};
+use std::os::windows::ffi::OsStrExt;
 use std::os::windows::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
@@ -38,6 +45,10 @@ const LIST_FILE: &str = "profiles.json";
 const SUBDIR: &str = "Profiles";
 /// Held open without sharing while the profile's process runs (see `is_running`).
 const LOCK_FILE: &str = "profile.lock";
+const AVATAR_DIR: &str = "Avatars";
+/// Size of the rendered profile picture (both sides).
+pub const ICON_SIZE: u32 = 256;
+const MAX_ICON_BYTES: usize = 2 * 1024 * 1024;
 const MAX_PROFILES: usize = 24;
 const MAX_NAME_CHARS: usize = 40;
 const MAX_ID_LEN: usize = 32;
@@ -57,6 +68,16 @@ pub struct Profile {
     /// Desktop shortcut Zenith created for this profile; deleted along with the profile.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub shortcut: Option<PathBuf>,
+    /// The picture (see `valid_avatar`); `None` is the initial on the colour.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub avatar: Option<String>,
+    /// Revision of the rendered picture in `Avatars` (see `Base::icon_file`); 0 when there is none.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub icon_rev: i64,
+}
+
+fn is_zero(n: &i64) -> bool {
+    *n == 0
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
@@ -87,6 +108,15 @@ impl Base {
         self.roaming.join(LIST_FILE)
     }
 
+    fn avatar_dir(&self) -> PathBuf {
+        self.roaming.join(AVATAR_DIR)
+    }
+
+    /// A rendered profile picture: `Avatars\<id>-<rev>.<ext>` (`png` or `ico`). `id` must be valid.
+    pub fn icon_file(&self, id: &str, rev: i64, ext: &str) -> PathBuf {
+        self.avatar_dir().join(format!("{id}-{rev}.{ext}"))
+    }
+
     /// Data folders of a profile. `id` must be valid.
     pub fn paths(&self, id: &str) -> Paths {
         if id == DEFAULT {
@@ -112,6 +142,40 @@ pub fn valid_id(id: &str) -> bool {
 /// `#rrggbb`.
 pub fn valid_color(color: &str) -> bool {
     color.len() == 7 && color.starts_with('#') && color[1..].bytes().all(|b| b.is_ascii_hexdigit())
+}
+
+/// `image` (a picture the user chose) or `emoji:<name>` (a bundled emoji; lowercase ASCII
+/// letters, digits and hyphens).
+pub fn valid_avatar(avatar: &str) -> bool {
+    if avatar == "image" {
+        return true;
+    }
+    avatar.strip_prefix("emoji:").is_some_and(|n| {
+        !n.is_empty() && n.len() <= 48 && n.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+    })
+}
+
+/// A PNG of `ICON_SIZE` × `ICON_SIZE` pixels, at most 2 MB (the header is checked; the image
+/// itself is only ever decoded by Windows and the PNG decoder).
+pub fn valid_icon_png(png: &[u8]) -> bool {
+    const SIGNATURE: &[u8] = b"\x89PNG\r\n\x1a\n";
+    if png.len() < 33 || png.len() > MAX_ICON_BYTES || !png.starts_with(SIGNATURE) || &png[12..16] != b"IHDR" {
+        return false;
+    }
+    let dim = |at: usize| u32::from_be_bytes([png[at], png[at + 1], png[at + 2], png[at + 3]]);
+    dim(16) == ICON_SIZE && dim(20) == ICON_SIZE
+}
+
+/// An `.ico` holding one 256 px PNG image (Windows Vista and later read PNG-compressed icons).
+pub fn ico_from_png(png: &[u8]) -> Vec<u8> {
+    let mut ico = Vec::with_capacity(22 + png.len());
+    ico.extend_from_slice(&[0, 0, 1, 0, 1, 0]); // reserved, type 1 (icon), 1 image
+    // Width and height 0 mean 256; no palette; reserved; 1 plane; 32 bits per pixel.
+    ico.extend_from_slice(&[0, 0, 0, 0, 1, 0, 32, 0]);
+    ico.extend_from_slice(&(png.len() as u32).to_le_bytes());
+    ico.extend_from_slice(&22u32.to_le_bytes()); // the image follows the 6 + 16 byte header
+    ico.extend_from_slice(png);
+    ico
 }
 
 /// Trimmed, single-line, at most 40 characters; `None` when nothing is left.
@@ -146,7 +210,7 @@ pub fn new_id(name: &str, list: &List) -> String {
 }
 
 fn default_profile() -> Profile {
-    Profile { id: DEFAULT.into(), name: "Default".into(), color: COLORS[0].into(), created: 0, shortcut: None }
+    Profile { id: DEFAULT.into(), name: "Default".into(), color: COLORS[0].into(), created: 0, shortcut: None, avatar: None, icon_rev: 0 }
 }
 
 /// Fixes a list read from disk: drops bad or repeated ids, cleans names and colours, makes sure
@@ -164,6 +228,12 @@ pub fn repair(mut list: List) -> List {
         }
         if p.shortcut.as_deref().is_some_and(|s| !is_shortcut_path(s)) {
             p.shortcut = None;
+        }
+        if p.avatar.as_deref().is_some_and(|a| !valid_avatar(a)) {
+            p.avatar = None;
+        }
+        if p.avatar.is_none() || p.icon_rev < 0 {
+            p.icon_rev = 0;
         }
         profiles.push(p);
     }
@@ -211,32 +281,103 @@ fn now_ms() -> i64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0)
 }
 
-pub fn create(base: &Base, name: &str, color: &str) -> Result<Profile, String> {
-    let name = clean_name(name).ok_or("Give the profile a name.")?;
-    if !valid_color(color) {
-        return Err("That colour isn't valid.".into());
+/// How a profile looks: its colour, its picture (see `valid_avatar`) and, for an emoji or an
+/// image, the picture rendered by the UI (see `valid_icon_png`).
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Look<'a> {
+    pub color: &'a str,
+    pub avatar: Option<&'a str>,
+    pub icon: Option<&'a [u8]>,
+}
+
+impl Look<'_> {
+    fn check(&self) -> Result<(), String> {
+        if !valid_color(self.color) {
+            return Err("That colour isn't valid.".into());
+        }
+        if self.avatar.is_some_and(|a| !valid_avatar(a)) || self.icon.is_some_and(|png| !valid_icon_png(png)) {
+            return Err("That picture can't be used.".into());
+        }
+        if self.avatar == Some("image") && self.icon.is_none() {
+            return Err("Choose the picture again.".into());
+        }
+        Ok(())
     }
+}
+
+/// Saves the rendered picture of profile `id` under a revision newer than `after`; returns the
+/// revision, or 0 when the look has no rendered picture.
+fn write_icon(base: &Base, id: &str, after: i64, look: &Look) -> Result<i64, String> {
+    let (Some(_), Some(png)) = (look.avatar, look.icon) else { return Ok(0) };
+    let rev = now_ms().max(after + 1);
+    let fail = |e: std::io::Error| format!("Could not save the profile picture: {e}");
+    store::write_atomic(&base.icon_file(id, rev, "png"), png).map_err(fail)?;
+    store::write_atomic(&base.icon_file(id, rev, "ico"), &ico_from_png(png)).map_err(fail)?;
+    Ok(rev)
+}
+
+fn remove_icon(base: &Base, id: &str, rev: i64) {
+    if rev != 0 && valid_id(id) {
+        let _ = fs::remove_file(base.icon_file(id, rev, "png"));
+        let _ = fs::remove_file(base.icon_file(id, rev, "ico"));
+    }
+}
+
+/// The profile's rendered picture (PNG), when it has an emoji or an image.
+pub fn icon_png(base: &Base, p: &Profile) -> Option<Vec<u8>> {
+    if p.avatar.is_none() || p.icon_rev == 0 || !valid_id(&p.id) {
+        return None;
+    }
+    fs::read(base.icon_file(&p.id, p.icon_rev, "png")).ok().filter(|png| valid_icon_png(png))
+}
+
+/// The profile's `.ico`, when it has a rendered picture.
+fn icon_ico(base: &Base, p: &Profile) -> Option<PathBuf> {
+    if p.avatar.is_none() || p.icon_rev == 0 || !valid_id(&p.id) {
+        return None;
+    }
+    Some(base.icon_file(&p.id, p.icon_rev, "ico")).filter(|f| f.is_file())
+}
+
+pub fn create(base: &Base, name: &str, look: Look) -> Result<Profile, String> {
+    let name = clean_name(name).ok_or("Give the profile a name.")?;
+    look.check()?;
     modify(base, |list| {
         if list.profiles.len() >= MAX_PROFILES {
             return Err(format!("Zenith supports up to {MAX_PROFILES} profiles."));
         }
-        let profile = Profile { id: new_id(&name, list), name, color: color.to_string(), created: now_ms(), shortcut: None };
+        let id = new_id(&name, list);
+        let icon_rev = write_icon(base, &id, 0, &look)?;
+        let profile = Profile {
+            id,
+            name,
+            color: look.color.to_string(),
+            created: now_ms(),
+            shortcut: None,
+            avatar: look.avatar.map(str::to_string),
+            icon_rev,
+        };
         list.profiles.push(profile.clone());
         Ok(profile)
     })
 }
 
-pub fn update(base: &Base, id: &str, name: &str, color: &str) -> Result<Profile, String> {
+pub fn update(base: &Base, id: &str, name: &str, look: Look) -> Result<Profile, String> {
     let name = clean_name(name).ok_or("Give the profile a name.")?;
-    if !valid_color(color) {
-        return Err("That colour isn't valid.".into());
-    }
-    modify(base, |list| {
+    look.check()?;
+    let (profile, old_rev) = modify(base, |list| {
         let p = list.profiles.iter_mut().find(|p| p.id == id).ok_or("That profile no longer exists.")?;
+        let old_rev = p.icon_rev;
+        p.icon_rev = write_icon(base, id, old_rev, &look)?;
         p.name = name;
-        p.color = color.to_string();
-        Ok(p.clone())
-    })
+        p.color = look.color.to_string();
+        p.avatar = look.avatar.map(str::to_string);
+        Ok((p.clone(), old_rev))
+    })?;
+    if old_rev != profile.icon_rev {
+        remove_icon(base, id, old_rev);
+    }
+    Ok(profile)
 }
 
 fn set_last_used(base: &Base, id: &str) {
@@ -272,6 +413,7 @@ pub fn delete(base: &Base, id: &str, active: &str) -> Result<(), String> {
     if let Some(link) = removed.shortcut.as_deref().filter(|s| is_shortcut_path(s)) {
         let _ = fs::remove_file(link);
     }
+    remove_icon(base, id, removed.icon_rev);
     let base = base.clone();
     let id = id.to_string();
     std::thread::spawn(move || {
@@ -327,7 +469,29 @@ pub fn sweep_orphans(base: &Base) {
                 }
             }
         }
+        sweep_icons(&base, &list);
     });
+}
+
+/// Deletes pictures in `Avatars` that no profile uses any more (replaced while a save failed,
+/// or left by a crash). Only `<id>-<rev>.png|ico|tmp` files are ever removed.
+fn sweep_icons(base: &Base, list: &List) {
+    let Ok(entries) = fs::read_dir(base.avatar_dir()) else { return };
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let Some((stem, ext)) = name.rsplit_once('.') else { continue };
+        let Some((id, rev)) = stem.rsplit_once('-') else { continue };
+        let Ok(rev) = rev.parse::<i64>() else { continue };
+        if !matches!(ext, "png" | "ico" | "tmp") || !valid_id(id) {
+            continue;
+        }
+        let used = list.get(id).is_some_and(|p| p.icon_rev == rev && p.avatar.is_some());
+        // Revisions are save times: a fresh file may belong to a save another process is making.
+        let fresh = now_ms() - rev < 60_000;
+        if !used && !fresh {
+            let _ = fs::remove_file(entry.path());
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -563,10 +727,7 @@ pub fn create_shortcut(id: &str) -> Result<PathBuf, String> {
     let profile = load(&active.base).get(id).cloned().ok_or("That profile no longer exists.")?;
     let desktop = known_folder(&windows::Win32::UI::Shell::FOLDERID_Desktop, "USERPROFILE");
     let link = desktop.join(shortcut_file_name(&profile.name));
-    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
-    let aumid = (id != DEFAULT).then(|| aumid(&active.base_identifier, id));
-    write_shortcut(&link, &exe, &format!("{FLAG} {id}"), &format!("Zenith ({})", profile.name), aumid.as_deref())
-        .map_err(|e| format!("Could not create the shortcut: {e}"))?;
+    write_profile_shortcut(active, &profile, &link)?;
     let old = modify(&active.base, |list| {
         let p = list.profiles.iter_mut().find(|p| p.id == id).ok_or("That profile no longer exists.")?;
         Ok(p.shortcut.replace(link.clone()))
@@ -578,7 +739,36 @@ pub fn create_shortcut(id: &str) -> Result<PathBuf, String> {
     Ok(link)
 }
 
-fn write_shortcut(link: &Path, exe: &Path, args: &str, description: &str, aumid: Option<&str>) -> windows::core::Result<()> {
+/// Rewrites the profile's existing desktop shortcut (same file) so it shows the profile's
+/// current picture. Does nothing when the profile has no shortcut on disk.
+pub fn refresh_shortcut(id: &str) -> Result<(), String> {
+    let active = active();
+    let Some(profile) = load(&active.base).get(id).cloned() else { return Ok(()) };
+    let Some(link) = profile.shortcut.clone().filter(|s| is_shortcut_path(s) && s.is_file()) else { return Ok(()) };
+    write_profile_shortcut(active, &profile, &link)
+}
+
+fn write_profile_shortcut(active: &Active, profile: &Profile, link: &Path) -> Result<(), String> {
+    let id = profile.id.as_str();
+    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    let icon = icon_ico(&active.base, profile).unwrap_or_else(|| exe.clone());
+    let aumid = (id != DEFAULT).then(|| aumid(&active.base_identifier, id));
+    write_shortcut(link, &exe, &icon, &format!("{FLAG} {id}"), &format!("Zenith ({})", profile.name), aumid.as_deref())
+        .map_err(|e| format!("Could not create the shortcut: {e}"))?;
+    notify_shell_changed(link);
+    Ok(())
+}
+
+/// Tells Explorer a file changed, so the desktop redraws a shortcut's new icon.
+fn notify_shell_changed(path: &Path) {
+    use windows::Win32::UI::Shell::{SHChangeNotify, SHCNE_UPDATEITEM, SHCNF_PATHW};
+    let wide: Vec<u16> = path.as_os_str().encode_wide().chain(std::iter::once(0)).collect();
+    unsafe {
+        SHChangeNotify(SHCNE_UPDATEITEM, SHCNF_PATHW, Some(wide.as_ptr() as *const _), None);
+    }
+}
+
+fn write_shortcut(link: &Path, exe: &Path, icon: &Path, args: &str, description: &str, aumid: Option<&str>) -> windows::core::Result<()> {
     use windows::core::{Interface, HSTRING};
     use windows::Win32::System::Com::StructuredStorage::PROPVARIANT;
     use windows::Win32::Storage::EnhancedStorage::PKEY_AppUserModel_ID;
@@ -592,7 +782,7 @@ fn write_shortcut(link: &Path, exe: &Path, args: &str, description: &str, aumid:
             shell.SetPath(&HSTRING::from(exe.as_os_str()))?;
             shell.SetArguments(&HSTRING::from(args))?;
             shell.SetDescription(&HSTRING::from(description))?;
-            shell.SetIconLocation(&HSTRING::from(exe.as_os_str()), 0)?;
+            shell.SetIconLocation(&HSTRING::from(icon.as_os_str()), 0)?;
             if let Some(dir) = exe.parent() {
                 shell.SetWorkingDirectory(&HSTRING::from(dir.as_os_str()))?;
             }
@@ -627,6 +817,23 @@ mod tests {
         }
     }
 
+    fn look(color: &str) -> Look<'_> {
+        Look { color, ..Default::default() }
+    }
+
+    fn profile(id: &str, name: &str) -> Profile {
+        Profile { id: id.into(), name: name.into(), color: COLORS[1].into(), created: 1, shortcut: None, avatar: None, icon_rev: 0 }
+    }
+
+    /// The start of a PNG of `w` × `h` pixels (enough for `valid_icon_png`).
+    fn png(w: u32, h: u32) -> Vec<u8> {
+        let mut v = b"\x89PNG\r\n\x1a\n\0\0\0\x0dIHDR".to_vec();
+        v.extend_from_slice(&w.to_be_bytes());
+        v.extend_from_slice(&h.to_be_bytes());
+        v.extend_from_slice(&[8, 6, 0, 0, 0, 1, 2, 3, 4]);
+        v
+    }
+
     #[test]
     fn ids() {
         assert!(valid_id("default"));
@@ -654,7 +861,7 @@ mod tests {
         assert_eq!(new_id("École & Café!", &list), "cole-caf");
         assert_eq!(new_id("工作", &list), "profile");
         let mut list = list;
-        list.profiles.push(Profile { id: "work".into(), name: "Work".into(), color: COLORS[1].into(), created: 1, shortcut: None });
+        list.profiles.push(profile("work", "Work"));
         assert_eq!(new_id("work", &list), "work-2");
         assert!(valid_id(&new_id(&"long name ".repeat(10), &list)));
     }
@@ -700,7 +907,7 @@ mod tests {
     #[test]
     fn choosing_a_profile() {
         let mut list = repair(List::default());
-        list.profiles.push(Profile { id: "work".into(), name: "Work".into(), color: COLORS[1].into(), created: 1, shortcut: None });
+        list.profiles.push(profile("work", "Work"));
         list.last_used = "work".into();
         assert_eq!(choose(&list, None), "work");
         assert_eq!(choose(&list, Some("default")), DEFAULT);
@@ -726,11 +933,11 @@ mod tests {
     #[test]
     fn create_update_delete() {
         let base = temp_base("crud");
-        let work = create(&base, " Work ", "#3b82f6").unwrap();
+        let work = create(&base, " Work ", look("#3b82f6")).unwrap();
         assert_eq!((work.id.as_str(), work.name.as_str()), ("work", "Work"));
-        assert!(create(&base, "  ", "#3b82f6").is_err());
-        assert!(create(&base, "X", "blue").is_err());
-        let renamed = update(&base, "work", "Job", "#ef4444").unwrap();
+        assert!(create(&base, "  ", look("#3b82f6")).is_err());
+        assert!(create(&base, "X", look("blue")).is_err());
+        let renamed = update(&base, "work", "Job", look("#ef4444")).unwrap();
         assert_eq!(renamed.name, "Job");
         assert_eq!(load(&base).get("work").unwrap().color, "#ef4444");
 
@@ -772,7 +979,7 @@ mod tests {
     #[test]
     fn orphans_are_swept_but_listed_and_default_folders_stay() {
         let base = temp_base("sweep");
-        create(&base, "Kept", "#3b82f6").unwrap();
+        create(&base, "Kept", look("#3b82f6")).unwrap();
         let kept = base.paths("kept");
         let orphan = base.paths("orphan");
         for d in [&kept.roaming, &kept.local, &orphan.roaming, &orphan.local] {
@@ -797,12 +1004,87 @@ mod tests {
         fs::create_dir_all(&base.roaming).unwrap();
         let link = base.roaming.join("Zenith - Work.lnk");
         let exe = std::env::current_exe().unwrap();
-        write_shortcut(&link, &exe, "--profile work", "Zenith (Work)", Some("dev.zenith.browser.profile.work")).unwrap();
+        write_shortcut(&link, &exe, &exe, "--profile work", "Zenith (Work)", Some("dev.zenith.browser.profile.work")).unwrap();
         let bytes = fs::read(&link).unwrap();
         // Shell link header (0x4C) and the arguments stored as UTF-16.
         assert_eq!(bytes[0], 0x4C);
         let wide: Vec<u8> = "--profile work".encode_utf16().flat_map(|u| u.to_le_bytes()).collect();
         assert!(bytes.windows(wide.len()).any(|w| w == wide.as_slice()));
+        cleanup(&base);
+    }
+
+    #[test]
+    fn avatars_and_icons_are_validated() {
+        assert!(valid_avatar("image"));
+        assert!(valid_avatar("emoji:cat-face"));
+        assert!(!valid_avatar("emoji:"));
+        assert!(!valid_avatar("emoji:Cat"));
+        assert!(!valid_avatar("emoji:../x"));
+        assert!(!valid_avatar("letter"));
+        assert!(valid_icon_png(&png(256, 256)));
+        assert!(!valid_icon_png(&png(255, 256)));
+        assert!(!valid_icon_png(&png(256, 4096)));
+        assert!(!valid_icon_png(b"GIF89a not a png at all, but long enough"));
+        let mut huge = png(256, 256);
+        huge.resize(MAX_ICON_BYTES + 1, 0);
+        assert!(!valid_icon_png(&huge));
+
+        let p = png(256, 256);
+        let ico = ico_from_png(&p);
+        assert_eq!(&ico[..6], &[0, 0, 1, 0, 1, 0]);
+        assert_eq!(u32::from_le_bytes(ico[14..18].try_into().unwrap()) as usize, p.len());
+        assert_eq!(u32::from_le_bytes(ico[18..22].try_into().unwrap()), 22);
+        assert_eq!(&ico[22..], p.as_slice());
+
+        // Bad pictures in a list read from disk fall back to the initial.
+        let raw = r##"{"profiles":[{"id":"work","name":"W","color":"#000000","avatar":"emoji:../x","iconRev":5}]}"##;
+        let list = repair(serde_json::from_str(raw).unwrap());
+        assert_eq!((list.profiles[1].avatar.as_deref(), list.profiles[1].icon_rev), (None, 0));
+    }
+
+    #[test]
+    fn pictures_are_saved_replaced_and_removed() {
+        let base = temp_base("icons");
+        let icon = png(256, 256);
+        let emoji = Look { color: "#3b82f6", avatar: Some("emoji:fox"), icon: Some(&icon) };
+        assert!(create(&base, "X", Look { color: "#3b82f6", avatar: Some("image"), icon: None }).is_err());
+        assert!(create(&base, "X", Look { icon: Some(&png(64, 64)), ..emoji }).is_err());
+
+        let work = create(&base, "Work", emoji).unwrap();
+        assert_eq!(work.avatar.as_deref(), Some("emoji:fox"));
+        let first = base.icon_file("work", work.icon_rev, "png");
+        assert!(first.is_file() && base.icon_file("work", work.icon_rev, "ico").is_file());
+        assert_eq!(icon_png(&base, &work), Some(icon.clone()));
+        assert!(icon_ico(&base, &work).is_some());
+
+        // A new picture gets a new revision; the old files go.
+        let image = update(&base, "work", "Work", Look { avatar: Some("image"), ..emoji }).unwrap();
+        assert!(image.icon_rev > work.icon_rev);
+        assert!(!first.exists());
+        assert!(base.icon_file("work", image.icon_rev, "png").is_file());
+
+        // Back to the initial: no picture is kept.
+        let plain = update(&base, "work", "Work", look("#3b82f6")).unwrap();
+        assert_eq!((plain.avatar, plain.icon_rev), (None, 0));
+        assert!(!base.icon_file("work", image.icon_rev, "png").exists());
+        assert_eq!(icon_png(&base, &load(&base).get("work").unwrap().clone()), None);
+
+        // Stale pictures are swept; current ones, fresh ones and other files stay.
+        let again = update(&base, "work", "Work", emoji).unwrap();
+        let current = base.icon_file("work", again.icon_rev, "png");
+        let stale = base.icon_file("work", 1, "png");
+        let gone = base.icon_file("gone", 2, "ico");
+        let fresh = base.icon_file("other", now_ms(), "png");
+        let odd = base.avatar_dir().join("notes.txt");
+        for f in [&stale, &gone, &fresh, &odd] {
+            fs::write(f, b"x").unwrap();
+        }
+        sweep_icons(&base, &load(&base));
+        assert!(current.exists() && fresh.exists() && odd.exists());
+        assert!(!stale.exists() && !gone.exists());
+
+        delete(&base, "work", DEFAULT).unwrap();
+        assert!(!current.exists());
         cleanup(&base);
     }
 

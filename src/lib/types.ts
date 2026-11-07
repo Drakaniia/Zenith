@@ -339,6 +339,10 @@ export interface ProfileInfo {
   /** `#rrggbb`. */
   color: string;
   isDefault: boolean;
+  /** `image`, `emoji:<name>`, or absent for the initial on the colour. */
+  avatar?: string | null;
+  /** The chosen picture as a `data:image/png` URL (only for the `image` avatar). */
+  image?: string | null;
 }
 
 export interface ProfileEntry extends ProfileInfo {

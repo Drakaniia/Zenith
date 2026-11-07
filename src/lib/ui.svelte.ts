@@ -20,8 +20,11 @@ export interface MenuItem {
   icon?: IconName;
   /** A page's own icon (a bookmark in a menu) in place of a drawn one. */
   site?: { url: string; favicon?: string };
-  /** A coloured round badge with a letter (a browser profile's avatar) in place of an icon. */
-  swatch?: { color: string; fg: string; text: string };
+  /**
+   * A coloured round badge with a letter (a browser profile's avatar) in place of an icon.
+   * `img` replaces the letter (an emoji on the colour); with `photo` it fills the whole badge.
+   */
+  swatch?: { color: string; fg: string; text: string; img?: string; photo?: boolean };
   hint?: string;
   danger?: boolean;
   checked?: boolean;

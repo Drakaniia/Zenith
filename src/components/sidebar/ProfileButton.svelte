@@ -2,7 +2,18 @@
   import { appInfo } from '../../lib/app.svelte';
   import { api } from '../../lib/ipc';
   import { ui, type MenuItem } from '../../lib/ui.svelte';
-  import { profileInitial, textOn } from '../../lib/profiles';
+  import { textOn } from '../../lib/profiles';
+  import { avatarFace } from '../../lib/profile-picture';
+  import type { ProfileInfo } from '../../lib/types';
+  import ProfileAvatar from '../ProfileAvatar.svelte';
+
+  /** A menu row's badge for a profile: its picture, emoji or initial. */
+  function swatchOf(p: ProfileInfo): NonNullable<MenuItem['swatch']> {
+    const face = avatarFace(p);
+    const base = { color: p.color, fg: textOn(p.color) };
+    if (face.kind === 'letter') return { ...base, text: face.text };
+    return { ...base, text: '', img: face.src, photo: face.kind === 'image' };
+  }
 
   // The profile avatar at the top of the sidebar: which profile this window belongs to, and a
   // menu to open another profile (each one runs in its own window) or manage them.
@@ -20,7 +31,7 @@
         { label: 'Profiles', heading: true },
         ...view.profiles.map<MenuItem>((p) => ({
           label: p.name,
-          swatch: { color: p.color, fg: textOn(p.color), text: profileInitial(p.name) },
+          swatch: swatchOf(p),
           hint: p.id === view.active ? 'This window' : p.running ? 'Open' : undefined,
           run: () => void open(p.id),
         })),
@@ -56,20 +67,6 @@
     data-action="profiles"
     onclick={openMenu}
   >
-    <span class="avatar" style:background={profile.color} style:color={textOn(profile.color)}>{profileInitial(profile.name)}</span>
+    <ProfileAvatar name={profile.name} color={profile.color} avatar={profile.avatar} image={profile.image} size={18} ring />
   </button>
 {/if}
-
-<style>
-  .avatar {
-    width: 18px;
-    height: 18px;
-    display: grid;
-    place-items: center;
-    border-radius: 50%;
-    font-size: 10.5px;
-    font-weight: 700;
-    line-height: 1;
-    box-shadow: 0 0 0 1px color-mix(in srgb, currentColor 18%, transparent);
-  }
-</style>

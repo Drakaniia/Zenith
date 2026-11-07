@@ -1,8 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  centerSquare,
   cleanProfileName,
   deleteBlocker,
+  emojiName,
   nextProfileColor,
   profileInitial,
   textOn,
@@ -43,6 +45,20 @@ test("new profiles get an unused colour", () => {
   assert.equal(nextProfileColor(colors, [{ color: "#8B7CF6" }]), "#3b82f6");
   assert.equal(nextProfileColor(colors, colors.map((color) => ({ color }))), "#8b7cf6");
   assert.equal(nextProfileColor([], []), "#8b7cf6");
+});
+
+test("emoji avatars name their emoji", () => {
+  assert.equal(emojiName("emoji:cat-face"), "cat-face");
+  assert.equal(emojiName("emoji:"), null);
+  assert.equal(emojiName("image"), null);
+  assert.equal(emojiName(null), null);
+  assert.equal(emojiName(undefined), null);
+});
+
+test("chosen pictures are cropped to their centred square", () => {
+  assert.deepEqual(centerSquare(400, 300), { x: 50, y: 0, size: 300 });
+  assert.deepEqual(centerSquare(300, 401), { x: 0, y: 51, size: 300 });
+  assert.deepEqual(centerSquare(256, 256), { x: 0, y: 0, size: 256 });
 });
 
 test("which profiles can be deleted", () => {

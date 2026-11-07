@@ -3,6 +3,21 @@
 import type { ProfileEntry } from "./types";
 
 export const MAX_PROFILE_NAME = 40;
+/** Size (both sides) of a rendered profile picture; the backend accepts only this size. */
+export const PROFILE_ICON_SIZE = 256;
+/** Pictures larger than this are refused before decoding. */
+export const MAX_PICTURE_BYTES = 25 * 1024 * 1024;
+
+/** The emoji name of an `emoji:<name>` avatar. */
+export function emojiName(avatar: string | null | undefined): string | null {
+  return avatar?.startsWith("emoji:") && avatar.length > 6 ? avatar.slice(6) : null;
+}
+
+/** The centred square of a `w` × `h` picture (what a chosen picture is cropped to). */
+export function centerSquare(w: number, h: number): { x: number; y: number; size: number } {
+  const size = Math.min(w, h);
+  return { x: Math.round((w - size) / 2), y: Math.round((h - size) / 2), size };
+}
 
 /** The letter shown on a profile's avatar (first character, upper-cased; emoji kept whole). */
 export function profileInitial(name: string): string {

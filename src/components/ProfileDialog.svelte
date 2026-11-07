@@ -8,16 +8,24 @@
   import { ui } from '../lib/ui.svelte';
   import { focusAfterLayout, overlayLease } from '../lib/layout.svelte';
   import { MAX_PROFILE_NAME, cleanProfileName, deleteBlocker, nextProfileColor, profileInitial, textOn } from '../lib/profiles';
+  import { EMOJI_CHOICES, avatarEmoji, pictureFromFile, renderEmojiIcon } from '../lib/profile-picture';
   import type { ProfileEntry, ProfilesView } from '../lib/types';
+  import ProfileAvatar from './ProfileAvatar.svelte';
 
-  // Profiles: the list (open, edit, new) and the form for one profile (name, colour, desktop
-  // shortcut, delete). Every profile is a separate set of data running in its own window.
+  // Profiles: the list (open, edit, new) and the form for one profile (name, picture, colour,
+  // desktop shortcut, delete). Every profile is a separate set of data running in its own window.
+  /** The picture choice in the form: the initial, the chosen image, or `emoji:<name>`. */
+  const LETTER = 'letter';
   const spec = $derived(ui.profileDialog);
   let view = $state<ProfilesView | null>(null);
   /** The edit form came from the list: going back returns there. */
   let fromList = $state(false);
   let name = $state('');
   let color = $state('');
+  let pick = $state(LETTER);
+  /** The picture the user chose (or the profile already had), a 256 px PNG data URL. */
+  let image = $state<string | null>(null);
+  let fileInput = $state<HTMLInputElement | null>(null);
   let shortcut = $state(false);
   let confirmDelete = $state(false);
   let busy = $state(false);
@@ -29,6 +37,7 @@
   const isNew = $derived(spec?.mode === 'edit' && !spec.id);
   const blocker = $derived(editing && view ? deleteBlocker(editing, view.active) : null);
   const cleaned = $derived(cleanProfileName(name));
+  const avatar = $derived(pick === LETTER ? null : pick);
 
   async function refresh() {
     try {
@@ -51,6 +60,8 @@
       const p = s.id ? view.profiles.find((x) => x.id === s.id) : null;
       name = p?.name ?? '';
       color = p?.color ?? nextProfileColor(view.colors, view.profiles);
+      image = p?.image ?? null;
+      pick = p?.avatar === 'image' ? (image ? 'image' : LETTER) : p?.avatar && avatarEmoji(p.avatar) ? p.avatar : LETTER;
       shortcut = false;
       await tick();
       nameInput?.focus();
@@ -85,24 +96,48 @@
     }
   }
 
+  async function choosePicture() {
+    const file = fileInput?.files?.[0];
+    if (fileInput) fileInput.value = '';
+    if (!file) return;
+    error = '';
+    try {
+      image = await pictureFromFile(file);
+      pick = 'image';
+    } catch (e) {
+      error = e instanceof Error ? e.message : String(e);
+    }
+  }
+
+  /** The picture as the backend keeps it (a 256 px PNG) for the window and shortcut icons. */
+  async function renderedIcon(): Promise<string | null> {
+    if (pick === 'image') {
+      if (!image) throw new Error('Choose the picture again.');
+      return image;
+    }
+    const emoji = avatarEmoji(avatar);
+    return emoji ? renderEmojiIcon(emoji, color) : null;
+  }
+
   async function save() {
     if (busy || !cleaned) return;
     busy = true;
     error = '';
     try {
+      const icon = await renderedIcon();
       if (isNew) {
-        const p = await api.profileCreate(cleaned, color, shortcut);
+        const p = await api.profileCreate(cleaned, color, avatar, icon, shortcut);
         // Like other browsers: a new profile opens right away, in its own window.
         await api.profileOpen(p.id);
         ui.toast(`Opening “${p.name}” in a new window`, { icon: 'user' });
         close();
       } else if (editing) {
-        const p = await api.profileUpdate(editing.id, cleaned, color);
+        const p = await api.profileUpdate(editing.id, cleaned, color, avatar, icon);
         if (appInfo.info && appInfo.info.profile.id === p.id) appInfo.info.profile = p;
         back();
       }
     } catch (e) {
-      error = String(e);
+      error = e instanceof Error ? e.message : String(e);
     } finally {
       busy = false;
     }
@@ -171,7 +206,7 @@
             <ul class="list">
               {#each view.profiles as p (p.id)}
                 <li>
-                  <span class="avatar" style:background={p.color} style:color={textOn(p.color)} aria-hidden="true">{profileInitial(p.name)}</span>
+                  <ProfileAvatar name={p.name} color={p.color} avatar={p.avatar} image={p.image} size={26} />
                   <span class="name">
                     <span class="ellipsis">{p.name}</span>
                     <small>{p.id === view.active ? 'This window' : p.running ? 'Open' : p.isDefault ? 'Default profile' : ''}</small>
@@ -202,12 +237,38 @@
           }}
         >
           <div class="preview">
-            <span class="avatar big" style:background={color} style:color={textOn(color)} aria-hidden="true">{profileInitial(cleaned || '?')}</span>
-            <label class="field">
+            <ProfileAvatar name={cleaned || '?'} {color} {avatar} {image} size={44} />
+            <label class="name-field">
               <span>Name</span>
               <input bind:this={nameInput} bind:value={name} maxlength={MAX_PROFILE_NAME + 20} placeholder="Work, Personal, School…" spellcheck="false" autocomplete="off" />
             </label>
           </div>
+
+          <fieldset>
+            <legend>Picture</legend>
+            <div class="pictures">
+              <label class="pic" class:on={pick === LETTER} title="Initial">
+                <input type="radio" name="profile-picture" value={LETTER} bind:group={pick} aria-label="Initial" />
+                <span class="face" style:background={color} style:color={textOn(color)}>{profileInitial(cleaned || '?')}</span>
+              </label>
+              {#if image}
+                <label class="pic" class:on={pick === 'image'} title="Your picture">
+                  <input type="radio" name="profile-picture" value="image" bind:group={pick} aria-label="Your picture" />
+                  <img class="face photo" src={image} alt="" draggable="false" />
+                </label>
+              {/if}
+              <button type="button" class="pic upload" title={image ? 'Choose another picture…' : 'Choose a picture…'} aria-label={image ? 'Choose another picture' : 'Choose a picture from your files'} onclick={() => fileInput?.click()}>
+                <Icon name="upload" size={14} />
+              </button>
+              {#each EMOJI_CHOICES as e (e.id)}
+                <label class="pic" class:on={pick === e.avatar} title={e.label}>
+                  <input type="radio" name="profile-picture" value={e.avatar} bind:group={pick} aria-label={e.label} />
+                  <span class="face" style:background={color}><img src={e.src} alt="" draggable="false" /></span>
+                </label>
+              {/each}
+            </div>
+            <input bind:this={fileInput} type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/avif,image/bmp" hidden onchange={choosePicture} />
+          </fieldset>
 
           {#if view}
             <fieldset>
@@ -345,22 +406,6 @@
     background: var(--field);
     border: 1px solid var(--line);
   }
-  .avatar {
-    width: 26px;
-    height: 26px;
-    flex: none;
-    display: grid;
-    place-items: center;
-    border-radius: 50%;
-    font-size: 12.5px;
-    font-weight: 700;
-    line-height: 1;
-  }
-  .avatar.big {
-    width: 44px;
-    height: 44px;
-    font-size: 19px;
-  }
   .name {
     flex: 1;
     min-width: 0;
@@ -373,8 +418,9 @@
     align-items: center;
     gap: 14px;
   }
-  .field {
+  .name-field {
     flex: 1;
+    min-width: 0;
     display: flex;
     flex-direction: column;
     gap: 5px;
@@ -382,7 +428,7 @@
     font-weight: 600;
     color: var(--text-2);
   }
-  .field input {
+  .name-field input {
     height: 34px;
     padding: 0 10px;
     border-radius: var(--r-btn);
@@ -395,7 +441,7 @@
     font-size: 13.5px;
     outline: none;
   }
-  .field input:focus {
+  .name-field input:focus {
     background: var(--field-focus);
     border-color: color-mix(in srgb, var(--accent) 70%, transparent);
   }
@@ -415,6 +461,80 @@
     display: flex;
     flex-wrap: wrap;
     gap: 8px;
+  }
+  .pictures {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, 32px);
+    gap: 8px;
+    max-height: 164px;
+    overflow-y: auto;
+    /* Room for the selection ring, which sits outside each cell. */
+    padding: 4px;
+    margin: -4px;
+    scrollbar-width: thin;
+  }
+  .pic {
+    position: relative;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    display: grid;
+    place-items: center;
+    border: 0;
+    border-radius: 50%;
+    background: none;
+    color: var(--text-2);
+    cursor: pointer;
+    transition: scale var(--fast, 120ms) ease;
+  }
+  .pic:hover {
+    scale: 1.08;
+  }
+  .pic:active {
+    scale: 0.94;
+  }
+  .pic input {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+  }
+  .pic.on {
+    box-shadow:
+      0 0 0 2px var(--dialog-bg),
+      0 0 0 4px var(--accent);
+  }
+  .pic:has(input:focus-visible),
+  .pic.upload:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 3px;
+  }
+  .pic.upload {
+    border: 1.5px dashed color-mix(in srgb, var(--text-2) 55%, transparent);
+  }
+  .pic.upload:hover {
+    color: var(--text);
+    border-color: var(--text-2);
+  }
+  .face {
+    width: 100%;
+    height: 100%;
+    display: grid;
+    place-items: center;
+    overflow: hidden;
+    border-radius: 50%;
+    font-size: 14px;
+    font-weight: 700;
+    line-height: 1;
+  }
+  .face img {
+    width: 62%;
+    height: 62%;
+    display: block;
+    pointer-events: none;
+  }
+  img.face.photo {
+    object-fit: cover;
+    pointer-events: none;
   }
   .color {
     position: relative;
