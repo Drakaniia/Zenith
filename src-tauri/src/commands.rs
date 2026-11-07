@@ -414,8 +414,11 @@ pub struct Appearance {
 
 #[derive(Serialize)]
 pub struct AppliedSettings {
-    /// The material actually in use (Windows 10 always gets "solid").
+    /// The material actually in use ("solid" whenever Windows cannot show one).
     material: String,
+    /// Why a requested material fell back to solid: "windows10", "transparency-off" or
+    /// "battery-saver".
+    fallback: Option<&'static str>,
 }
 
 #[tauri::command]
@@ -430,7 +433,9 @@ pub async fn apply_settings(
     if !private(&window) {
         host::apply_config(config);
     }
-    let material = if win::is_windows_11() { appearance.material.clone() } else { "solid".to_string() };
+    let blocker = win::current_translucency_blocker();
+    let material = if blocker.is_some() { "solid".to_string() } else { appearance.material.clone() };
+    let fallback = blocker.filter(|_| appearance.material != "solid");
     let theme = match appearance.theme.as_str() {
         "light" => Some(tauri::Theme::Light),
         "dark" => Some(tauri::Theme::Dark),
@@ -455,7 +460,7 @@ pub async fn apply_settings(
         host::set_content_color_scheme(&scheme);
     })
     .await?;
-    Ok(AppliedSettings { material })
+    Ok(AppliedSettings { material, fallback })
 }
 
 #[tauri::command]
@@ -1301,15 +1306,15 @@ pub async fn update_restart(app: AppHandle, window: WebviewWindow) -> CmdResult<
     if !crate::updates::ready() {
         return Err("no update has been downloaded yet".into());
     }
+    // The installer closes every Zenith process; other profiles would lose their unsaved state.
+    if crate::profiles::others_running() {
+        return Err("close your other Zenith profiles first: the update restarts all of them".into());
+    }
     crate::updates::restart_after_quit();
     crate::request_quit(&app);
     Ok(())
 }
 
-    // The installer closes every Zenith process; other profiles would lose their unsaved state.
-    if crate::profiles::others_running() {
-        return Err("close your other Zenith profiles first: the update restarts all of them".into());
-    }
 #[tauri::command]
 pub async fn clipboard_write(text: String) -> CmdResult<()> {
     blocking(move || win::set_clipboard_text(&text)).await?

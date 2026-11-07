@@ -176,8 +176,9 @@ fn create_window(app: &AppHandle, label: &str) -> tauri::Result<()> {
         .transparent(true)
         .shadow(true)
         .visible(false);
-    // Mica needs Windows 11; Windows 10 gets the solid theme (the UI paints its own background).
-    if win::is_windows_11() {
+    // Mica needs Windows 11 with transparency allowed; otherwise the UI paints the solid theme.
+    // The UI's settings then pick the material the user chose.
+    if win::translucency_blocker().is_none() {
         builder = builder.effects(WindowEffectsConfig {
             effects: vec![Effect::Mica],
             ..Default::default()
@@ -206,7 +207,6 @@ fn create_window(app: &AppHandle, label: &str) -> tauri::Result<()> {
     Ok(())
 }
 
-/// Opens a new incognito window that loads `urls` once its UI is ready. Call off the UI thread.
 /// Window title: "Zenith", "Zenith — Work" for a non-default profile, "Zenith Incognito".
 pub fn window_title(private: bool) -> String {
     let active = profiles::active();
@@ -225,6 +225,7 @@ fn url_args(argv: &[String]) -> Vec<String> {
     profiles::without_flag(argv).iter().skip(1).filter_map(|a| urls::external_arg_to_url(a)).collect()
 }
 
+/// Opens a new incognito window that loads `urls` once its UI is ready. Call off the UI thread.
 pub fn open_incognito_window(app: &AppHandle, urls: Vec<String>) -> tauri::Result<()> {
     let label = format!("{}{}", incognito::LABEL_PREFIX, NEXT_INCOGNITO.fetch_add(1, Ordering::Relaxed));
     commands::set_startup_urls(&label, urls);
@@ -482,13 +483,13 @@ fn main() {
             password_commands::autofill_fill_generated,
             password_commands::autofill_dismiss,
             password_commands::password_offer_respond,
-        ])
             profile_commands::profiles_list,
             profile_commands::profile_create,
             profile_commands::profile_update,
             profile_commands::profile_open,
             profile_commands::profile_delete,
             profile_commands::profile_shortcut,
+        ])
         .setup(move |app| {
             host::init_services(app.handle())?;
             // Locks the password vault after the configured inactivity.

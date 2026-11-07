@@ -4,7 +4,7 @@
   import Toggle from '../Toggle.svelte';
   import Segmented from '../Segmented.svelte';
   import ShortcutEditor from './ShortcutEditor.svelte';
-  import { settings, SIDEBAR_MAX, SIDEBAR_MIN, type Settings } from '../../lib/settings.svelte';
+  import { settings, MATERIAL_FALLBACKS, SIDEBAR_MAX, SIDEBAR_MIN, type Settings } from '../../lib/settings.svelte';
   import { ui, formatBytes } from '../../lib/ui.svelte';
   import { api } from '../../lib/ipc';
   import { openInternal, openNotes, shortcutHint } from '../../lib/actions';
@@ -288,20 +288,36 @@
           </div>
           <div class="row">
             <div class="text">
-              <b>Window material</b>
-              <span>{info && !info.windows11 ? 'Mica needs Windows 11; Windows 10 uses the solid theme.' : 'Solid uses the least GPU and memory.'}</span>
+              <b>Translucent sidebar</b>
+              <span>
+                {s.translucentSidebar && settings.materialFallback
+                  ? MATERIAL_FALLBACKS[settings.materialFallback]
+                  : info && !info.windows11
+                    ? 'Needs Windows 11; Windows 10 uses the solid theme.'
+                    : 'Your desktop shows through the sidebar. Off uses the least GPU and memory.'}
+              </span>
             </div>
-            <Segmented
-              value={s.material}
-              options={[
-                { value: 'mica', label: 'Mica' },
-                { value: 'mica-alt', label: 'Mica Alt' },
-                { value: 'acrylic', label: 'Acrylic' },
-                { value: 'solid', label: 'Solid' },
-              ]}
-              onchange={(v) => set('material', v)}
+            <Toggle
+              checked={s.translucentSidebar && (!info || info.windows11)}
+              disabled={!!info && !info.windows11}
+              onchange={(v) => set('translucentSidebar', v)}
+              label="Translucent sidebar"
             />
           </div>
+          {#if s.translucentSidebar && (!info || info.windows11)}
+            <div class="row">
+              <div class="text"><b>Sidebar material</b><span>Mica tints with your wallpaper; Acrylic blurs what is behind the window.</span></div>
+              <Segmented
+                value={s.material}
+                options={[
+                  { value: 'mica', label: 'Mica' },
+                  { value: 'mica-alt', label: 'Mica Alt' },
+                  { value: 'acrylic', label: 'Acrylic' },
+                ]}
+                onchange={(v) => set('material', v)}
+              />
+            </div>
+          {/if}
           <div class="row">
             <div class="text"><b>Website appearance</b><span>The color scheme websites are asked to use.</span></div>
             <Segmented
@@ -832,6 +848,10 @@
   }
   .row:last-child {
     border-bottom: 0;
+  }
+  /* Controls keep their natural width; the description column gives way instead. */
+  .row > :not(.text) {
+    flex: none;
   }
   .text {
     display: flex;

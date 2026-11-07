@@ -139,7 +139,7 @@ export const api = {
     bindings: { action: string; keys: string[]; global?: boolean }[],
   ) => invoke<string[] | null>("set_shortcuts", { bindings }),
   applySettings: (config: RuntimeConfig, appearance: Appearance) =>
-    invoke<{ material: string }>("apply_settings", { config, appearance }),
+    invoke<{ material: string; fallback?: string | null }>("apply_settings", { config, appearance }),
   clearBrowsingData: (
     kinds: string[],
     sinceMs: number | null,
@@ -329,6 +329,9 @@ export interface BackendEvents {
   "bookmarks-changed": { origin: string };
   /** Another normal window saved the settings. */
   "settings-changed": { origin: string };
+  /** Windows started or stopped allowing the window material (transparency effects, battery
+   *  saver): re-apply the appearance. */
+  "translucency-changed": null;
 }
 
 export function on<K extends keyof BackendEvents>(

@@ -251,6 +251,7 @@
       on('settings-changed', ({ origin }) => {
         if (!incognito && origin !== getCurrentWebviewWindow().label) void settings.reload();
       }),
+      on('translucency-changed', () => void settings.push()),
       on('popup-blocked', ({ tabId, url }) => {
         ui.toast('Pop-up blocked', {
           icon: 'shield',
@@ -574,8 +575,8 @@
   <BookmarkPopup />
   <BookmarkDialog />
   <BookmarkImport />
-  <Palette />
   <ProfileDialog />
+  <Palette />
   <Menu />
   <BookmarkGhost />
   <Toasts />
@@ -590,7 +591,8 @@
   /* The pieces are placed with the layout variables registered in app.css (--lay-*), so a
    * layout change can transition them; the page webviews follow the stage frame by frame.
    *   --lay-left      left edge of the page      --lay-top       top edge of the page
-   *   --lay-bar-left  left edge of the toolbar   --lay-side-top  top edge of the sidebar */
+   *   --lay-bar-left  left edge of the toolbar   --lay-side-top  top edge of the sidebar
+   *   --lay-glass     width of the translucent sidebar area (0 when the sidebar floats) */
   .app {
     position: fixed;
     inset: 0;
@@ -599,6 +601,10 @@
     --lay-top: var(--zen-toolbar-h);
     --lay-bar-left: var(--sidebar-w);
     --lay-side-top: 0px;
+    --lay-glass: var(--sidebar-w);
+  }
+  .app.incognito {
+    --glass: var(--glass-incognito);
   }
   .app.single {
     --lay-top: var(--zen-sep);
@@ -607,10 +613,13 @@
     --lay-left: calc(var(--collapsed-tab-w) + 12px);
     --lay-bar-left: 0px;
     --lay-side-top: var(--zen-toolbar-h);
+    --lay-glass: calc(var(--collapsed-tab-w) + 12px);
   }
+  /* The floating sidebar is drawn over the page, where the material cannot show. */
   .app.compact {
     --lay-left: var(--zen-sep);
     --lay-bar-left: 0px;
+    --lay-glass: 0px;
   }
   /* The bookmarks toolbar takes its own row above the page. */
   .app.has-bar {
@@ -628,7 +637,8 @@
       --lay-left 300ms var(--zen-spring),
       --lay-top 300ms var(--zen-spring),
       --lay-bar-left 300ms var(--zen-spring),
-      --lay-side-top 300ms var(--zen-spring);
+      --lay-side-top 300ms var(--zen-spring),
+      --lay-glass 300ms var(--zen-spring);
   }
   .side-slot {
     position: absolute;
@@ -667,14 +677,22 @@
     inset: 0;
   }
 
-  /* Window tint by the active space. Over Mica the tint stays translucent, so the system
-   * material still shows through, as in Zen on Windows 11. */
+  /* Window tint by the active space. Only the sidebar shows the system material, through a
+   * translucent tint (as in Zen on Windows 11); the toolbar and the frame around the page get
+   * the solid window colour. Three non-overlapping rectangles: the sidebar, the strip above it
+   * (collapsed layout) and everything to its right. */
   .space-bg-layer {
     position: absolute;
     inset: 0;
     pointer-events: none;
     z-index: 0;
-    background: var(--tint);
+    background:
+      linear-gradient(var(--glass), var(--glass)) 0 var(--lay-side-top) / var(--lay-glass)
+        calc(100% - var(--lay-side-top)) no-repeat,
+      linear-gradient(var(--tint-solid), var(--tint-solid)) 0 0 / var(--lay-glass) var(--lay-side-top)
+        no-repeat,
+      linear-gradient(var(--tint-solid), var(--tint-solid)) var(--lay-glass) 0 /
+        calc(100% - var(--lay-glass)) 100% no-repeat;
   }
   /* Above the page area, below every floating panel (the flyout sits at z-index 40). */
   .space-bg-layer.masked {
@@ -682,6 +700,7 @@
   }
   .space-bg-layer.page-scrim {
     z-index: 2;
+    background: var(--tint);
   }
   .space-bg {
     position: absolute;

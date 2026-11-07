@@ -378,15 +378,30 @@ unsafe extern "system" fn subclass_proc(
         match msg {
             WM_SIZE => {
                 let result = DefSubclassProc(hwnd, msg, wparam, lparam);
+                if wparam.0 as u32 == SIZE_MINIMIZED {
+                    MINIMIZED.with(|m| m.borrow_mut().insert(hwnd.0 as isize));
+                }
                 if wparam.0 as u32 != SIZE_MINIMIZED {
                     let w = (lparam.0 & 0xFFFF) as i32;
                     let h = ((lparam.0 >> 16) & 0xFFFF) as i32;
                     on_resize(hwnd, w, h);
                     // A window brought back from the taskbar or Win+D was activated while still
-                    // minimized, when no webview can take the focus: it is left on the frame.
+                    // minimized, when no webview can take the focus: it is left on the frame. Only
+                    // that case needs it: moving the focus on every resize while the window is
+                    // active leaves the webviews' Chromium windows at their old size, so a
+                    // shrunk window shows its pages cut off at the window edge.
+                    if !MINIMIZED.with(|m| m.borrow_mut().remove(&(hwnd.0 as isize))) {
+                        return result;
+                    }
                     post(move || restore_focus(hwnd, None, true));
                 }
                 result
+            }
+            // Transparency effects or battery saver may have been switched (settings changes are
+            // broadcast; battery saver is caught by the power broadcast or the next activation).
+            WM_SETTINGCHANGE | WM_POWERBROADCAST => {
+                post(check_translucency);
+                DefSubclassProc(hwnd, msg, wparam, lparam)
             }
             WM_ACTIVATE => {
                 let state = (wparam.0 & 0xFFFF) as u32;
@@ -394,6 +409,7 @@ unsafe extern "system" fn subclass_proc(
                 if state == WA_INACTIVE || minimized {
                     return DefSubclassProc(hwnd, msg, wparam, lparam);
                 }
+                post(check_translucency);
                 // Coming back to the window (Alt+Tab, the taskbar, another window closing) puts
                 // the keyboard focus on this frame, and wry then asks the chrome to take it. That
                 // does not reliably land in a webview, and keys sent to the bare frame never
@@ -440,9 +456,18 @@ unsafe extern "system" fn subclass_proc(
     }
 }
 
+/// Tells every window to re-apply its material when Windows started or stopped allowing it.
+fn check_translucency() {
+    if crate::win::translucency_changed() {
+        emit("translucency-changed", ());
+    }
+}
+
 thread_local! {
     /// Set while `WM_ACTIVATE` runs, so its nested `WM_SETFOCUS` leaves the restore to it.
     static ACTIVATING: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// Windows (by handle) that were minimized and have not been sized since being shown again.
+    static MINIMIZED: std::cell::RefCell<std::collections::HashSet<isize>> = std::cell::RefCell::new(std::collections::HashSet::new());
 }
 
 /// Label and remembered focus of the window `hwnd`, without waiting for a busy host.
