@@ -346,7 +346,7 @@ fn stage_crx_in(bytes: &[u8], root: &Path) -> Result<Staged, String> {
 
 /// Downloads an extension from the Chrome Web Store (blocking).
 pub fn download_from_store(store_id: &str) -> Result<Vec<u8>, String> {
-    crate::net::get(&crx::download_url(store_id, &crx::prodversion()), 64 * 1024 * 1024, 60_000)
+    crate::net::get(&crx::download_url(store_id, &crx::prodversion()), MAX_PACKAGE, 60_000)
         .map_err(|e| format!("could not download the extension from the Chrome Web Store ({e})"))
 }
 
@@ -513,7 +513,9 @@ pub enum Fetch {
     Bytes { bytes: Vec<u8>, hint: String },
 }
 
-const MAX_PACKAGE: usize = 64 * 1024 * 1024;
+/// Upper bound for a downloaded extension package. Some store extensions (bundled ML models,
+/// fonts, media) are well over 100 MB, so this only guards against runaway responses.
+const MAX_PACKAGE: usize = 512 * 1024 * 1024;
 
 fn fetch_url(url: &str, referer: String, user_agent: &str, allow_private: bool) -> Result<(Vec<u8>, String), String> {
     use crate::media::http::Client;
