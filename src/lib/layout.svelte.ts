@@ -100,8 +100,20 @@ interface Hold {
   inX: number;
   outY: number;
   inY: number;
+  /** The same for the right/bottom insets (a sidebar on the right, a tab strip at the bottom):
+   *  <= 0 grows the page past its current right/bottom edge, >= 0 pulls it in. */
+  outR: number;
+  inR: number;
+  outB: number;
+  inB: number;
 }
-const NO_HOLD: Hold = { outX: 0, inX: 0, outY: 0, inY: 0 };
+const NO_HOLD: Hold = { outX: 0, inX: 0, outY: 0, inY: 0, outR: 0, inR: 0, outB: 0, inB: 0 };
+const HOLD_PROPS: Record<string, [keyof Hold, keyof Hold]> = {
+  "--lay-left": ["outX", "inX"],
+  "--lay-top": ["outY", "inY"],
+  "--lay-right": ["outR", "inR"],
+  "--lay-bottom": ["outB", "inB"],
+};
 
 function layoutHold(): Hold {
   const app = document.querySelector<HTMLElement>(".app");
@@ -110,7 +122,8 @@ function layoutHold(): Hold {
   for (const a of app.getAnimations()) {
     if (!(a instanceof CSSTransition)) continue;
     const prop = a.transitionProperty;
-    if (prop !== "--lay-left" && prop !== "--lay-top") continue;
+    const keys = HOLD_PROPS[prop];
+    if (!keys) continue;
     const frames = (a.effect as KeyframeEffect | null)?.getKeyframes() ?? [];
     if (frames.length < 2) continue;
     const from = parseFloat(String(frames[0][prop]));
@@ -119,13 +132,8 @@ function layoutHold(): Hold {
     if (![from, to, cur].every(Number.isFinite)) continue;
     const out = Math.min(0, from - cur, to - cur);
     const inn = Math.max(0, from - cur, to - cur);
-    if (prop === "--lay-left") {
-      hold.outX = out;
-      hold.inX = inn;
-    } else {
-      hold.outY = out;
-      hold.inY = inn;
-    }
+    hold[keys[0]] = out;
+    hold[keys[1]] = inn;
   }
   return hold;
 }
@@ -144,16 +152,23 @@ async function flush() {
     if (!shown) continue;
     const r: PaneSpec = { ...shown };
     const big = rectOf(el, id, hold.outX, hold.outY);
-    if (big && (big.w > shown.w || big.h > shown.h)) {
+    const bigW = Math.max(big?.w ?? 0, shown.w) - Math.round(hold.outR);
+    const bigH = Math.max(big?.h ?? 0, shown.h) - Math.round(hold.outB);
+    if (bigW > shown.w || bigH > shown.h) {
       // The largest size, anchored at the current edge; only `shown` of it is visible.
-      r.w = Math.max(big.w, shown.w);
-      r.h = Math.max(big.h, shown.h);
+      r.w = bigW;
+      r.h = bigH;
       r.visW = shown.w;
       r.visH = shown.h;
     }
     list.push(r);
     const core = rectOf(el, id, hold.inX, hold.inY) ?? shown;
-    cutouts.push({ x: core.x, y: core.y, w: core.w, h: core.h });
+    cutouts.push({
+      x: core.x,
+      y: core.y,
+      w: Math.max(2, core.w - Math.round(hold.inR)),
+      h: Math.max(2, core.h - Math.round(hold.inB)),
+    });
   }
   const glance =
     glanceEl && glanceEl.el.isConnected && registry.isLive(glanceEl.id)
@@ -170,11 +185,20 @@ async function flush() {
   if (key !== lastSent) {
     lastSent = key;
     if (JSON.stringify(cutouts) !== JSON.stringify(overlay.panes)) overlay.panes = cutouts;
+    // `data-raised` drops the solid material's opaque body background (app.css), which would
+    // cover the pages once the chrome is above them. It goes off before the raise has painted
+    // and comes back only after the chrome is below the pages again.
+    const root = document.documentElement;
+    if (spec.overlay && !root.hasAttribute("data-raised")) {
+      root.setAttribute("data-raised", "");
+      if (root.dataset.material === "solid") await nextPaint();
+    }
     try {
       await api.setLayout(spec);
     } catch (e) {
       console.warn("set_layout failed", e);
     }
+    if (!spec.overlay) root.removeAttribute("data-raised");
   }
   if (pendingFocus !== undefined) {
     const target = pendingFocus;
@@ -187,6 +211,11 @@ async function flush() {
       }
     }
   }
+}
+
+/** Resolves once the chrome has painted the current DOM. */
+function nextPaint() {
+  return new Promise<void>((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0)));
 }
 
 /** Where a live tab's page is on screen (window CSS px), or null when it isn't showing. */

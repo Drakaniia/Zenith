@@ -35,6 +35,7 @@ import { settings, type BookmarksBarMode } from "./settings.svelte";
 import { ui, type MenuItem } from "./ui.svelte";
 import type { BookmarkNode, Space, Tab } from "./types";
 import { hostOf, isWebUrl, siteOf } from "./url";
+import { SIDEBAR_POSITIONS } from "./sidebar-position";
 
 /** The first shortcut bound to an action, for menu hints. */
 const hintFor = shortcutHint;
@@ -407,6 +408,39 @@ export function spaceMenu(space: Space): MenuItem[] {
       danger: true,
       disabled: browser.spaces.length <= 1,
       run: () => browser.deleteSpace(space.id),
+    },
+  ];
+}
+
+/** The sidebar's (or tab strip's) own menu, from a right-click on an empty part of it. */
+export function sidebarMenu(): MenuItem[] {
+  return [
+    {
+      label: "New Tab",
+      icon: "plus",
+      hint: shortcutHint("newTab"),
+      run: () => ui.openPalette("newTab"),
+    },
+    { separator: true },
+    {
+      label: "Move sidebar to",
+      icon: "sidebar",
+      children: SIDEBAR_POSITIONS.map((p) => ({
+        label: p.label,
+        checked: settings.value.sidebarPosition === p.value,
+        run: () => {
+          ui.flyout = false;
+          ui.flyoutPinned = false;
+          settings.update({ sidebarPosition: p.value });
+        },
+      })),
+    },
+    {
+      label: "Compact mode",
+      icon: "sidebar",
+      hint: shortcutHint("toggleCompact"),
+      checked: settings.value.compact,
+      run: () => void runAction("toggleCompact"),
     },
   ];
 }

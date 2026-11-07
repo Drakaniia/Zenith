@@ -230,6 +230,7 @@ function settingsJson(): string {
     compact: params.get("compact") === "1",
     toolbarMode: mode === "multiple" || mode === "collapsed" ? mode : "single",
     sidebarWidth: Number(params.get("width")) || undefined,
+    sidebarPosition: params.get("side") ?? undefined,
   });
 }
 

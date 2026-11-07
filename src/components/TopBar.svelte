@@ -14,11 +14,12 @@
 
   // Zen's #nav-bar for the multiple-toolbars and collapsed layouts (38px): navigation buttons,
   // a centred address bar, page and app menus, and the window controls at the end.
-  let { floating = false }: { floating?: boolean } = $props();
+  // `controls: false` when a tab strip above it holds the window controls.
+  let { floating = false, controls = true }: { floating?: boolean; controls?: boolean } = $props();
 
   const tab = $derived(browser.activeTab);
   const live = $derived(tab?.live ? tab : undefined);
-  const collapsed = $derived(settings.value.toolbarMode === 'collapsed');
+  const collapsed = $derived(settings.layoutMode === 'collapsed');
 
   // ---------------------------------------------------------------- overflow
   // On a narrow window the address bar shrinks first; then these buttons move, in this order,
@@ -94,9 +95,7 @@
 
 <div class="topbar" class:floating bind:this={bar} data-tauri-drag-region="deep">
   {#if collapsed}
-    <button class="icon-btn" title={withHint('Expand sidebar', 'toggleSidebar')} data-action="toggle-sidebar" onclick={() => void runAction('toggleSidebar')}>
-      <Icon name="sidebarExpand" />
-    </button>
+    <!-- Collapsed toolbar: only the compact-mode toggle; expanding goes through Settings, the menu or the shortcut. -->
     <button
       class="icon-btn"
       title={withHint(settings.value.compact ? 'Turn off compact mode' : 'Compact mode', 'toggleCompact')}
@@ -190,7 +189,9 @@
   >
     <Icon name="more" />
   </button>
-  <WindowControls />
+  {#if controls}
+    <WindowControls />
+  {/if}
 </div>
 
 <style>

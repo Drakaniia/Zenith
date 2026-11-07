@@ -5,6 +5,9 @@
   import { api } from '../../lib/ipc';
   import { ACTIONS, ACTION_LABELS, GROUPS, chordFromEvent, defaultShortcuts, displayChord, isReserved } from '../../lib/shortcuts';
 
+  /** The settings page search: narrows the list by action name on top of the editor's own filter. */
+  let { query = '' }: { query?: string } = $props();
+
   const groups = GROUPS;
   let filter = $state('');
   let recording = $state<string | null>(null);
@@ -90,11 +93,18 @@
     void settings.pushShortcuts();
   }
 
+  const outer = $derived(query.trim().toLowerCase());
   const visible = $derived(
-    ACTIONS.filter((a) => !filter || a.label.toLowerCase().includes(filter.toLowerCase()) || (shortcuts[a.id] ?? []).some((k) => k.toLowerCase().includes(filter.toLowerCase()))),
+    ACTIONS.filter(
+      (a) =>
+        (!outer || a.label.toLowerCase().includes(outer)) &&
+        (!filter || a.label.toLowerCase().includes(filter.toLowerCase()) || (shortcuts[a.id] ?? []).some((k) => k.toLowerCase().includes(filter.toLowerCase()))),
+    ),
   );
 </script>
 
+<!-- While the settings search finds no action here, render nothing so the section hides. -->
+{#if !outer || visible.length}
 <div class="editor">
   <div class="tools">
     <input class="field grow" placeholder="Search shortcuts" bind:value={filter} />
@@ -128,6 +138,7 @@
     {/if}
   {/each}
 </div>
+{/if}
 
 <style>
   .editor {

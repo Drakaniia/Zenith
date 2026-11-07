@@ -31,6 +31,7 @@ import { ACTIONS, chordLabel } from "./shortcuts";
 import { incognito } from "./app.svelte";
 import { onboarding } from "./onboarding.svelte";
 import { notes } from "./notes.svelte";
+import { makeDefaultBrowser } from "./default-browser";
 
 const ZOOM_LEVELS = [
   0.25, 0.33, 0.5, 0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3, 4,
@@ -82,6 +83,7 @@ export function openNotes(opts: { create?: boolean } = {}) {
 }
 
 const onNotesPage = () => internalPage(browser.activeTab?.url ?? "") === "notes";
+const onSettingsPage = () => internalPage(browser.activeTab?.url ?? "") === "settings";
 
 export async function copyText(text: string) {
   try {
@@ -421,6 +423,11 @@ export async function runAction(
         notes.focusSearch++;
         return;
       }
+      // On the settings page it searches the settings.
+      if (!live && onSettingsPage()) {
+        ui.settingsSearch++;
+        return;
+      }
       return openFind(live);
     case "findNext":
     case "findPrev":
@@ -464,7 +471,7 @@ export async function runAction(
       return;
     case "toggleFloatingToolbar":
       // Zen: compact mode hides the toolbar too; it then floats in from the top edge.
-      if (settings.value.toolbarMode === "single")
+      if (settings.layoutMode === "single")
         return ui.toast("With the single toolbar the address bar is in the sidebar", { icon: "sidebar" });
       ui.topReveal = false;
       return settings.update({
@@ -733,7 +740,7 @@ export function commands(): Command[] {
       id: "defaultBrowser",
       label: "Make Zenith the default browser",
       icon: "globe",
-      run: () => void api.defaultBrowserRegister(),
+      run: () => void makeDefaultBrowser().catch(() => {}),
     },
     {
       id: "importBookmarks",

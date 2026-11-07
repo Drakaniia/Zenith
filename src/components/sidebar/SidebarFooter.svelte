@@ -13,7 +13,8 @@
   const onNotes = $derived(internalPage(browser.activeTab?.url ?? '') === 'notes');
 
   // Zen's #zen-sidebar-foot-buttons: downloads, the space switcher and the "+" create button.
-  let { collapsed = false }: { collapsed?: boolean } = $props();
+  // `inline`: part of the horizontal tab strip (sidebar at the top or bottom of the window).
+  let { collapsed = false, inline = false }: { collapsed?: boolean; inline?: boolean } = $props();
 
   // Space buttons can be dragged sideways to reorder spaces (Zen's reorder mode).
   let reorder = $state<{ id: string; startX: number; moved: boolean } | null>(null);
@@ -49,7 +50,7 @@
   const many = $derived(browser.spaces.length > (collapsed ? 99 : 6));
 </script>
 
-<footer class="foot" class:collapsed>
+<footer class="foot" class:collapsed class:inline>
   <button class="icon-btn dl" title={withHint('Downloads', 'downloads')} onclick={() => (ui.downloadsOpen = !ui.downloadsOpen)} data-downloads-anchor>
     <Icon name="download" />
     {#if downloads.progress >= 0}
@@ -108,7 +109,8 @@
     data-action="create-new"
     onclick={(e) => {
       const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
-      ui.openMenu(r.left, r.top - 8, createNewMenu());
+      // In a tab strip at the top of the window the menu opens below the button.
+      ui.openMenu(r.left, inline && r.top < window.innerHeight / 2 ? r.bottom + 4 : r.top - 8, createNewMenu());
     }}
   >
     <Icon name="plus" />
@@ -129,6 +131,15 @@
   .foot.collapsed {
     flex-direction: column;
     padding: var(--zen-sep) 0 0;
+  }
+  .foot.inline {
+    flex: 0 1 auto;
+    min-width: 0;
+    min-height: 0;
+    padding: 0;
+  }
+  .foot.inline .spaces {
+    flex: 0 1 auto;
   }
   .spaces {
     flex: 1;

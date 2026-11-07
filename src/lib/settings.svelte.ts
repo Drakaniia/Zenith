@@ -5,6 +5,7 @@ import { defaultShortcuts, mergeShortcuts } from "./shortcuts";
 import { SEARCH_ENGINES } from "./url";
 import { defaultStartPage, normalizeStartPage, type StartPageSettings } from "./startpage";
 import { GALLERY_IDS } from "./wallpapers";
+import { effectiveMode, normalizeSidebarPosition, type SidebarPosition } from "./sidebar-position";
 
 export interface FilterListSetting {
   id: string;
@@ -33,6 +34,8 @@ export interface Settings {
   /** Layout to return to when the collapsed sidebar is expanded again. */
   lastExpandedMode?: Exclude<ToolbarMode, "collapsed">;
   sidebarWidth: number;
+  /** The window edge the sidebar is on; top and bottom make it a horizontal tab strip. */
+  sidebarPosition: SidebarPosition;
   /** Zen's "Clear" button between pinned and regular tabs. */
   showClearButton: boolean;
   /** The "sidebar hidden, compact mode brings it back" hint was shown once. */
@@ -179,6 +182,7 @@ export function defaultSettings(): Settings {
     chatbot: "",
     toolbarMode: "single",
     sidebarWidth: SIDEBAR_DEFAULT,
+    sidebarPosition: "left",
     showClearButton: true,
     bookmarksBar: "newtab",
     bookmarksOther: true,
@@ -247,6 +251,11 @@ class SettingsStore {
       : this.value.theme,
   );
 
+  /** The layout actually drawn: a tab strip (sidebar at the top or bottom) keeps the toolbar. */
+  layoutMode = $derived<ToolbarMode>(
+    effectiveMode(this.value.toolbarMode, this.value.sidebarPosition),
+  );
+
   async load() {
     const media = matchMedia("(prefers-color-scheme: dark)");
     this.systemDark = media.matches;
@@ -300,6 +309,7 @@ class SettingsStore {
           !["single", "multiple", "collapsed"].includes(this.value.toolbarMode)
         )
           this.value.toolbarMode = "single";
+        this.value.sidebarPosition = normalizeSidebarPosition(this.value.sidebarPosition);
         if (!["always", "newtab", "never"].includes(this.value.bookmarksBar))
           this.value.bookmarksBar = "newtab";
         this.value.bookmarksPanelWidth = Math.min(

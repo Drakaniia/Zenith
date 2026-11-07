@@ -76,6 +76,7 @@ export interface Toast {
   text: string;
   icon?: IconName;
   action?: { label: string; run: () => void };
+  /** Milliseconds on screen; 0 keeps the toast (with a close button) until it is dismissed. */
   timeout: number;
 }
 
@@ -123,6 +124,8 @@ class UiStore {
   /** Window controls revealed from the top edge (single-toolbar layout). */
   captionReveal = $state(false);
   shortcutRecording = $state(false);
+  /** Bumped by Ctrl+F on the settings page to focus its search box. */
+  settingsSearch = $state(0);
   #toastId = 0;
 
   openPalette(mode: PaletteMode, query = "") {
@@ -176,10 +179,18 @@ class UiStore {
     this.menu = null;
   }
 
-  toast(text: string, opts: Partial<Omit<Toast, "id" | "text">> = {}) {
+  toast(text: string, opts: Partial<Omit<Toast, "id" | "text">> = {}): number {
     const t: Toast = { id: ++this.#toastId, text, timeout: 3200, ...opts };
-    this.toasts = [...this.toasts.slice(-2), t];
-    setTimeout(() => this.dismiss(t.id), t.timeout);
+    // At most three on screen: the oldest passing toast makes room, a sticky one stays.
+    const list = [...this.toasts, t];
+    while (list.length > 3) {
+      const i = list.findIndex((x) => x.timeout > 0 && x !== t);
+      if (i < 0) break;
+      list.splice(i, 1);
+    }
+    this.toasts = list;
+    if (t.timeout > 0) setTimeout(() => this.dismiss(t.id), t.timeout);
+    return t.id;
   }
 
   dismiss(id: number) {

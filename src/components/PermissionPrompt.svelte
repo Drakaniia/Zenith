@@ -54,6 +54,15 @@
     padding: 16px;
     border-radius: var(--radius-xl);
   }
+  /* Sidebar on the right or a tab strip: the page starts near the window's left edge. */
+  :global(.app.side-right) .prompt,
+  :global(.app.side-top) .prompt,
+  :global(.app.side-bottom) .prompt {
+    left: 24px;
+  }
+  :global(.app.side-top) .prompt {
+    top: calc(var(--strip-h) + var(--topbar) + 14px);
+  }
   :global(.app.compact) ~ .prompt,
   :global(.app.compact) .prompt {
     left: 24px;

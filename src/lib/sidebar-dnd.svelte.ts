@@ -69,8 +69,11 @@ class SidebarDnd {
         el.closest<HTMLElement>("[data-folder-id]")?.dataset.folderId ?? null;
       if (item && ids.includes(item.dataset.tabId!)) {
         const r = item.getBoundingClientRect();
+        // Side by side: Essentials, a split group, and everything in the horizontal tab strip.
         const horizontal =
-          zone === "essentials" || !!item.closest("[data-split-group]");
+          zone === "essentials" ||
+          !!item.closest("[data-split-group]") ||
+          !!item.closest("[data-horizontal]");
         const before = horizontal
           ? x < r.left + r.width / 2
           : y < r.top + r.height / 2;

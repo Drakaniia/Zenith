@@ -17,7 +17,10 @@
   import { startSleepScheduler } from './lib/sleep';
   import { appInfo, incognito } from './lib/app.svelte';
   import { updates } from './lib/updates.svelte';
+  import { promptDefaultBrowser } from './lib/default-browser';
+  import { isStrip } from './lib/sidebar-position';
   import Sidebar from './components/Sidebar.svelte';
+  import TabStrip from './components/TabStrip.svelte';
   import TopBar from './components/TopBar.svelte';
   import Content from './components/Content.svelte';
   import Palette from './components/Palette.svelte';
@@ -54,13 +57,18 @@
 
   const compact = $derived(settings.value.compact);
   const pageFullscreen = $derived(!!browser.fullscreenTabId);
-  const mode = $derived(settings.value.toolbarMode);
+  const mode = $derived(settings.layoutMode);
+  /** The window edge the sidebar is on; at the top or bottom it is a horizontal tab strip. */
+  const side = $derived(settings.value.sidebarPosition);
+  const strip = $derived(isStrip(side));
   /** Zen's single toolbar: no toolbar above the page; window controls appear at the top edge. */
   const single = $derived(mode === 'single');
   const showSidebar = $derived(!compact && !pageFullscreen);
   /** Compact mode with the toolbar hidden too (Ctrl+Alt+T): it floats in from the top edge. */
   const hideToolbar = $derived(compact && settings.value.compactHideToolbar && !single && !pageFullscreen);
   const showTopBar = $derived(!single && !pageFullscreen && !hideToolbar);
+  /** A tab strip at the top is the window's top row, so it holds the window controls. */
+  const stripHasControls = $derived(side === 'top' && showSidebar);
   /** The bookmarks toolbar has a row of its own. In the single-toolbar layout, when it hasn't, it
    *  still appears next to the window controls while the pointer is at the top edge. */
   const barOn = $derived(!pageFullscreen && barPinned());
@@ -121,6 +129,7 @@
     void settings.value.compact;
     void settings.value.sidebarWidth;
     void settings.value.toolbarMode;
+    void settings.value.sidebarPosition;
     void hideToolbar;
     void barOn;
     void ui.find.open;
@@ -166,7 +175,7 @@
     }
   }
 
-  // Compact mode: the sidebar slides in from the left edge and stays while hovered, plus
+  // Compact mode: the sidebar slides in from its window edge and stays while hovered, plus
   // Zen's 150 ms keep-hover grace (zen.view.compact.sidebar-keep-hover.duration).
   let revealTimer: ReturnType<typeof setTimeout> | undefined;
   function revealSidebar() {
@@ -344,6 +353,11 @@
         // A window with nothing to show opens the home page.
         if (!incognito && !info.startupUrls.length && s.homepage && !browser.activeTab) browser.openTab(s.homepage);
         scheduleLayout();
+        // Every launch (the main window only) asks to become the default browser while Zenith
+        // isn't; the setup assistant asks on its own last step.
+        if (!incognito && !onboarding.open && getCurrentWebviewWindow().label === 'main') {
+          setTimeout(() => void promptDefaultBrowser(), 1200);
+        }
       });
       startSleepScheduler();
       void bookmarks.load();
@@ -397,6 +411,9 @@
   class:has-bar={barOn}
   class:collapsed-mode={mode === 'collapsed'}
   class:no-toolbar={hideToolbar}
+  class:side-right={side === 'right'}
+  class:side-top={side === 'top'}
+  class:side-bottom={side === 'bottom'}
   class:incognito
   class:animating
   inert={onboarding.open}
@@ -429,13 +446,23 @@
   </div>
 
   {#if showSidebar}
-    <div
-      class="side-slot"
-      in:slideX={{ from: -1, duration: motionMs(), easing: springEase }}
-      out:slideX={{ from: -1, duration: motionMs(), easing: springEase }}
-    >
-      <Sidebar />
-    </div>
+    {#if strip}
+      <div
+        class="strip-slot"
+        in:slidePx={{ y: side === 'top' ? -16 : 16, duration: motionMs(), easing: springEase }}
+        out:slidePx={{ y: side === 'top' ? -16 : 16, duration: motionMs() * 0.6, easing: cubicOut }}
+      >
+        <TabStrip edge={side === 'top' ? 'top' : 'bottom'} collapsed={mode === 'collapsed'} controls={stripHasControls} />
+      </div>
+    {:else}
+      <div
+        class="side-slot"
+        in:slideX={{ from: side === 'right' ? 1 : -1, duration: motionMs(), easing: springEase }}
+        out:slideX={{ from: side === 'right' ? 1 : -1, duration: motionMs(), easing: springEase }}
+      >
+        <Sidebar />
+      </div>
+    {/if}
   {/if}
   {#if showTopBar}
     <div
@@ -443,7 +470,7 @@
       in:slidePx={{ y: -16, duration: motionMs(), easing: springEase }}
       out:slidePx={{ y: -16, duration: motionMs() * 0.6, easing: cubicOut }}
     >
-      <TopBar />
+      <TopBar controls={!stripHasControls} />
       {#if barOn}
         <div class="bar-row" transition:fade={{ duration: 150 }}>
           <BookmarksBar />
@@ -502,7 +529,8 @@
     {/if}
   {/if}
 
-  {#if hideToolbar}
+  <!-- With the tab strip at the top, the top edge reveals the strip and the toolbar together (below). -->
+  {#if hideToolbar && side !== 'top'}
     <div
       class="hot-top"
       role="presentation"
@@ -526,25 +554,43 @@
   {/if}
 
   {#if compact && !pageFullscreen}
+    <!-- The hidden sidebar's window edge reveals it. -->
     <div
-      class="hot-left"
+      class="hot-edge {side}"
       role="presentation"
       onmouseenter={revealSidebar}
       onmouseleave={cancelReveal}
       data-tauri-drag-region
     ></div>
     {#if ui.flyout}
-      <div
-        class="flyout"
-        role="presentation"
-        use:overlayLease
-        onmouseenter={keepFlyout}
-        onmouseleave={scheduleHideFlyout}
-        in:slideX={{ from: -1.08, duration: 250, easing: compactEase }}
-        out:slideX={{ from: -1.08, duration: 150, easing: cubicOut }}
-      >
-        <Sidebar floating />
-      </div>
+      {#if strip}
+        <div
+          class="flyout strip {side}"
+          role="presentation"
+          use:overlayLease
+          onmouseenter={keepFlyout}
+          onmouseleave={scheduleHideFlyout}
+          in:slidePx={{ y: side === 'top' ? -16 : 16, duration: 200, easing: compactEase }}
+          out:slidePx={{ y: side === 'top' ? -16 : 16, duration: 150, easing: cubicOut }}
+        >
+          <TabStrip floating edge={side === 'top' ? 'top' : 'bottom'} collapsed={mode === 'collapsed'} />
+          {#if side === 'top' && hideToolbar}
+            <TopBar floating />
+          {/if}
+        </div>
+      {:else}
+        <div
+          class="flyout {side}"
+          role="presentation"
+          use:overlayLease
+          onmouseenter={keepFlyout}
+          onmouseleave={scheduleHideFlyout}
+          in:slideX={{ from: side === 'right' ? 1.08 : -1.08, duration: 250, easing: compactEase }}
+          out:slideX={{ from: side === 'right' ? 1.08 : -1.08, duration: 150, easing: cubicOut }}
+        >
+          <Sidebar floating />
+        </div>
+      {/if}
     {/if}
   {/if}
 
@@ -591,17 +637,25 @@
   /* The pieces are placed with the layout variables registered in app.css (--lay-*), so a
    * layout change can transition them; the page webviews follow the stage frame by frame.
    *   --lay-left      left edge of the page      --lay-top       top edge of the page
+   *   --lay-right     inset of its right edge    --lay-bottom    inset of its bottom edge
    *   --lay-bar-left  left edge of the toolbar   --lay-side-top  top edge of the sidebar
-   *   --lay-glass     width of the translucent sidebar area (0 when the sidebar floats) */
+   *   --lay-bar-top   top edge of the toolbar (below a tab strip at the top)
+   *   --lay-glass     width of the translucent sidebar area (0 when the sidebar floats)
+   * The sidebar can sit on the right (mirrored) or, as a horizontal tab strip, at the top or the
+   * bottom (.side-* classes below). */
   .app {
     position: fixed;
     inset: 0;
     overflow: hidden;
     --lay-left: var(--sidebar-w);
+    --lay-right: var(--zen-sep);
     --lay-top: var(--zen-toolbar-h);
+    --lay-bottom: var(--zen-sep);
     --lay-bar-left: var(--sidebar-w);
+    --lay-bar-top: 0px;
     --lay-side-top: 0px;
     --lay-glass: var(--sidebar-w);
+    --strip-bottom: 0px;
   }
   .app.incognito {
     --glass: var(--glass-incognito);
@@ -632,10 +686,66 @@
   .app.no-toolbar {
     --lay-top: var(--zen-sep);
   }
+
+  /* Sidebar on the right: the page on the left. With a toolbar (multiple, collapsed) the toolbar
+   * spans the window, so the window controls stay in its corner, and the sidebar starts below. */
+  .app.side-right {
+    --lay-left: var(--zen-sep);
+    --lay-right: var(--sidebar-w);
+    --lay-bar-left: 0px;
+    --lay-side-top: var(--zen-toolbar-h);
+  }
+  .app.side-right.single {
+    --lay-side-top: 0px;
+  }
+  .app.side-right.collapsed-mode {
+    --lay-right: calc(var(--collapsed-tab-w) + 12px);
+  }
+  .app.side-right.compact {
+    --lay-right: var(--zen-sep);
+  }
+
+  /* Tab strip at the top (above the toolbar) or the bottom: the page spans the width. */
+  .app.side-top,
+  .app.side-bottom {
+    --lay-left: var(--zen-sep);
+    --lay-bar-left: 0px;
+    --lay-side-top: 0px;
+    --lay-glass: 0px;
+  }
+  .app.side-top {
+    --lay-bar-top: var(--strip-h);
+    --lay-top: calc(var(--strip-h) + var(--zen-toolbar-h));
+  }
+  .app.side-top.has-bar {
+    --lay-top: calc(var(--strip-h) + var(--zen-toolbar-h) + var(--bm-bar-h));
+  }
+  .app.side-top.compact {
+    --lay-bar-top: 0px;
+    --lay-top: var(--zen-toolbar-h);
+  }
+  .app.side-top.compact.has-bar {
+    --lay-top: calc(var(--zen-toolbar-h) + var(--bm-bar-h));
+  }
+  .app.side-top.compact.no-toolbar {
+    --lay-top: var(--zen-sep);
+  }
+  .app.side-bottom {
+    --lay-bottom: var(--strip-h);
+    --strip-bottom: var(--strip-h);
+  }
+  .app.side-bottom.compact {
+    --lay-bottom: var(--zen-sep);
+    --strip-bottom: 0px;
+  }
+
   .app.animating {
     transition:
       --lay-left 300ms var(--zen-spring),
+      --lay-right 300ms var(--zen-spring),
       --lay-top 300ms var(--zen-spring),
+      --lay-bottom 300ms var(--zen-spring),
+      --lay-bar-top 300ms var(--zen-spring),
       --lay-bar-left 300ms var(--zen-spring),
       --lay-side-top 300ms var(--zen-spring),
       --lay-glass 300ms var(--zen-spring);
@@ -648,12 +758,29 @@
     display: flex;
     z-index: 1;
   }
+  .app.side-right .side-slot {
+    left: auto;
+    right: 0;
+  }
   .side-slot > :global(aside.sidebar) {
     height: 100%;
   }
+  .strip-slot {
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: var(--strip-h);
+    z-index: 1;
+  }
+  .app.side-top .strip-slot {
+    top: 0;
+  }
+  .app.side-bottom .strip-slot {
+    bottom: 0;
+  }
   .toolbar-slot {
     position: absolute;
-    top: 0;
+    top: var(--lay-bar-top);
     left: var(--lay-bar-left);
     right: 0;
     display: flex;
@@ -665,8 +792,8 @@
     position: absolute;
     left: var(--lay-left);
     top: var(--lay-top);
-    right: var(--zen-sep);
-    bottom: var(--zen-sep);
+    right: var(--lay-right);
+    bottom: var(--lay-bottom);
     min-width: 0;
     min-height: 0;
     display: flex;
@@ -694,13 +821,36 @@
       linear-gradient(var(--tint-solid), var(--tint-solid)) var(--lay-glass) 0 /
         calc(100% - var(--lay-glass)) 100% no-repeat;
   }
+  /* The same three rectangles mirrored, for the sidebar on the right. */
+  .app.side-right .space-bg-layer:not(.page-scrim) {
+    background:
+      linear-gradient(var(--glass), var(--glass)) right 0 top var(--lay-side-top) / var(--lay-glass)
+        calc(100% - var(--lay-side-top)) no-repeat,
+      linear-gradient(var(--tint-solid), var(--tint-solid)) right 0 top 0 / var(--lay-glass)
+        var(--lay-side-top) no-repeat,
+      linear-gradient(var(--tint-solid), var(--tint-solid)) 0 0 / calc(100% - var(--lay-glass)) 100%
+        no-repeat;
+  }
+  /* A tab strip shows the material across the window's top or bottom row. */
+  .app.side-top .space-bg-layer:not(.page-scrim) {
+    background:
+      linear-gradient(var(--glass), var(--glass)) 0 0 / 100% var(--lay-bar-top) no-repeat,
+      linear-gradient(var(--tint-solid), var(--tint-solid)) 0 var(--lay-bar-top) / 100%
+        calc(100% - var(--lay-bar-top)) no-repeat;
+  }
+  .app.side-bottom .space-bg-layer:not(.page-scrim) {
+    background:
+      linear-gradient(var(--glass), var(--glass)) 0 100% / 100% var(--strip-bottom) no-repeat,
+      linear-gradient(var(--tint-solid), var(--tint-solid)) 0 0 / 100% calc(100% - var(--strip-bottom))
+        no-repeat;
+  }
   /* Above the page area, below every floating panel (the flyout sits at z-index 40). */
   .space-bg-layer.masked {
     mask-repeat: no-repeat;
   }
   .space-bg-layer.page-scrim {
     z-index: 2;
-    background: var(--tint);
+    background: var(--page-scrim);
   }
   .space-bg {
     position: absolute;
@@ -718,6 +868,9 @@
   /* Under the toolbar the row spans the page area, not the collapsed layout's icon sidebar. */
   .bar-row {
     margin-left: calc(var(--lay-left) - var(--lay-bar-left));
+  }
+  .app.side-right .bar-row {
+    margin-right: var(--lay-right);
   }
   .single-bar {
     position: absolute;
@@ -753,6 +906,22 @@
   .app.compact .hot-caption {
     left: var(--zen-sep);
   }
+  /* Sidebar on the right: the strip above the page ends at the sidebar, and the window controls
+   * appear at the page's top right corner rather than over the sidebar's buttons. */
+  .app.side-right .hot-caption {
+    left: 0;
+    right: var(--lay-right);
+  }
+  .app.side-right.compact .hot-caption {
+    left: var(--zen-sep);
+    right: 0;
+  }
+  .app.side-right .single-bar {
+    right: var(--lay-right);
+  }
+  .app.side-right .reveal-bar {
+    right: calc(var(--lay-right) + 138px);
+  }
   .captions {
     position: absolute;
     top: 0;
@@ -766,13 +935,45 @@
     background: var(--compact-bg);
     box-shadow: var(--zen-big-shadow);
   }
-  .hot-left {
+  .app.side-right:not(.compact) .captions {
+    right: var(--lay-right);
+    border-bottom-right-radius: var(--r-panel);
+  }
+  /* Compact mode: the window edge that brings the hidden sidebar back. */
+  .hot-edge {
     position: absolute;
-    left: 0;
+    z-index: 5;
+  }
+  .hot-edge.left,
+  .hot-edge.right {
     top: 0;
     bottom: 0;
     width: var(--margin);
-    z-index: 5;
+  }
+  .hot-edge.left {
+    left: 0;
+  }
+  .hot-edge.right {
+    right: 0;
+  }
+  .hot-edge.bottom {
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: var(--margin);
+  }
+  /* At the top it is a thin band over the toolbar, clear of the window controls; with the toolbar
+   * hidden too it is the strip above the page, like the floating toolbar's. */
+  .hot-edge.top {
+    top: 0;
+    left: 0;
+    right: 140px;
+    height: 4px;
+  }
+  .app.no-toolbar .hot-edge.top {
+    left: var(--margin);
+    right: 0;
+    height: var(--zen-sep);
   }
   /* Compact mode's floating sidebar (Zen: .zen-toolbar-background over #navigator-toolbox). */
   .flyout {
@@ -796,6 +997,28 @@
   }
   .app.no-toolbar .flyout {
     top: calc(var(--zen-sep) / 2);
+  }
+  .flyout.right {
+    left: auto;
+    right: calc(var(--zen-sep) / 2);
+  }
+  /* The floating tab strip, over the toolbar at the top or above the page's bottom edge. */
+  .app .flyout.strip {
+    left: calc(var(--zen-sep) / 2);
+    right: calc(var(--zen-sep) / 2);
+    top: auto;
+    bottom: auto;
+    width: auto;
+    padding-top: 0;
+  }
+  .app .flyout.strip.top {
+    top: calc(var(--zen-sep) / 2);
+  }
+  .app .flyout.strip.bottom {
+    bottom: calc(var(--zen-sep) / 2);
+  }
+  .flyout.strip > :global(.strip) {
+    height: var(--strip-h);
   }
   .hot-top {
     position: absolute;

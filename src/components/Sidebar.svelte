@@ -12,12 +12,15 @@
   import { ui } from '../lib/ui.svelte';
   import { slideX } from '../lib/motion';
   import { shortcutHint } from '../lib/actions';
+  import { sidebarMenu } from '../lib/menus';
 
   // Zen's sidebar (#navigator-toolbox): top buttons, address bar (single toolbar), Essentials,
   // the active space (sliding between spaces), media controls and the footer.
   let { floating = false }: { floating?: boolean } = $props();
 
-  const mode = $derived(settings.value.toolbarMode);
+  const mode = $derived(settings.layoutMode);
+  /** On the right the splitter is on the sidebar's left edge, and dragging left widens it. */
+  const right = $derived(settings.value.sidebarPosition === 'right');
   const collapsed = $derived(mode === 'collapsed' && !floating);
   const single = $derived(mode === 'single');
   const space = $derived(browser.activeSpace);
@@ -75,7 +78,7 @@
     resizing = true;
     let collapsedToCompact = false;
     const move = (ev: PointerEvent) => {
-      const w = startW + ev.clientX - startX;
+      const w = startW + (right ? startX - ev.clientX : ev.clientX - startX);
       if (w < SIDEBAR_COLLAPSE_AT && !settings.value.compact) {
         // Dragging the edge almost closed hides the sidebar: Zen turns on compact mode.
         collapsedToCompact = true;
@@ -107,7 +110,14 @@
   class:collapsed
   class:single
   class:has-top={!collapsed}
+  class:right
   {onwheel}
+  oncontextmenu={(e) => {
+    // Tabs, spaces and folders open their own menus; the rest of the sidebar opens this one.
+    if (e.defaultPrevented || (e.target as HTMLElement).closest('input, textarea')) return;
+    e.preventDefault();
+    ui.openMenu(e.clientX, e.clientY, sidebarMenu());
+  }}
 >
   {#if !collapsed}
     <SidebarTop {single} />
@@ -205,6 +215,10 @@
   }
   .splitter.resizing {
     transition-delay: 0s;
+  }
+  .sidebar.right .splitter {
+    right: auto;
+    left: -3px;
   }
 
   .ghost {

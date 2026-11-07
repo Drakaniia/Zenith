@@ -7,14 +7,17 @@
   import { settings, MATERIAL_FALLBACKS, SIDEBAR_MAX, SIDEBAR_MIN, type Settings } from '../../lib/settings.svelte';
   import { ui, formatBytes } from '../../lib/ui.svelte';
   import { api } from '../../lib/ipc';
+  import { makeDefaultBrowser } from '../../lib/default-browser';
   import { openInternal, openNotes, shortcutHint } from '../../lib/actions';
   import { bookmarks } from '../../lib/bookmarks.svelte';
   import { backupBookmarksFile, exportBookmarksFile, importBookmarksFile, restoreBookmarks } from '../../lib/bookmark-actions';
   import { displayChord } from '../../lib/shortcuts';
   import { SEARCH_ENGINES } from '../../lib/url';
+  import { SIDEBAR_POSITIONS, isStrip, positionHint } from '../../lib/sidebar-position';
   import { appInfo, incognito } from '../../lib/app.svelte';
   import { onboarding } from '../../lib/onboarding.svelte';
-  import { normalizeHomepage } from '../../lib/onboarding-flow';
+  import { ACCENT_NAMES, normalizeHomepage } from '../../lib/onboarding-flow';
+  import { browser, SPACE_COLORS } from '../../lib/browser.svelte';
   import { updates, updateLine } from '../../lib/updates.svelte';
   import { timeAgo } from '../../lib/ui.svelte';
   import type { BlockerStats, MemoryStats } from '../../lib/types';
@@ -123,11 +126,10 @@
 
   async function makeDefault() {
     try {
-      await api.defaultBrowserRegister();
-      ui.toast('Choose Zenith in the Windows settings window that opened', { icon: 'globe', timeout: 6000 });
+      await makeDefaultBrowser();
       setTimeout(async () => (defaultStatus = await api.defaultBrowserStatus()), 1500);
-    } catch (e) {
-      ui.toast(`Registration failed: ${e}`, { icon: 'alert' });
+    } catch {
+      /* makeDefaultBrowser already said why */
     }
   }
 
@@ -151,6 +153,118 @@
     if (path) setFfmpeg('ffmpegPath', path);
   }
 
+  // Search: filters the rendered page in place, so every setting is searchable without a
+  // separate index that could drift from the markup.
+  let query = $state('');
+  let searchEl: HTMLInputElement | undefined = $state();
+  /** Sections with at least one match; null while not searching. */
+  let matched = $state<Set<string> | null>(null);
+  const HIGHLIGHT = 'settings-search';
+  const canHighlight = typeof Highlight !== 'undefined' && typeof CSS !== 'undefined' && 'highlights' in CSS;
+  const EXTERNAL = { passwords: 'Passwords & autofill', extensions: 'Extensions' };
+  const q = $derived(query.trim().toLowerCase());
+  const externalDim = (label: string) => !!q && !label.toLowerCase().includes(q);
+
+  function applySearch() {
+    if (!scroller) return;
+    const needle = query.trim().toLowerCase();
+    const has = (el: Element) => (el.textContent ?? '').toLowerCase().includes(needle);
+    const show = (el: Element, on: boolean) => ((el as HTMLElement).hidden = !on);
+    const hits = new Set<string>();
+    for (const sec of scroller.querySelectorAll<HTMLElement>('section[id^="settings-"]')) {
+      const kids = [...sec.children];
+      if (!needle) {
+        sec.hidden = false;
+        for (const k of kids) show(k, true);
+        for (const g of sec.querySelectorAll(':scope > .group > *')) show(g, true);
+        continue;
+      }
+      const h2 = kids.find((k) => k.tagName === 'H2');
+      // The section's own name matches: show all of it.
+      const whole = !!h2 && has(h2);
+      let any = whole;
+      // An h3 starts a block that runs to the next h3; the first block has no heading.
+      let heading: Element | null = null;
+      let block: Element[] = [];
+      const flush = () => {
+        const headHit = whole || (!!heading && has(heading));
+        let blockHit = false;
+        for (const el of block) {
+          let on: boolean;
+          if (headHit) {
+            on = true;
+            if (el.classList.contains('group')) for (const it of el.children) show(it, true);
+          } else if (el.classList.contains('group') && !el.hasAttribute('data-search-whole')) {
+            // A settings group: keep only its matching rows.
+            on = false;
+            for (const it of el.children) {
+              const hit = has(it);
+              show(it, hit);
+              on ||= hit;
+            }
+          } else on = has(el);
+          show(el, on);
+          blockHit ||= on;
+        }
+        if (heading) show(heading, blockHit);
+        any ||= blockHit;
+      };
+      for (const k of kids) {
+        if (k === h2) continue;
+        if (k.tagName === 'H3') {
+          flush();
+          heading = k;
+          block = [];
+        } else block.push(k);
+      }
+      flush();
+      if (h2) show(h2, any);
+      sec.hidden = !any;
+      if (any) hits.add(sec.id.slice('settings-'.length));
+    }
+    matched = needle ? hits : null;
+    highlight(needle);
+  }
+
+  function highlight(needle: string) {
+    if (!canHighlight || !scroller) return;
+    if (!needle) return void CSS.highlights.delete(HIGHLIGHT);
+    const ranges: Range[] = [];
+    const walk = document.createTreeWalker(scroller, NodeFilter.SHOW_TEXT);
+    for (let n = walk.nextNode(); n; n = walk.nextNode()) {
+      const text = (n.textContent ?? '').toLowerCase();
+      if (!text.includes(needle) || n.parentElement?.closest('[hidden], select, .empty')) continue;
+      for (let i = text.indexOf(needle); i !== -1; i = text.indexOf(needle, i + needle.length)) {
+        const r = new Range();
+        r.setStart(n, i);
+        r.setEnd(n, i + needle.length);
+        ranges.push(r);
+      }
+    }
+    CSS.highlights.set(HIGHLIGHT, new Highlight(...ranges));
+  }
+
+  $effect(() => {
+    void query;
+    applySearch();
+    scroller?.scrollTo({ top: 0, behavior: 'instant' });
+  });
+
+  // Ctrl+F on this page (see actions.ts "find"); ignore the count it had before this page opened.
+  const searchRequestsAtOpen = ui.settingsSearch;
+  $effect(() => {
+    if (ui.settingsSearch === searchRequestsAtOpen) return;
+    void tick().then(() => searchEl?.select());
+  });
+
+  function onSearchKey(e: KeyboardEvent) {
+    if (e.key !== 'Escape') return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (query) query = '';
+    else searchEl?.blur();
+  }
+
   function jump(id: string) {
     current = id;
     scroller?.querySelector(`#settings-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -159,8 +273,9 @@
   function onScroll() {
     if (!scroller) return;
     const top = scroller.getBoundingClientRect().top;
-    let best = SECTIONS[0].id;
-    for (const sec of SECTIONS) {
+    const visible = SECTIONS.filter((sec) => !matched || matched.has(sec.id));
+    let best = visible[0]?.id ?? current;
+    for (const sec of visible) {
       const el = scroller.querySelector(`#settings-${sec.id}`);
       if (el && el.getBoundingClientRect().top - top < 120) best = sec.id;
     }
@@ -174,7 +289,17 @@
     void refreshTools();
     const t = setInterval(refreshMemory, 5000);
     if (section) void tick().then(() => jump(section));
-    return () => clearInterval(t);
+    // Rows that appear or change while searching (an {#if} opening, live stats) are filtered too.
+    // Only content changes are observed: the filter itself just flips `hidden` attributes.
+    const observer = new MutationObserver(() => {
+      if (query.trim()) applySearch();
+    });
+    if (scroller) observer.observe(scroller, { childList: true, characterData: true, subtree: true });
+    return () => {
+      clearInterval(t);
+      observer.disconnect();
+      if (canHighlight) CSS.highlights.delete(HIGHLIGHT);
+    };
   });
 
   const sleepOptions = [
@@ -192,18 +317,35 @@
 <div class="settings">
   <nav class="nav">
     <h1>Settings</h1>
+    <div class="search">
+      <Icon name="search" size={15} />
+      <input
+        class="field"
+        type="text"
+        placeholder="Search settings"
+        aria-label="Search settings"
+        spellcheck="false"
+        bind:this={searchEl}
+        bind:value={query}
+        onkeydown={onSearchKey}
+      />
+      {#if query}
+        <button class="clear" title="Clear search (Esc)" onclick={() => ((query = ''), searchEl?.focus())}><Icon name="close" size={13} /></button>
+      {/if}
+    </div>
     {#each SECTIONS as sec (sec.id)}
-      <button class="nav-item" class:on={current === sec.id} onclick={() => jump(sec.id)}>
+      {@const dim = !!matched && !matched.has(sec.id)}
+      <button class="nav-item" class:on={current === sec.id && !dim} class:dim disabled={dim} onclick={() => jump(sec.id)}>
         <Icon name={sec.icon} size={16} />
         {sec.label}
       </button>
     {/each}
-    <button class="nav-item" onclick={() => openInternal('passwords', 'settings')}>
+    <button class="nav-item" class:dim={externalDim(EXTERNAL.passwords)} onclick={() => openInternal('passwords', 'settings')}>
       <Icon name="key" size={16} />
       Passwords & autofill
       <Icon name="external" size={13} class="faint-icon" />
     </button>
-    <button class="nav-item" onclick={() => openInternal('extensions')}>
+    <button class="nav-item" class:dim={externalDim(EXTERNAL.extensions)} onclick={() => openInternal('extensions')}>
       <Icon name="puzzle" size={16} />
       Extensions
       <Icon name="external" size={13} class="faint-icon" />
@@ -212,6 +354,13 @@
 
   <div class="scroller" bind:this={scroller} onscroll={onScroll}>
     <div class="body">
+      {#if matched && matched.size === 0}
+        <div class="empty">
+          <Icon name="search" size={22} />
+          <b>No settings match “{query.trim()}”</b>
+          <span>Try a different word, or check the spelling.</span>
+        </div>
+      {/if}
       <!-- General -->
       <section id="settings-general">
         <h2>General</h2>
@@ -286,6 +435,28 @@
               onchange={(v) => set('theme', v)}
             />
           </div>
+          {#if browser.activeSpace}
+            <div class="row">
+              <div class="text">
+                <b>Accent colour</b>
+                <span>Tints the window and highlights for the “{browser.activeSpace.name}” space. Each space can have its own.</span>
+              </div>
+              <div class="swatches" role="radiogroup" aria-label="Accent colour">
+                {#each SPACE_COLORS as c (c)}
+                  <label class="swatch" style:--c={c} title={ACCENT_NAMES[c] ?? c}>
+                    <input
+                      type="radio"
+                      name="settings-accent"
+                      value={c}
+                      checked={onboarding.accent === c}
+                      aria-label={ACCENT_NAMES[c] ?? c}
+                      onchange={() => onboarding.setAccent(c)}
+                    />
+                  </label>
+                {/each}
+              </div>
+            </div>
+          {/if}
           <div class="row">
             <div class="text">
               <b>Translucent sidebar</b>
@@ -332,9 +503,27 @@
           </div>
           <div class="row">
             <div class="text">
+              <b>Sidebar position</b>
+              <span>{positionHint(s.sidebarPosition)} You can also right-click the sidebar to move it.</span>
+            </div>
+            <Segmented
+              value={s.sidebarPosition}
+              options={SIDEBAR_POSITIONS}
+              onchange={(v) => {
+                ui.flyout = false;
+                set('sidebarPosition', v);
+              }}
+            />
+          </div>
+          <div class="row">
+            <div class="text">
               <b>Layout</b>
               <span>
-                {s.toolbarMode === 'single'
+                {isStrip(s.sidebarPosition) && s.toolbarMode === 'single'
+                  ? 'A tab strip keeps the toolbar above the page; the single toolbar applies with the sidebar on the left or right.'
+                  : isStrip(s.sidebarPosition) && s.toolbarMode === 'collapsed'
+                    ? 'Icon-only tabs in the strip, with a toolbar above the page.'
+                    : s.toolbarMode === 'single'
                   ? 'Address bar in the sidebar; window controls appear at the top edge.'
                   : s.toolbarMode === 'multiple'
                     ? 'A toolbar with the address bar above the page.'
@@ -359,6 +548,7 @@
             <div class="text"><b>Compact mode</b><span>Hide the sidebar and toolbar; reveal them from the window edges.{shortcutHint('toggleCompact') ? ` ${shortcutHint('toggleCompact')}.` : ''}</span></div>
             <Toggle checked={s.compact} onchange={(v) => set('compact', v)} label="Compact mode" />
           </div>
+          {#if !isStrip(s.sidebarPosition)}
           <div class="row">
             <div class="text"><b>Sidebar width</b><span>{s.sidebarWidth}px — you can also drag the sidebar edge (double-click it to reset).</span></div>
             <input
@@ -371,6 +561,7 @@
               onchange={() => settings.save(false)}
             />
           </div>
+          {/if}
         </div>
       </section>
 
@@ -482,7 +673,7 @@
         </div>
 
         <h3>Clear browsing data</h3>
-        <div class="group">
+        <div class="group" data-search-whole>
           <div class="checks">
             <label><input type="checkbox" bind:checked={clearKinds.history} /> Browsing history</label>
             <label><input type="checkbox" bind:checked={clearKinds.cookies} /> Cookies and site data (signs you out)</label>
@@ -531,7 +722,7 @@
           <p class="note">Unloading a tab discards anything you typed into it that the page has not saved.</p>
         </div>
         <h3>Memory in use</h3>
-        <div class="group">
+        <div class="group" data-search-whole>
           {#if memory}
             <div class="mem-total">
               <div><b>{formatBytes(memory.privateBytes)}</b><span>private memory, all Zenith processes</span></div>
@@ -691,7 +882,8 @@
       <section id="settings-shortcuts">
         <h2>Keyboard shortcuts</h2>
         <p class="lead">Shortcuts work while a page has focus. Editing keys such as Ctrl+C, Ctrl+V and Ctrl+Z always go to the page.</p>
-        <ShortcutEditor />
+        <!-- Searching for the section itself ("keyboard", "shortcuts") shows every shortcut. -->
+        <ShortcutEditor query={'keyboard shortcuts'.includes(q) ? '' : q} />
       </section>
 
       <!-- Default browser -->
@@ -799,6 +991,103 @@
     background: var(--selected);
     color: var(--text);
     font-weight: 600;
+  }
+  .nav-item.dim {
+    opacity: 0.4;
+  }
+  .swatches {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 4px;
+  }
+  .swatch {
+    position: relative;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: var(--c);
+    box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.15);
+    transition:
+      scale 160ms ease-out,
+      box-shadow 150ms ease;
+  }
+  .swatch:active {
+    scale: 0.92;
+  }
+  .swatch input {
+    position: absolute;
+    inset: 0;
+    margin: 0;
+    opacity: 0;
+    cursor: pointer;
+  }
+  .swatch:has(input:checked) {
+    outline: 2px solid var(--c);
+    outline-offset: 2px;
+  }
+  .swatch:has(input:focus-visible) {
+    outline: 2px solid var(--text);
+    outline-offset: 2px;
+  }
+  .nav-item:disabled {
+    pointer-events: none;
+  }
+  .search {
+    position: relative;
+    display: flex;
+    align-items: center;
+    margin: 0 0 12px;
+    color: var(--text-3);
+  }
+  .search > :global(svg) {
+    position: absolute;
+    left: 10px;
+    pointer-events: none;
+  }
+  .search input {
+    width: 100%;
+    height: 34px;
+    padding: 0 30px 0 32px;
+  }
+  .search .clear {
+    position: absolute;
+    right: 6px;
+    display: grid;
+    place-items: center;
+    width: 22px;
+    height: 22px;
+    border-radius: var(--radius);
+    color: var(--text-3);
+  }
+  .search .clear:hover {
+    background: var(--hover);
+    color: var(--text);
+  }
+  /* The search filter hides rows with `hidden`; rows' own display rules must not override it. */
+  .settings :global([hidden]) {
+    display: none !important;
+  }
+  :global(::highlight(settings-search)) {
+    background-color: color-mix(in srgb, var(--accent) 35%, transparent);
+    color: inherit;
+  }
+  .empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    padding: 80px 0;
+    color: var(--text-3);
+    text-align: center;
+  }
+  .empty b {
+    color: var(--text);
+    font-weight: 600;
+  }
+  .empty span {
+    font-size: 12px;
   }
   .nav-item :global(.faint-icon) {
     margin-left: auto;
