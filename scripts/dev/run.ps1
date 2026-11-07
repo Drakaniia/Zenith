@@ -2,13 +2,17 @@
 # own remote-debugging port, no single-instance redirect. It never touches the normal profile
 # or any other running Zenith window; only the instance this script started is stopped.
 #
-#   powershell -NoProfile -ExecutionPolicy Bypass -File scripts/dev/run.ps1 [-Fresh] [-Release] [-Url <url>]
+#   powershell -NoProfile -ExecutionPolicy Bypass -File scripts/dev/run.ps1 [-Fresh] [-SkipSetup] [-Release] [-Url <url>]
+#
+# A fresh profile opens the first-run setup assistant. -SkipSetup marks setup as done (for the
+# e2e tests, which drive the browser itself).
 #   powershell -NoProfile -ExecutionPolicy Bypass -File scripts/dev/run.ps1 -Stop
 param(
   [switch]$Release,
   [int]$Port = 9444,
   [string]$Url = '',
   [switch]$Fresh,
+  [switch]$SkipSetup,
   [switch]$Stop,
   [string]$ProfileDir = (Join-Path $env:TEMP 'zenith-test-profile')
 )
@@ -49,6 +53,14 @@ if ($Fresh) {
   if (Test-Path $ProfileDir) { throw "could not clear $ProfileDir" }
 }
 New-Item -ItemType Directory -Force -Path $ProfileDir | Out-Null
+if ($SkipSetup) {
+  $roaming = Join-Path $ProfileDir 'roaming'
+  $settingsFile = Join-Path $roaming 'settings.json'
+  if (-not (Test-Path $settingsFile)) {
+    New-Item -ItemType Directory -Force -Path $roaming | Out-Null
+    [IO.File]::WriteAllText($settingsFile, '{"onboarded":true}')
+  }
+}
 
 $env:ZENITH_PROFILE_DIR = $ProfileDir
 $env:ZENITH_REMOTE_DEBUG_PORT = "$Port"

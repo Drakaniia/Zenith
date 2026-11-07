@@ -1,6 +1,6 @@
 // End-to-end checks against an isolated Zenith test instance (debug build, own profile and
 // remote-debugging port; see run.ps1). Never drives any other Zenith window.
-//   powershell -File scripts/dev/run.ps1 -Fresh
+//   powershell -File scripts/dev/run.ps1 -Fresh -SkipSetup
 //   node scripts/dev/e2e.mjs [--only name,name] [--skip-restart]
 // Drives the chrome UI through the DOM and pages through CDP Input events (trusted input).
 import {
