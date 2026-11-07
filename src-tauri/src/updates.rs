@@ -181,6 +181,11 @@ pub fn restart_after_quit() {
 /// install (or the installer could not be started), and then says whether a restart was asked for.
 pub fn install_on_exit() -> bool {
     let restart = RESTART.load(Ordering::SeqCst);
+    // The installer closes every running Zenith. While another profile is open, leave the update
+    // for the last profile to quit (its own updater downloads it again).
+    if crate::profiles::others_running() {
+        return false;
+    }
     let Some(ready) = lock(&READY).take() else { return restart };
     crate::host::db().flush(Duration::from_secs(2));
     let update = ready.update.restart_after_install(restart);

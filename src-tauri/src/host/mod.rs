@@ -516,13 +516,10 @@ pub fn profile_override() -> Option<PathBuf> {
 }
 
 pub fn init_services(app: &AppHandle) -> tauri::Result<()> {
-    let (roaming, local) = match profile_override() {
-        Some(dir) => (dir.join("roaming"), dir.join("local")),
-        None => (app.path().app_data_dir()?, app.path().app_local_data_dir()?),
-    };
-    let _ = std::fs::create_dir_all(&roaming);
-    let _ = std::fs::create_dir_all(&local);
-    let paths = Paths { roaming, local };
+    // The profile this process runs (chosen in `main`, see profiles.rs) owns every data folder.
+    let paths: Paths = crate::profiles::active().paths();
+    let _ = std::fs::create_dir_all(&paths.roaming);
+    let _ = std::fs::create_dir_all(&paths.local);
     let _ = APP.set(app.clone());
     let _ = DB.set(Db::open(paths.db()));
     let _ = PATHS.set(paths);

@@ -19,6 +19,8 @@ import type {
   NewBookmarkNode,
   OpenRequest,
   PermissionRequest,
+  ProfileInfo,
+  ProfilesView,
   StartupInfo,
   TabCreated,
   TabPatch,
@@ -285,6 +287,20 @@ export const api = {
   updateCheck: () => invoke<UpdateStatus>("update_check"),
   /** Quits into the downloaded update (save the session first); the installer reopens Zenith. */
   updateRestart: () => invoke<void>("update_restart"),
+
+  /** Every browser profile, which are open, and the colours to offer. */
+  profilesList: () => invoke<ProfilesView>("profiles_list"),
+  /** Adds a profile (and, with `shortcut`, a desktop shortcut for it). */
+  profileCreate: (name: string, color: string, shortcut: boolean) =>
+    invoke<ProfileInfo>("profile_create", { name, color, shortcut }),
+  profileUpdate: (id: string, name: string, color: string) =>
+    invoke<ProfileInfo>("profile_update", { id, name, color }),
+  /** Opens a profile in its own window (or brings its open window to the front). */
+  profileOpen: (id: string) => invoke<void>("profile_open", { id }),
+  /** Deletes a profile that isn't open, with all of its data. */
+  profileDelete: (id: string) => invoke<void>("profile_delete", { id }),
+  /** Creates the profile's desktop shortcut; returns its path. */
+  profileShortcut: (id: string) => invoke<string>("profile_shortcut", { id }),
 };
 
 export interface BackendEvents {

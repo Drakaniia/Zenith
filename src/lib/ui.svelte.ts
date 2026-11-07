@@ -20,6 +20,8 @@ export interface MenuItem {
   icon?: IconName;
   /** A page's own icon (a bookmark in a menu) in place of a drawn one. */
   site?: { url: string; favicon?: string };
+  /** A coloured round badge with a letter (a browser profile's avatar) in place of an icon. */
+  swatch?: { color: string; fg: string; text: string };
   hint?: string;
   danger?: boolean;
   checked?: boolean;
@@ -62,6 +64,9 @@ export type BookmarkDialogSpec =
   | { kind: "folder"; id?: number; parent?: number }
   /** Several tabs into a new folder. */
   | { kind: "tabs"; tabs: { url: string; title: string; favicon?: string }[] };
+
+/** The profile dialog: the list of profiles, or the form for a new (`id` null) or existing one. */
+export type ProfileDialogSpec = { mode: "manage" } | { mode: "edit"; id: string | null };
 
 export interface Toast {
   id: number;
@@ -111,6 +116,7 @@ class UiStore {
   selectedTabs = $state<TabId[]>([]);
   /** The "import bookmarks from another browser" dialog is open. */
   bookmarkImport = $state(false);
+  profileDialog = $state<ProfileDialogSpec | null>(null);
   /** Window controls revealed from the top edge (single-toolbar layout). */
   captionReveal = $state(false);
   shortcutRecording = $state(false);

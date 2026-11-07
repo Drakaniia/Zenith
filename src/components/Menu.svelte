@@ -202,7 +202,9 @@
                 }}
               >
                 <span class="icon">
-                  {#if item.checked}
+                  {#if item.swatch}
+                    <span class="swatch" style:background={item.swatch.color} style:color={item.swatch.fg}>{item.swatch.text}</span>
+                  {:else if item.checked}
                     <Icon name="check" size={15} />
                   {:else if item.site}
                     <Favicon url={item.site.url} favicon={item.site.favicon} size={16} />
@@ -326,6 +328,16 @@
     place-items: center;
     color: var(--text-2);
     flex: none;
+  }
+  .swatch {
+    width: 18px;
+    height: 18px;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+    font-size: 10.5px;
+    font-weight: 700;
+    line-height: 1;
   }
   .item.danger .icon {
     color: var(--danger);

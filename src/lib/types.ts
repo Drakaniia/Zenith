@@ -332,8 +332,34 @@ export interface ExtensionUpdate {
   latest: string;
 }
 
+/** A browser profile (see profiles.rs). Each one runs in its own Zenith process. */
+export interface ProfileInfo {
+  id: string;
+  name: string;
+  /** `#rrggbb`. */
+  color: string;
+  isDefault: boolean;
+}
+
+export interface ProfileEntry extends ProfileInfo {
+  /** A Zenith process has it open (the calling one included). */
+  running: boolean;
+  /** Zenith's desktop shortcut for it exists. */
+  shortcut: boolean;
+}
+
+export interface ProfilesView {
+  /** The calling window's profile. */
+  active: string;
+  profiles: ProfileEntry[];
+  /** Colours offered for profiles. */
+  colors: string[];
+}
+
 export interface StartupInfo {
   testProfile: boolean;
+  /** The browser profile this window belongs to. */
+  profile: ProfileInfo;
   /** An incognito window: nothing it does is saved. */
   incognito: boolean;
   startupUrls: string[];

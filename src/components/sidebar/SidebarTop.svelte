@@ -1,6 +1,7 @@
 <script lang="ts">
   import Icon from '../Icon.svelte';
   import ExtensionButtons from '../ExtensionButtons.svelte';
+  import ProfileButton from './ProfileButton.svelte';
   import { browser } from '../../lib/browser.svelte';
   import { settings } from '../../lib/settings.svelte';
   import { ui } from '../../lib/ui.svelte';
@@ -24,6 +25,9 @@
 </script>
 
 <header class="top" data-tauri-drag-region="deep">
+  {#if !incognito}
+    <ProfileButton />
+  {/if}
   {#if single}
     <button
       class="icon-btn"

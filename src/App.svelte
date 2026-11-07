@@ -26,6 +26,7 @@
   import BookmarkDialog from './components/BookmarkDialog.svelte';
   import BookmarkGhost from './components/BookmarkGhost.svelte';
   import BookmarkImport from './components/BookmarkImport.svelte';
+  import ProfileDialog from './components/ProfileDialog.svelte';
   import Glance from './components/Glance.svelte';
   import Menu from './components/Menu.svelte';
   import Toasts from './components/Toasts.svelte';
@@ -574,6 +575,7 @@
   <BookmarkDialog />
   <BookmarkImport />
   <Palette />
+  <ProfileDialog />
   <Menu />
   <BookmarkGhost />
   <Toasts />

@@ -13,6 +13,8 @@ mod keys;
 mod media;
 mod net;
 mod password_commands;
+mod profile_commands;
+mod profiles;
 mod sessions;
 mod store;
 mod updates;
@@ -165,15 +167,9 @@ fn place_cascaded(app: &AppHandle, window: &WebviewWindow) {
 fn create_window(app: &AppHandle, label: &str) -> tauri::Result<()> {
     let private = host::is_private_window(label);
     let extra = sessions::is_extra_window(label);
-    let title = if private {
-        "Zenith Incognito"
-    } else if host::profile_override().is_some() {
-        "Zenith (test instance)"
-    } else {
-        "Zenith"
-    };
+    let title = window_title(private);
     let mut builder = WebviewWindowBuilder::new(app, label, WebviewUrl::App("index.html".into()))
-        .title(title)
+        .title(&title)
         .inner_size(1280.0, 820.0)
         .min_inner_size(560.0, 400.0)
         .decorations(false)
@@ -211,6 +207,24 @@ fn create_window(app: &AppHandle, label: &str) -> tauri::Result<()> {
 }
 
 /// Opens a new incognito window that loads `urls` once its UI is ready. Call off the UI thread.
+/// Window title: "Zenith", "Zenith — Work" for a non-default profile, "Zenith Incognito".
+pub fn window_title(private: bool) -> String {
+    let active = profiles::active();
+    let name = (!active.is_default()).then(|| active.profile().name);
+    match (private, host::profile_override().is_some(), name) {
+        (true, _, None) => "Zenith Incognito".into(),
+        (true, _, Some(n)) => format!("Zenith Incognito — {n}"),
+        (false, true, _) => "Zenith (test instance)".into(),
+        (false, false, None) => "Zenith".into(),
+        (false, false, Some(n)) => format!("Zenith — {n}"),
+    }
+}
+
+/// Web addresses on a command line (skipping the program itself and `--profile <id>`).
+fn url_args(argv: &[String]) -> Vec<String> {
+    profiles::without_flag(argv).iter().skip(1).filter_map(|a| urls::external_arg_to_url(a)).collect()
+}
+
 pub fn open_incognito_window(app: &AppHandle, urls: Vec<String>) -> tauri::Result<()> {
     let label = format!("{}{}", incognito::LABEL_PREFIX, NEXT_INCOGNITO.fetch_add(1, Ordering::Relaxed));
     commands::set_startup_urls(&label, urls);
@@ -304,14 +318,24 @@ fn main() {
     }
     let args: Vec<String> = std::env::args().collect();
     let start_incognito = incognito::requested(&args);
-    let startup: Vec<String> = std::env::args().skip(1).filter_map(|a| urls::external_arg_to_url(&a)).collect();
+    let startup = url_args(&args);
+
+    // Pick the profile before anything touches the disk. Each non-default profile runs under its
+    // own app identifier, which keys the single-instance lock below (see profiles.rs).
+    let mut context = tauri::generate_context!();
+    let base_identifier = context.config().identifier.clone();
+    let profile = profiles::init(&base_identifier, &args, host::profile_override());
+    if !profile.is_default() {
+        context.config_mut().identifier = profiles::identifier(&base_identifier, &profile.id);
+    }
 
     let mut builder = tauri::Builder::default();
     // A second launch (e.g. a link clicked in another app, or the jump list's incognito entry)
-    // hands its request to the running instance. Instances on a separate profile stay independent.
+    // hands its request to the running instance of the same profile. Instances on a separate
+    // (ZENITH_PROFILE_DIR) folder stay independent.
     if host::profile_override().is_none() {
         builder = builder.plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
-            let urls: Vec<String> = argv.iter().skip(1).filter_map(|a| urls::external_arg_to_url(a)).collect();
+            let urls = url_args(&argv);
             if incognito::requested(&argv) {
                 incognito::open_window(urls);
                 return;
@@ -459,6 +483,12 @@ fn main() {
             password_commands::autofill_dismiss,
             password_commands::password_offer_respond,
         ])
+            profile_commands::profiles_list,
+            profile_commands::profile_create,
+            profile_commands::profile_update,
+            profile_commands::profile_open,
+            profile_commands::profile_delete,
+            profile_commands::profile_shortcut,
         .setup(move |app| {
             host::init_services(app.handle())?;
             // Locks the password vault after the configured inactivity.
@@ -507,6 +537,6 @@ fn main() {
             WindowEvent::Resized(_) | WindowEvent::Moved(_) if window.label() == host::MAIN => remember_window_state(window),
             _ => {}
         })
-        .run(tauri::generate_context!())
+        .run(context)
         .expect("error while running Zenith");
 }
