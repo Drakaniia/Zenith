@@ -75,7 +75,9 @@
     background: linear-gradient(to bottom, var(--accent-button) -40%, color-mix(in srgb, var(--accent-button), #0f0f0f 20%));
     box-shadow: rgba(0, 0, 0, 0.4) 0 0 22px 2px;
     transform-origin: top center;
-    pointer-events: auto;
+    /* Toasts sit over the sidebar; on a short window they cover its buttons, so let clicks go
+       through to what is underneath. Only an action button (Pin, Update…) takes them. */
+    pointer-events: none;
   }
   :global(:root[data-theme='light']) .toast {
     box-shadow: rgba(0, 0, 0, 0.1) 0 0 22px 2px;
@@ -91,6 +93,7 @@
   }
   .act {
     flex: none;
+    pointer-events: auto;
     min-height: 28px;
     padding: 0 10px;
     border-radius: 10px;

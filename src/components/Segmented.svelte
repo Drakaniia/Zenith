@@ -24,6 +24,7 @@
 <style>
   .seg {
     display: inline-flex;
+    flex: none;
     padding: 3px;
     gap: 2px;
     border-radius: 9px;
@@ -35,6 +36,7 @@
     padding: 0 12px;
     border-radius: 6px;
     font-size: 12.5px;
+    white-space: nowrap;
     color: var(--text-2);
     transition: background var(--fast), color var(--fast);
   }
