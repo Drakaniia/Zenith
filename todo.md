@@ -27,3 +27,5 @@ there is no color theme selection in the settings page
 the essentials tab did not survie on update restart
 
 can delete history in the list right from the search modal
+
+cache, so even if it sleeps  it loads like instant
