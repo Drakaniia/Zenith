@@ -1,10 +1,11 @@
 <script lang="ts">
   // Compact mode's hidden chrome: the window edges that reveal the floating sidebar (or tab
   // strip) and the floating toolbar.
+  import { tick, untrack } from 'svelte';
   import { cubicOut } from 'svelte/easing';
   import { compactEase, slidePx, slideX } from '$shared/ui/motion';
   import { ui } from '$shared/ui/ui.svelte';
-  import { overlayLease } from '$platform/layout.svelte';
+  import { layoutApplied, overlayLease, raiseChrome } from '$platform/layout.svelte';
   import type { ToolbarMode } from '$features/settings/settings.svelte';
   import type { SidebarPosition } from '$features/sidebar/sidebar-position';
   import { extensions } from '$features/extensions/extensions.svelte';
@@ -28,6 +29,40 @@
     mode: ToolbarMode;
   } = $props();
 
+  // The floating sidebar and toolbar draw above the page only once the chrome is raised over it.
+  // Their entrance waits for that (a frame), so the slide plays whole instead of the panel
+  // blinking in partway through it.
+  let sideShown = $state(false);
+  let topShown = $state(false);
+  function showRaised(show: () => void): () => void {
+    const release = raiseChrome();
+    let cancelled = false;
+    void layoutApplied().then(async () => {
+      if (cancelled) return release();
+      show();
+      await tick(); // mounted: its own overlay lease holds the chrome up from here
+      release();
+    });
+    return () => {
+      cancelled = true;
+      release();
+    };
+  }
+  $effect(() => {
+    if (!ui.flyout) {
+      sideShown = false;
+      return;
+    }
+    return untrack(() => showRaised(() => (sideShown = true)));
+  });
+  $effect(() => {
+    if (!ui.topReveal) {
+      topShown = false;
+      return;
+    }
+    return untrack(() => showRaised(() => (topShown = true)));
+  });
+
   // Compact mode: the sidebar slides in from its window edge and stays while hovered, plus
   // Zen's 150 ms keep-hover grace (zen.view.compact.sidebar-keep-hover.duration).
   let revealTimer: ReturnType<typeof setTimeout> | undefined;
@@ -38,6 +73,9 @@
   }
   function cancelReveal() {
     clearTimeout(revealTimer);
+    // Left the edge while the sidebar was waiting for the chrome to rise: it would appear away
+    // from the pointer, never get a mouseleave, and stay open.
+    if (ui.flyout && !sideShown && !ui.flyoutPinned) ui.flyout = false;
   }
   let hideTimer: ReturnType<typeof setTimeout> | undefined;
   function scheduleHideFlyout() {
@@ -56,6 +94,10 @@
     clearTimeout(topTimer);
     topTimer = setTimeout(() => (ui.topReveal = true), 50);
   }
+  function cancelToolbarReveal() {
+    if (!ui.topReveal) clearTimeout(topTimer);
+    else if (!topShown) ui.topReveal = false; // the same, for the floating toolbar
+  }
   function scheduleHideToolbar(delay = 150) {
     clearTimeout(topTimer);
     topTimer = setTimeout(() => {
@@ -71,10 +113,10 @@
     class="hot-top"
     role="presentation"
     onmouseenter={revealToolbar}
-    onmouseleave={() => !ui.topReveal && clearTimeout(topTimer)}
+    onmouseleave={cancelToolbarReveal}
     data-tauri-drag-region
   ></div>
-  {#if ui.topReveal}
+  {#if ui.topReveal && topShown}
     <div
       class="top-flyout"
       role="presentation"
@@ -98,7 +140,7 @@
     onmouseleave={cancelReveal}
     data-tauri-drag-region
   ></div>
-  {#if ui.flyout}
+  {#if ui.flyout && sideShown}
     {#if strip}
       <div
         class="flyout strip {side}"

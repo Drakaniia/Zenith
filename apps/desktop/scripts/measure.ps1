@@ -10,7 +10,7 @@
 #
 # Results are printed and appended to measurements/memory.csv.
 param(
-  [ValidateSet('all', 'idle', 'solid', '1tab', '5tabs', '10tabs', 'sleep', 'edge')] [string]$Scenario = 'all',
+  [ValidateSet('all', 'idle', '1tab', '5tabs', '10tabs', 'sleep', 'edge')] [string]$Scenario = 'all',
   [int]$SettleSeconds = 12,
   [string]$Exe = (Join-Path $PSScriptRoot '..\src-tauri\target\release\zenith.exe'),
   [string]$ProfileDir = (Join-Path $env:TEMP 'zenith-measure-profile')
@@ -124,7 +124,6 @@ function Measure-Edge {
 $pages = @('https://example.com/', 'https://example.org/', 'https://example.net/', 'https://www.iana.org/help/example-domains', 'https://www.rfc-editor.org/')
 $pages10 = $pages + @('https://info.cern.ch/', 'https://www.rfc-editor.org/rfc/rfc2606.html', 'https://www.iana.org/domains', 'https://www.w3.org/', 'https://html.spec.whatwg.org/dev/')
 if ($Scenario -in 'all', 'idle') { Measure-Run 'idle' @() $null }
-if ($Scenario -in 'all', 'solid') { Measure-Run 'solid' @() '{"material":"solid"}' }
 if ($Scenario -in 'all', '1tab') { Measure-Run '1tab' @($pages[0]) $null }
 if ($Scenario -in 'all', '5tabs') { Measure-Run '5tabs' $pages $null }
 if ($Scenario -in 'all', '10tabs') { Measure-Run '10tabs' $pages10 $null }

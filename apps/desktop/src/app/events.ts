@@ -45,7 +45,6 @@ export function listenBackend(flushAndClose: () => Promise<void>): Promise<() =>
     on('settings-changed', ({ origin }) => {
       if (!incognito && origin !== getCurrentWebviewWindow().label) void settings.reload();
     }),
-    on('translucency-changed', () => void settings.push()),
     on('popup-blocked', ({ tabId, url }) => {
       ui.toast('Pop-up blocked', {
         icon: 'shield',

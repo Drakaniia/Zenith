@@ -80,14 +80,6 @@ pub struct PaneSpec {
     pub y: f64,
     pub w: f64,
     pub h: f64,
-    /// While the chrome animates the page's left/top edge, the webview keeps the largest size it
-    /// has during the animation and only moves with the edge; this is the part of it that shows
-    /// (logical px from its top-left), the rest is hidden by a window region. Resizing a WebView2
-    /// shows its old frame pinned to the new corner for a frame, moving it repaints nothing.
-    #[serde(default)]
-    pub vis_w: Option<f64>,
-    #[serde(default)]
-    pub vis_h: Option<f64>,
 }
 
 #[derive(Deserialize, Clone, Debug, Default)]

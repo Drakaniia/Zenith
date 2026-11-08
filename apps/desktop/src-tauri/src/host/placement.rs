@@ -1,10 +1,9 @@
-//! Placing page webviews: rectangles, window regions, visibility and z-order of each window's
+//! Placing page webviews: rectangles, visibility and z-order of each window's
 //! panes, relayout on resize and fullscreen pages.
 
 use std::collections::HashMap;
 
 use windows::Win32::Foundation::{HWND, RECT};
-use windows::Win32::Graphics::Gdi::{CreateRectRgn, SetWindowRgn};
 use windows::Win32::UI::HiDpi::GetDpiForWindow;
 use windows::Win32::UI::WindowsAndMessaging::*;
 use wry::dpi::{LogicalPosition, LogicalSize};
@@ -46,35 +45,10 @@ fn place_view(view: &wry::WebView, p: &PaneSpec, prev: Option<(f64, f64, f64, f6
             let flags = SWP_NOACTIVATE | SWP_NOZORDER | SWP_NOSIZE;
             let _ = SetWindowPos(view.hwnd(), None, left, top, 0, 0, flags);
         } else {
-            let _ = SetWindowPos(view.hwnd(), None, left, top, w, h, SWP_NOACTIVATE | SWP_NOZORDER);
+            // Size the content while the old container still clips it. Growing the container
+            // first exposes a strip with no WebView content until SetBounds catches up.
             let _ = view.controller().SetBounds(RECT { left: 0, top: 0, right: w, bottom: h });
-        }
-    }
-}
-
-/// The window region (pixels from the webview's top-left) that shows only `vis_w`/`vis_h` of a
-/// pane; None when the whole webview shows.
-fn clip_of(p: &PaneSpec, scale: f64) -> Option<(i32, i32)> {
-    if p.vis_w.is_none() && p.vis_h.is_none() {
-        return None;
-    }
-    let (_, _, w, h) = px_rect(p.x, p.y, p.vis_w.unwrap_or(p.w), p.vis_h.unwrap_or(p.h), scale);
-    Some((w, h))
-}
-
-/// Shows only the top-left `clip` pixels of a webview with a window region; None removes it.
-fn clip_view(view: &wry::WebView, clip: Option<(i32, i32)>) {
-    unsafe {
-        let hwnd = view.hwnd();
-        match clip {
-            None => {
-                let _ = SetWindowRgn(hwnd, None, true);
-            }
-            Some((w, h)) => {
-                // The window owns the region from here on.
-                let rgn = CreateRectRgn(0, 0, w, h);
-                let _ = SetWindowRgn(hwnd, Some(rgn), true);
-            }
+            let _ = SetWindowPos(view.hwnd(), None, left, top, w, h, SWP_NOACTIVATE | SWP_NOZORDER);
         }
     }
 }
@@ -130,23 +104,11 @@ impl Host {
             }
             match visible.get(id) {
                 Some(p) => {
-                    // A region that is set or changed goes on before the webview grows or moves,
-                    // so its hidden part never shows past the page edge; a region that comes off
-                    // comes off after the webview has its final size.
-                    let clip = clip_of(p, scale);
-                    let clip_changed = tab.last_clip != clip;
-                    if clip_changed && clip.is_some() {
-                        clip_view(&tab.view, clip);
-                    }
                     let rect = (p.x, p.y, p.w, p.h);
                     if tab.last_rect != Some(rect) {
                         place_view(&tab.view, p, tab.last_rect, scale);
                         tab.last_rect = Some(rect);
                     }
-                    if clip_changed && clip.is_none() {
-                        clip_view(&tab.view, None);
-                    }
-                    tab.last_clip = clip;
                     if !tab.visible {
                         let _ = tab.view.set_visible(true);
                         tab.visible = true;

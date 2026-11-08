@@ -56,8 +56,11 @@
 {:else}
   <!-- The page webview is positioned over this element. It stays transparent while the page is
        live so the page shows through when floating UI raises the chrome above it. -->
-  <div class="web" class:waiting={!tab.live} use:pane={tab.id}>
-    {#if !tab.live}
+  <div class="web" class:waiting={!tab.live} class:creating={tab.live && tab.creating} use:pane={tab.id}>
+    {#if tab.live && tab.creating}
+      <!-- A blank page while the webview starts (the switch itself is instant). -->
+      <div class="top-bar"><span></span></div>
+    {:else if !tab.live}
       <div class="state-card waking">
         {#if tab.error}
           <div class="state-icon warn"><Icon name="alert" size={26} /></div>
@@ -85,6 +88,32 @@
     background: var(--page-bg);
     display: grid;
     place-items: center;
+  }
+  .web.creating {
+    background: var(--page-bg);
+  }
+  .top-bar {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 2px;
+    overflow: hidden;
+  }
+  .top-bar span {
+    display: block;
+    width: 30%;
+    height: 100%;
+    background: var(--accent);
+    animation: sweep 1.1s ease-in-out infinite;
+  }
+  @keyframes sweep {
+    from {
+      transform: translateX(-100%);
+    }
+    to {
+      transform: translateX(340%);
+    }
   }
   .internal {
     flex: 1;

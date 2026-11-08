@@ -28,14 +28,13 @@ export interface RuntimeConfig {
 
 export interface Appearance {
   theme: string;
-  material: string;
   pageBackground: [number, number, number];
   contentScheme: string;
 }
 
 export const settingsApi = {
   applySettings: (config: RuntimeConfig, appearance: Appearance) =>
-    invoke<{ material: string; fallback?: string | null }>("apply_settings", { config, appearance }),
+    invoke<void>("apply_settings", { config, appearance }),
   clearBrowsingData: (
     kinds: string[],
     sinceMs: number | null,
@@ -51,8 +50,5 @@ declare module "../../platform/ipc" {
   interface BackendEvents {
     /** Another normal window saved the settings. */
     "settings-changed": { origin: string };
-    /** Windows started or stopped allowing the window material (transparency effects, battery
-     *  saver): re-apply the appearance. */
-    "translucency-changed": null;
   }
 }

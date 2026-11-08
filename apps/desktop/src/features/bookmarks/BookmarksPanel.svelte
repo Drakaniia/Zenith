@@ -1,5 +1,7 @@
 <script lang="ts">
   import { tick, onMount } from 'svelte';
+  import { cubicOut } from 'svelte/easing';
+  import { revealX } from '$shared/ui/motion';
   import Icon from '$shared/ui/Icon.svelte';
   import Favicon from '$shared/ui/Favicon.svelte';
   import BookmarksPanelHistory from './BookmarksPanelHistory.svelte';
@@ -222,7 +224,14 @@
       .join(' / ');
 </script>
 
-<aside class="panel" aria-label={view === 'history' ? 'History' : 'Bookmarks'} style:--panel-w="{settings.value.bookmarksPanelWidth}px">
+<!-- It slides in and out of its own slot; the page beside it resizes once (Zen-style). -->
+<aside
+  class="panel"
+  aria-label={view === 'history' ? 'History' : 'Bookmarks'}
+  style:--panel-w="{settings.value.bookmarksPanelWidth}px"
+  in:revealX={{ duration: 250 }}
+  out:revealX={{ duration: 180, easing: cubicOut }}
+>
   <header>
     <button class="title" onclick={viewMenu} aria-haspopup="menu">
       <Icon name={view === 'history' ? 'history' : 'bookmark'} size={18} />

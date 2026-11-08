@@ -1,5 +1,5 @@
-// Zen Browser's motion, as easing functions for Svelte transitions. The CSS equivalents are the
-// --zen-spring and --zen-compact-ease tokens in app.css.
+// Zen Browser's motion, as easing functions for Svelte transitions. The spring's CSS equivalent
+// is the --zen-spring token in app.css.
 
 const W = 6.5;
 const SPRING_END = 1 - (1 + W) * Math.exp(-W);
@@ -41,6 +41,47 @@ export function slideX(
     duration,
     easing,
     css: (_t: number, u: number) => `transform: translateX(${from * u * 100}%)`,
+  };
+}
+
+/** Svelte transition: slides in from behind its own left (`from` -1) or right (1) edge, clipped
+ *  to its box so it never draws over its neighbours. The box itself stays put, so whatever sits
+ *  beside it (a page webview) is resized once, not on every frame. */
+export function revealX(
+  _node: Element,
+  {
+    from = -1,
+    duration = 250,
+    easing = springEase,
+  }: { from?: number; duration?: number; easing?: (t: number) => number },
+) {
+  return {
+    duration,
+    easing,
+    css: (_t: number, u: number) => {
+      const d = u * 100;
+      const clip = from < 0 ? `inset(0 0 0 ${d}%)` : `inset(0 ${d}% 0 0)`;
+      return `transform: translateX(${Math.sign(from) * d}%); clip-path: ${clip}`;
+    },
+  };
+}
+
+/** CSS's ease-in-out, close enough: cubic in-out. */
+function easeInOut(t: number): number {
+  return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+}
+
+/** Svelte transition: Zen's hidden toolbar (compact-mode/toolbar.inc.css). The row folds into
+ *  the top edge, clipped from the bottom as its height goes, while its contents fade; both over
+ *  --zen-hidden-toolbar-transition (0.15s ease-in-out). */
+export function foldY(
+  _node: Element,
+  { duration = 150, easing = easeInOut }: { duration?: number; easing?: (t: number) => number },
+) {
+  return {
+    duration,
+    easing,
+    css: (t: number, u: number) => `clip-path: inset(0 0 ${u * 100}% 0); opacity: ${t}`,
   };
 }
 

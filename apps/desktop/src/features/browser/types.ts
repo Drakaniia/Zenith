@@ -23,6 +23,8 @@ export interface Tab {
   muted: boolean;
   /** Has a live webview in the backend. */
   live: boolean;
+  /** Its webview is being created: the pane shows a blank page meanwhile. Never saved. */
+  creating?: boolean;
   /** Webview suspended (cheap first sleep stage). */
   suspended: boolean;
   loading: boolean;

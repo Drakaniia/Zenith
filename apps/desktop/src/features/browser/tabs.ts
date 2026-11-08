@@ -4,7 +4,7 @@ import type { SpaceId, Tab, TabId } from "./types";
 import { tabsApi } from "./api";
 import { settings } from "../settings/settings.svelte";
 import { NEW_TAB_URL, hostOf, siteOf } from "../../shared/url";
-import { focusAfterLayout, scheduleLayout } from "../../platform/layout.svelte";
+import { focusAfterLayout, layoutApplied, scheduleLayout } from "../../platform/layout.svelte";
 import { makeTab, needsWebview } from "./model";
 import { isSplitAnywhere } from "./split";
 
@@ -72,7 +72,7 @@ export function adoptTab(
   if (activate) store.activate(id);
 }
 
-export async function wake(_store: BrowserStore, tab: Tab) {
+export async function wake(store: BrowserStore, tab: Tab) {
   if (tab.live || !needsWebview(tab.url)) return;
   tab.live = true;
   tab.crashed = "";
@@ -84,7 +84,14 @@ export async function wake(_store: BrowserStore, tab: Tab) {
     settings.value.siteZoom[site] ?? (tab.zoom !== 1 ? tab.zoom : undefined);
   const scroll = tab.scroll;
   tab.scroll = undefined;
+  // The switch shows at once: the backend hides the page that was on screen (and places the
+  // new one) before it builds the webview, which blocks its UI thread while WebView2 starts.
+  // Until then the pane is a blank page with a loading bar.
+  tab.creating = true;
+  await layoutApplied();
   try {
+    // Closed or put back to sleep meanwhile.
+    if (!tab.live || store.tabs[tab.id] !== tab) return;
     await tabsApi.tabCreate({
       id: tab.id,
       url: tab.url,
@@ -97,6 +104,8 @@ export async function wake(_store: BrowserStore, tab: Tab) {
     tab.live = false;
     tab.loading = false;
     tab.error = String(e);
+  } finally {
+    tab.creating = false;
   }
   scheduleLayout();
 }

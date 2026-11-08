@@ -213,7 +213,6 @@ function settingsJson(): string {
     bookmarksBar: params.get("bar") ?? undefined,
     bookmarksPanel: params.get("panel") === "1",
     theme: params.get("theme") ?? "dark",
-    material: "solid",
     compact: params.get("compact") === "1",
     toolbarMode: mode === "multiple" || mode === "collapsed" ? mode : "single",
     sidebarWidth: Number(params.get("width")) || undefined,
@@ -270,14 +269,13 @@ export function handleSession(cmd: string, a: Record<string, unknown>): unknown 
     case "default_browser_status":
       return { registered: false, isDefault: false };
     case "apply_settings":
-      return { material: "solid" };
+      return null;
     case "ui_ready":
       return {
         testProfile: false,
         profile: { ...previewProfiles[0] },
         incognito: new URLSearchParams(location.search).has("incognito"),
         startupUrls: [],
-        windows11: true,
         webviewVersion: "preview",
         version: "0.0.0-preview",
         dataDir: "",

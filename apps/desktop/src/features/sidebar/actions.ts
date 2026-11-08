@@ -6,8 +6,9 @@ import { shortcutHint } from "../shortcuts/hints";
 
 registerActions({
   toggleCompact: () => {
-    ui.flyout = false;
-    ui.flyoutPinned = false;
+    // Left from the floating sidebar, it docks where it is (Zen): App clears it after the layout
+    // motion has seen it.
+
     ui.topReveal = false;
     return settings.update({ compact: !settings.value.compact });
   },

@@ -9,7 +9,6 @@ export interface StartupInfo {
   /** An incognito window: nothing it does is saved. */
   incognito: boolean;
   startupUrls: string[];
-  windows11: boolean;
   webviewVersion: string;
   version: string;
   dataDir: string;

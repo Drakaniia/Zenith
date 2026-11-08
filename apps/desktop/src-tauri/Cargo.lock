@@ -5490,8 +5490,6 @@ dependencies = [
  "tokio",
  "webview2-com",
  "windows",
- "windows-core",
- "windows-version",
  "wry",
  "zeroize",
 ]

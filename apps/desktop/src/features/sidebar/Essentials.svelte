@@ -39,7 +39,7 @@
             <img class="glow" src={tab.favicon} alt="" draggable="false" />
           {/if}
         </span>
-        <span class="icon"><Favicon url={tab.url} favicon={tab.favicon} size={16} /></span>
+        <span class="icon" data-sidebar-icon="essential:{tab.id}"><Favicon url={tab.url} favicon={tab.favicon} size={16} /></span>
         {#if tab.audible || tab.muted}
           <span class="audio"><Icon name={tab.muted ? 'volumeOff' : 'volume'} size={10} stroke={2.4} /></span>
         {/if}

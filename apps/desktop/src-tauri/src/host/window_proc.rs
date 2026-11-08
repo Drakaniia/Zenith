@@ -9,7 +9,7 @@ use windows::Win32::UI::WindowsAndMessaging::*;
 use super::accelerators::{bound_action, key_down, ShortcutEvent};
 use super::focus::{restore_focus, win_state};
 use super::placement::on_resize;
-use super::{emit, emit_to_window, post, EXEC_MSG};
+use super::{emit_to_window, post, EXEC_MSG};
 
 pub(super) unsafe extern "system" fn subclass_proc(
     hwnd: HWND,
@@ -47,19 +47,12 @@ pub(super) unsafe extern "system" fn subclass_proc(
                 }
                 result
             }
-            // Transparency effects or battery saver may have been switched (settings changes are
-            // broadcast; battery saver is caught by the power broadcast or the next activation).
-            WM_SETTINGCHANGE | WM_POWERBROADCAST => {
-                post(check_translucency);
-                DefSubclassProc(hwnd, msg, wparam, lparam)
-            }
             WM_ACTIVATE => {
                 let state = (wparam.0 & 0xFFFF) as u32;
                 let minimized = (wparam.0 >> 16) & 0xFFFF != 0;
                 if state == WA_INACTIVE || minimized {
                     return DefSubclassProc(hwnd, msg, wparam, lparam);
                 }
-                post(check_translucency);
                 // Coming back to the window (Alt+Tab, the taskbar, another window closing) puts
                 // the keyboard focus on this frame, and wry then asks the chrome to take it. That
                 // does not reliably land in a webview, and keys sent to the bare frame never
@@ -103,13 +96,6 @@ pub(super) unsafe extern "system" fn subclass_proc(
             }
             _ => DefSubclassProc(hwnd, msg, wparam, lparam),
         }
-    }
-}
-
-/// Tells every window to re-apply its material when Windows started or stopped allowing it.
-fn check_translucency() {
-    if crate::platform::win::translucency_changed() {
-        emit("translucency-changed", ());
     }
 }
 

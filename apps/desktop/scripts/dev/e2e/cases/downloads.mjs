@@ -39,7 +39,6 @@ test("download", async () => {
     },
     appearance: {
       theme: "system",
-      material: "mica",
       pageBackground: [32, 32, 36],
       contentScheme: "system",
     },
@@ -132,7 +131,6 @@ test("media-downloader", async () => {
       },
       appearance: {
         theme: "system",
-        material: "mica",
         pageBackground: [32, 32, 36],
         contentScheme: "system",
       },

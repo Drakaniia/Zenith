@@ -19,10 +19,6 @@ export interface FilterListSetting {
 
 export interface Settings {
   theme: "system" | "light" | "dark";
-  /** The sidebar shows the window material (the rest of the chrome stays solid). Off: solid. */
-  translucentSidebar: boolean;
-  /** The material the translucent sidebar shows. */
-  material: Material;
   contentScheme: "system" | "light" | "dark";
   compact: boolean;
   /** Compact mode also hides the toolbar above the page; it floats in from the top edge (Zen's
@@ -130,15 +126,7 @@ export interface Settings {
   onboardingStep?: string;
 }
 
-export type Material = "mica" | "mica-alt" | "acrylic";
 export type ToolbarMode = "single" | "multiple" | "collapsed";
-
-/** Why Windows cannot show the material right now (the sidebar is solid meanwhile). */
-export const MATERIAL_FALLBACKS: Record<string, string> = {
-  windows10: "Translucency needs Windows 11, so the sidebar is solid.",
-  "transparency-off": "Transparency effects are off in Windows, so the sidebar is solid.",
-  "battery-saver": "Battery saver is on, so the sidebar is solid until it turns off.",
-};
 export type BookmarksBarMode = "always" | "newtab" | "never";
 
 /** Width limits of the bookmarks sidebar. */
@@ -180,8 +168,6 @@ export const BUILTIN_LISTS: FilterListSetting[] = [
 export function defaultSettings(): Settings {
   return {
     theme: "system",
-    translucentSidebar: true,
-    material: "mica",
     contentScheme: "system",
     compact: false,
     compactHideToolbar: false,
@@ -245,8 +231,6 @@ export function defaultSettings(): Settings {
 class SettingsStore {
   value = $state<Settings>(defaultSettings());
   systemDark = $state(true);
-  /** Set while Windows does not allow the material (a key of MATERIAL_FALLBACKS). */
-  materialFallback = $state<string | null>(null);
   /** System-wide shortcuts another app already owns (they still work inside Zenith). */
   globalShortcutConflicts = $state<string[]>([]);
   #saveTimer: ReturnType<typeof setTimeout> | undefined;
@@ -288,11 +272,9 @@ class SettingsStore {
       const raw = await settingsApi.settingsLoad();
       if (raw) {
         const saved = JSON.parse(raw) as Partial<Settings>;
-        // Before the sidebar toggle, "solid" was one of the materials.
-        const material = saved.material as string | undefined;
-        if (material === "solid") saved.translucentSidebar ??= false;
-        if (material !== undefined && !["mica", "mica-alt", "acrylic"].includes(material))
-          delete saved.material;
+        // The translucent sidebar was removed: drop its keys from settings saved before.
+        Reflect.deleteProperty(saved, "translucentSidebar");
+        Reflect.deleteProperty(saved, "material");
         const base = defaultSettings();
         // Keep defaults for new actions; respect user edits (including cleared bindings).
         const shortcuts = mergeShortcuts(saved.shortcuts, base.shortcuts);
@@ -356,19 +338,19 @@ class SettingsStore {
     return this.resolvedTheme === "dark" ? [32, 32, 36] : [255, 255, 255];
   }
 
+  /** What was last sent to the backend. Re-applying the theme and the page background repaints
+   *  the whole window, so a change that touches neither (the bookmarks panel, a width) sends
+   *  nothing. */
+  #pushed = "";
+
   async push() {
     const s = this.value;
     const root = document.documentElement;
     const theme = this.resolvedTheme;
-    const material = s.translucentSidebar ? s.material : "solid";
     // A change after startup fades; the first application (nothing set yet) is immediate.
-    const apply = () => {
-      root.dataset.theme = theme;
-      root.dataset.material = material;
-    };
-    if (!root.dataset.theme || !root.dataset.material) apply();
-    else if (root.dataset.theme !== theme || root.dataset.material !== material) fadeChange(apply);
-    const applied = await settingsApi.applySettings(
+    if (!root.dataset.theme) root.dataset.theme = theme;
+    else if (root.dataset.theme !== theme) fadeChange(() => (root.dataset.theme = theme));
+    const args: Parameters<typeof settingsApi.applySettings> = [
       {
         downloadDir: s.downloadDir,
         recordHistory: s.recordHistory,
@@ -393,17 +375,19 @@ class SettingsStore {
       },
       {
         theme: s.theme,
-        material,
         pageBackground: this.pageBackground(),
         contentScheme: s.contentScheme,
       },
-    );
-    // Windows 10, transparency effects off or battery saver: the backend reports the solid
-    // fallback it applied.
-    if (root.dataset.material !== applied.material) {
-      fadeChange(() => (root.dataset.material = applied.material));
+    ];
+    const key = JSON.stringify(args);
+    if (key === this.#pushed) return;
+    this.#pushed = key;
+    try {
+      await settingsApi.applySettings(...args);
+    } catch (e) {
+      if (this.#pushed === key) this.#pushed = ""; // sent again next time
+      throw e;
     }
-    this.materialFallback = applied.fallback ?? null;
   }
 
   async pushShortcuts() {

@@ -1,15 +1,13 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, untrack } from 'svelte';
   import { tabsApi } from '$features/browser/api';
   import { windowApi } from '$features/window/api';
-  import { fade } from 'svelte/transition';
-  import { cubicOut } from 'svelte/easing';
   import { browser } from '$features/browser/browser.svelte';
   import { settings, SIDEBAR_MIN } from '$features/settings/settings.svelte';
   import { ui } from '$shared/ui/ui.svelte';
   import { barPinned } from '$features/bookmarks/bookmark-actions';
   import { bmDnd } from '$features/bookmarks/bookmark-dnd.svelte';
-  import { followLayout, overlay, overlayHold, scheduleLayout, setLayoutRegistry } from '$platform/layout.svelte';
+  import { followLayout, overlay, scheduleLayout, setLayoutRegistry } from '$platform/layout.svelte';
   import { incognito } from '$features/window/window.svelte';
   import { isStrip } from '$features/sidebar/sidebar-position';
   import Content from '$features/browser/Content.svelte';
@@ -24,12 +22,14 @@
   import Overlays from './Overlays.svelte';
   import { listenBackend } from './events';
   import { startup } from './startup';
+  import { followMs, layoutMotion, sameLayout, STILL, type LayoutMotion, type LayoutState } from './layout-motion';
 
   setLayoutRegistry({
     isLive: (id) => {
       const t = browser.tabs[id];
       return !!t && t.live && !t.crashed;
     },
+    isReady: (id) => !browser.tabs[id]?.creating,
   });
 
   const compact = $derived(settings.value.compact);
@@ -63,23 +63,29 @@
 
   // Layout changes (compact mode, single/multiple toolbars, collapsed sidebar) animate: the
   // layout variables in app.css transition while the page webviews follow frame by frame.
-  const LAYOUT_MS = 300;
-  let animating = $state(false);
+  // Compact mode moves on Zen's timing (layout-motion.ts).
+  let motion = $state<LayoutMotion>(STILL);
+  const animating = $derived(motion.side > 0 || motion.bar > 0);
   let motionReady = false;
-  let lastLayoutKey = '';
+  let lastLayout: LayoutState | null = null;
   let animTimer: ReturnType<typeof setTimeout> | undefined;
   $effect.pre(() => {
-    const key = `${compact}|${mode}|${barOn}|${hideToolbar}|${side}`;
-    if (key === lastLayoutKey) return;
-    const first = !lastLayoutKey;
-    lastLayoutKey = key;
-    if (first || !motionReady || pageFullscreen) return;
-    animating = true;
+    const next: LayoutState = { compact, mode, barOn, hideToolbar, side };
+    const prev = lastLayout;
+    if (prev && sameLayout(prev, next)) return;
+    lastLayout = next;
+
+    if (!prev || !motionReady || pageFullscreen) return;
+    // The floating sidebar is still flagged open here when compact mode was left from it.
+    const m = layoutMotion(prev, next, untrack(() => ui.flyout));
+    motion = m;
     clearTimeout(animTimer);
-    animTimer = setTimeout(() => (animating = false), LAYOUT_MS + 80);
-    followLayout(LAYOUT_MS + 80);
+    const ms = followMs(m);
+    if (!ms) return;
+    animTimer = setTimeout(() => (motion = STILL), ms);
+    followLayout(ms);
   });
-  const motionMs = () => (animating ? LAYOUT_MS : 0);
+
 
   let saveTimer: ReturnType<typeof setTimeout> | undefined;
   let lastSaved = '';
@@ -124,13 +130,10 @@
   });
 
   // The window tint is painted by the chrome, which sits below the page webviews, except while
-  // floating UI raises it above them: the tint then covers the pages too. Raising is a single
-  // z-order switch, so the tint is cut out under the live pages and drawn there by a separate
-  // scrim that fades in when floating UI shows, and fades out (with the chrome held above the
-  // pages until it is done) when it goes away, instead of blinking on and off.
-  const raised = $derived(overlay.leases > 0 || overlay.forced || !!browser.glance);
+  // floating UI raises it above them. It is cut out under the live pages, so they keep their
+  // own colours (no dimming) whether or not a menu, popup or the compact sidebar is open.
   // One mask layer per page rectangle; the window tint keeps everything but them (the full
-  // layer excludes their union), the scrim only them.
+  // layer excludes their union).
   const paneMask = $derived({
     image: overlay.panes.map(() => 'linear-gradient(#000 0 0)').join(', '),
     position: overlay.panes.map((r) => `${r.x}px ${r.y}px`).join(', '),
@@ -155,9 +158,12 @@
     }
   }
 
-  // The pinned floating sidebar goes with compact mode.
+  // The floating sidebar goes with compact mode. Leaving compact mode keeps it flagged until the
+  // layout motion above has seen it, so it docks where it is, as in Zen.
   $effect(() => {
-    if (!compact) ui.flyoutPinned = false;
+    if (compact) return;
+    ui.flyout = false;
+    ui.flyoutPinned = false;
   });
 
   $effect(() => {
@@ -211,6 +217,9 @@
   class:animating
   inert={onboarding.open}
   style:--sidebar-w="{sideW}px"
+  style:--lay-side-ms="{motion.side}ms"
+  style:--lay-bar-ms="{motion.bar}ms"
+  style:--lay-bar-ease={motion.fold ? 'ease-in-out' : 'var(--zen-spring)'}
   oncontextmenu={(e) => {
     if (!(e.target as HTMLElement).closest('input, textarea, [contenteditable]')) e.preventDefault();
   }}
@@ -228,7 +237,7 @@
     <SpaceTint {space} />
   </div>
 
-  <ChromeSlots {showSidebar} {strip} {side} {mode} {stripHasControls} {stripIsToolbar} {showTopBar} {barOn} {motionMs} />
+  <ChromeSlots {showSidebar} {strip} {side} {mode} {stripHasControls} {stripIsToolbar} {showTopBar} {barOn} motion={() => motion} />
   <main class="stage">
     <Content />
   </main>
@@ -236,21 +245,6 @@
   <CaptionReveal {single} {pageFullscreen} {barOn} {revealBar} />
 
   <CompactReveal {compact} {pageFullscreen} {hideToolbar} {side} {strip} {mode} />
-
-  <!-- The window tint over the live pages while the chrome is raised (see `raised`). -->
-  {#if raised && hasPanes && !pageFullscreen}
-    <div
-      class="space-bg-layer page-scrim masked"
-      aria-hidden="true"
-      use:overlayHold
-      style:mask-image={paneMask.image}
-      style:mask-position={paneMask.position}
-      style:mask-size={paneMask.size}
-      transition:fade={{ duration: 200, easing: cubicOut }}
-    >
-      <SpaceTint {space} />
-    </div>
-  {/if}
 
   <Overlays />
 </div>
@@ -267,7 +261,7 @@
    *   --lay-right     inset of its right edge    --lay-bottom    inset of its bottom edge
    *   --lay-bar-left  left edge of the toolbar   --lay-side-top  top edge of the sidebar
    *   --lay-bar-top   top edge of the toolbar (below a tab strip at the top)
-   *   --lay-glass     width of the translucent sidebar area (0 when the sidebar floats)
+   *   --lay-glass     width of the sidebar area (0 when the sidebar floats)
    * The sidebar can sit on the right (mirrored) or, as a horizontal tab strip, at the top or the
    * bottom (.side-* classes below). */
   .app {
@@ -296,7 +290,7 @@
     --lay-side-top: var(--zen-toolbar-h);
     --lay-glass: calc(var(--collapsed-tab-w) + 12px);
   }
-  /* The floating sidebar is drawn over the page, where the material cannot show. */
+  /* The floating sidebar is drawn over the page and paints its own background. */
   .app.compact {
     --lay-left: var(--zen-sep);
     --lay-bar-left: 0px;
@@ -369,14 +363,14 @@
 
   .app.animating {
     transition:
-      --lay-left 300ms var(--zen-spring),
-      --lay-right 300ms var(--zen-spring),
-      --lay-top 300ms var(--zen-spring),
-      --lay-bottom 300ms var(--zen-spring),
-      --lay-bar-top 300ms var(--zen-spring),
-      --lay-bar-left 300ms var(--zen-spring),
-      --lay-side-top 300ms var(--zen-spring),
-      --lay-glass 300ms var(--zen-spring);
+      --lay-left var(--lay-side-ms) var(--zen-spring),
+      --lay-right var(--lay-side-ms) var(--zen-spring),
+      --lay-top var(--lay-bar-ms) var(--lay-bar-ease),
+      --lay-bottom var(--lay-side-ms) var(--zen-spring),
+      --lay-bar-top var(--lay-side-ms) var(--zen-spring),
+      --lay-bar-left var(--lay-side-ms) var(--zen-spring),
+      --lay-side-top var(--lay-side-ms) var(--zen-spring),
+      --lay-glass var(--lay-side-ms) var(--zen-spring);
   }
   .stage {
     position: absolute;
@@ -394,10 +388,9 @@
     inset: 0;
   }
 
-  /* Window tint by the active space. Only the sidebar shows the system material, through a
-   * translucent tint (as in Zen on Windows 11); the toolbar and the frame around the page get
-   * the solid window colour. Three non-overlapping rectangles: the sidebar, the strip above it
-   * (collapsed layout) and everything to its right. */
+  /* Window background. The sidebar gets --glass (darker in incognito windows); the toolbar and
+   * the frame around the page get the solid window colour. Three non-overlapping rectangles: the
+   * sidebar, the strip above it (collapsed layout) and everything to its right. */
   .space-bg-layer {
     position: absolute;
     inset: 0;
@@ -412,7 +405,7 @@
         calc(100% - var(--lay-glass)) 100% no-repeat;
   }
   /* The same three rectangles mirrored, for the sidebar on the right. */
-  .app.side-right .space-bg-layer:not(.page-scrim) {
+  .app.side-right .space-bg-layer {
     background:
       linear-gradient(var(--glass), var(--glass)) right 0 top var(--lay-side-top) / var(--lay-glass)
         calc(100% - var(--lay-side-top)) no-repeat,
@@ -421,14 +414,14 @@
       linear-gradient(var(--tint-solid), var(--tint-solid)) 0 0 / calc(100% - var(--lay-glass)) 100%
         no-repeat;
   }
-  /* A tab strip shows the material across the window's top or bottom row. */
-  .app.side-top .space-bg-layer:not(.page-scrim) {
+  /* A tab strip gets the sidebar background across the window's top or bottom row. */
+  .app.side-top .space-bg-layer {
     background:
       linear-gradient(var(--glass), var(--glass)) 0 0 / 100% var(--lay-bar-top) no-repeat,
       linear-gradient(var(--tint-solid), var(--tint-solid)) 0 var(--lay-bar-top) / 100%
         calc(100% - var(--lay-bar-top)) no-repeat;
   }
-  .app.side-bottom .space-bg-layer:not(.page-scrim) {
+  .app.side-bottom .space-bg-layer {
     background:
       linear-gradient(var(--glass), var(--glass)) 0 100% / 100% var(--strip-bottom) no-repeat,
       linear-gradient(var(--tint-solid), var(--tint-solid)) 0 0 / 100% calc(100% - var(--strip-bottom))
@@ -437,9 +430,5 @@
   /* Above the page area, below every floating panel (the flyout sits at z-index 40). */
   .space-bg-layer.masked {
     mask-repeat: no-repeat;
-  }
-  .space-bg-layer.page-scrim {
-    z-index: 2;
-    background: var(--page-scrim);
   }
 </style>

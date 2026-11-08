@@ -2,13 +2,14 @@
   // The docked chrome: the sidebar (or tab strip) and the toolbar row above the page.
   import { fade } from 'svelte/transition';
   import { cubicOut } from 'svelte/easing';
-  import { slidePx, slideX, springEase } from '$shared/ui/motion';
+  import { foldY, slidePx, slideX, springEase } from '$shared/ui/motion';
   import type { ToolbarMode } from '$features/settings/settings.svelte';
   import type { SidebarPosition } from '$features/sidebar/sidebar-position';
   import Sidebar from '$features/sidebar/Sidebar.svelte';
   import TabStrip from '$features/sidebar/TabStrip.svelte';
   import TopBar from '$features/toolbar/TopBar.svelte';
   import BookmarksBar from '$features/bookmarks/BookmarksBar.svelte';
+  import type { LayoutMotion } from './layout-motion';
 
   let {
     showSidebar,
@@ -19,7 +20,7 @@
     stripIsToolbar,
     showTopBar,
     barOn,
-    motionMs,
+    motion,
   }: {
     showSidebar: boolean;
     strip: boolean;
@@ -29,36 +30,40 @@
     stripIsToolbar: boolean;
     showTopBar: boolean;
     barOn: boolean;
-    /** Duration of the layout animation now (0 when nothing animates). */
-    motionMs: () => number;
+    /** The layout animation now (all 0 when nothing animates). */
+    motion: () => LayoutMotion;
   } = $props();
+
+  // The toolbar row: the toolbar compact mode hides folds into the top edge (Zen); other layout
+  // changes slide it.
+  function toolbarMove(node: Element, { out }: { out: boolean }) {
+    const m = motion();
+    if (m.fold) return foldY(node, { duration: m.bar });
+    return slidePx(node, { y: -16, duration: out ? m.bar * 0.6 : m.bar, easing: out ? cubicOut : springEase });
+  }
 </script>
 
 {#if showSidebar}
   {#if strip}
     <div
       class="strip-slot"
-      in:slidePx={{ y: side === 'top' ? -16 : 16, duration: motionMs(), easing: springEase }}
-      out:slidePx={{ y: side === 'top' ? -16 : 16, duration: motionMs() * 0.6, easing: cubicOut }}
+      in:slidePx={{ y: side === 'top' ? -16 : 16, duration: motion().side, easing: springEase }}
+      out:slidePx={{ y: side === 'top' ? -16 : 16, duration: motion().side * 0.6, easing: cubicOut }}
     >
       <TabStrip edge={side === 'top' ? 'top' : 'bottom'} collapsed={mode === 'collapsed'} controls={stripHasControls} merged={stripIsToolbar} />
     </div>
   {:else}
     <div
       class="side-slot"
-      in:slideX={{ from: side === 'right' ? 1 : -1, duration: motionMs(), easing: springEase }}
-      out:slideX={{ from: side === 'right' ? 1 : -1, duration: motionMs(), easing: springEase }}
+      in:slideX={{ from: side === 'right' ? 1 : -1, duration: motion().side, easing: springEase }}
+      out:slideX={{ from: side === 'right' ? 1 : -1, duration: motion().side, easing: springEase }}
     >
       <Sidebar />
     </div>
   {/if}
 {/if}
 {#if showTopBar || (stripIsToolbar && barOn)}
-  <div
-    class="toolbar-slot"
-    in:slidePx={{ y: -16, duration: motionMs(), easing: springEase }}
-    out:slidePx={{ y: -16, duration: motionMs() * 0.6, easing: cubicOut }}
-  >
+  <div class="toolbar-slot" in:toolbarMove={{ out: false }} out:toolbarMove={{ out: true }}>
     {#if showTopBar}
       <TopBar controls={!stripHasControls} />
     {/if}

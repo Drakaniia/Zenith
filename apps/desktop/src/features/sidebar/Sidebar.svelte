@@ -6,8 +6,7 @@
   import SpacePane from './SpacePane.svelte';
   import MediaBar from './MediaBar.svelte';
   import SidebarFooter from './SidebarFooter.svelte';
-  import { slide } from 'svelte/transition';
-  import { onDestroy, untrack } from 'svelte';
+  import { tick, untrack } from 'svelte';
   import { browser, tabTitle } from '$features/browser/browser.svelte';
   import { dnd } from './sidebar-dnd.svelte';
   import { settings, SIDEBAR_COLLAPSE_AT, SIDEBAR_DEFAULT, SIDEBAR_MAX, SIDEBAR_MIN } from '$features/settings/settings.svelte';
@@ -15,6 +14,7 @@
   import { slideX } from '$shared/ui/motion';
   import { shortcutHint } from '$features/shortcuts/hints';
   import { sidebarMenu } from './menus';
+  import { sidebarMotion } from './sidebar-motion';
 
   // Zen's sidebar (#navigator-toolbox): top buttons, address bar (single toolbar), Essentials,
   // the active space (sliding between spaces), media controls and the footer.
@@ -23,36 +23,29 @@
   const mode = $derived(settings.layoutMode);
   /** On the right the splitter is on the sidebar's left edge, and dragging left widens it. */
   const right = $derived(settings.value.sidebarPosition === 'right');
-  const wantCollapsed = $derived(mode === 'collapsed' && !floating);
+  const collapsed = $derived(mode === 'collapsed' && !floating);
   const single = $derived(mode === 'single');
 
-  // Collapsing is two steps so the text never blinks away: the labels fade out while the sidebar
-  // narrows (the width follows the layout transition), and only then do the rows switch to their
-  // icon-only form. Expanding does the opposite: the rows get their labels back, which fade in.
-  const SWAP_MS = 230;
-  const initial = untrack(() => wantCollapsed);
-  let collapsed = $state(initial);
-  let fading = $state(false);
-  let lastWant = initial;
-  let phaseTimer: ReturnType<typeof setTimeout> | undefined;
-  $effect.pre(() => {
-    const want = wantCollapsed;
-    if (want === lastWant) return;
-    lastWant = want;
-    clearTimeout(phaseTimer);
-    if (want) {
-      fading = true;
-      phaseTimer = setTimeout(() => {
-        collapsed = true;
-        fading = false;
-      }, SWAP_MS);
-    } else {
-      collapsed = false;
-      fading = true;
-      requestAnimationFrame(() => requestAnimationFrame(() => (fading = false)));
-    }
-  });
-  onDestroy(() => clearTimeout(phaseTimer));
+  // Commit the target layout once, then move its icons from their old rendered positions.
+  // Keeping the content at its target width prevents grid rewrapping on every width frame.
+  function animateLayout(node: HTMLElement) {
+    const motion = sidebarMotion(node);
+    let previous = untrack(() => collapsed);
+    let revision = 0;
+    const stop = $effect.root(() => {
+      $effect.pre(() => {
+        const next = collapsed;
+        if (next === previous) return;
+        previous = next;
+        const current = ++revision;
+        const before = motion.capture();
+        void tick().then(() => {
+          if (current === revision) motion.play(before);
+        });
+      });
+    });
+    return { destroy() { revision++; stop(); motion.destroy(); } };
+  }
   const space = $derived(browser.activeSpace);
 
   // ---------------------------------------------------------------- space slide
@@ -138,7 +131,6 @@
   class="sidebar"
   class:floating
   class:collapsed
-  class:fading
   class:single
   class:has-top={!collapsed}
   class:right
@@ -150,29 +142,31 @@
     ui.openMenu(e.clientX, e.clientY, sidebarMenu());
   }}
 >
-  {#if !collapsed}
-    <div class="top-wrap" transition:slide={{ duration: 200 }}>
-      <SidebarTop {single} />
-    </div>
-  {/if}
-  {#if single && !collapsed}
-    <UrlPill />
-  {/if}
-
-  <Essentials {collapsed} />
-
-  <div class="space-area" style:transform={nudge ? `translateX(${nudge}px)` : undefined}>
-    {#if space}
-      {#key space.id}
-        <div class="slot" in:slideX={{ from: dir }} out:slideX={{ from: -dir }}>
-          <SpacePane {space} {collapsed} />
-        </div>
-      {/key}
+  <div class="sidebar-content" use:animateLayout>
+    {#if !collapsed}
+      <div class="top-wrap">
+        <SidebarTop {single} />
+      </div>
     {/if}
-  </div>
+    {#if single && !collapsed}
+      <UrlPill />
+    {/if}
 
-  {#if !collapsed}<MediaBar />{/if}
-  <SidebarFooter {collapsed} />
+    <Essentials {collapsed} />
+
+    <div class="space-area" style:transform={nudge ? `translateX(${nudge}px)` : undefined}>
+      {#if space}
+        {#key space.id}
+          <div class="slot" in:slideX={{ from: dir }} out:slideX={{ from: -dir }}>
+            <SpacePane {space} {collapsed} />
+          </div>
+        {/key}
+      {/if}
+    </div>
+
+    {#if !collapsed}<MediaBar />{/if}
+    <SidebarFooter {collapsed} />
+  </div>
 
   {#if !floating && !collapsed}
     <div
@@ -206,6 +200,20 @@
     padding-bottom: var(--zen-pad);
     color: var(--text);
   }
+  .sidebar-content {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    width: var(--sidebar-w);
+  }
+  .sidebar.collapsed .sidebar-content {
+    width: calc(var(--collapsed-tab-w) + 12px);
+  }
+  .sidebar.floating .sidebar-content {
+    width: 100%;
+  }
   .sidebar.collapsed {
     padding-top: 2px;
     padding-bottom: 6px;
@@ -222,18 +230,29 @@
     flex: none;
     display: flow-root;
   }
-  /* Labels fade instead of blinking when the sidebar collapses or expands. */
+  /* Zen's tab labels (.tab-label-container): one line, clipped and faded out at the end instead
+   * of cut with an ellipsis. While the width animates (collapsing, expanding, resizing) the text
+   * slides under the fade; an ellipsis would re-cut it on every frame. */
+  .sidebar :global(:is(.labels .title, .labels .sub, .space-name, .folder .name, .new-tab-label):not(.rename)) {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: clip;
+    mask-image: linear-gradient(to right, #000 calc(100% - 2em), transparent);
+  }
+  /* Newly restored labels fade in without delaying the icon layout. */
   .sidebar :global(.labels),
   .sidebar :global(.space-name),
   .sidebar :global(.new-tab-label),
   .sidebar :global(.folder .name) {
     transition: opacity 150ms ease;
   }
-  .sidebar.fading :global(.labels),
-  .sidebar.fading :global(.space-name),
-  .sidebar.fading :global(.new-tab-label),
-  .sidebar.fading :global(.folder .name) {
-    opacity: 0;
+  @starting-style {
+    .sidebar :global(.labels),
+    .sidebar :global(.space-name),
+    .sidebar :global(.new-tab-label),
+    .sidebar :global(.folder .name) {
+      opacity: 0;
+    }
   }
   .sidebar.floating {
     width: 100%;

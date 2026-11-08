@@ -150,7 +150,7 @@
         onclick={() => hasPinned && (space.pinnedCollapsed = !space.pinnedCollapsed)}
         ondblclick={() => void rename()}
       >
-        <span class="stack">
+        <span class="stack" data-sidebar-icon="indicator:{space.id}">
           <span class="space-icon">{space.icon}</span>
           <span class="chevron"><Icon name="chevronDown" size={14} /></span>
         </span>
@@ -185,7 +185,7 @@
     </div>
   {:else}
     <button class="indicator-mini" title={space.name} onclick={() => (ui.spaceEditor = { spaceId: space.id })}>
-      <span>{space.icon}</span>
+      <span data-sidebar-icon="indicator:{space.id}">{space.icon}</span>
     </button>
   {/if}
 
@@ -226,7 +226,7 @@
 
     <button class="new-tab" class:collapsed title={collapsed ? 'New Tab' : undefined} onclick={() => ui.openPalette('newTab')}>
       <span class="new-tab-bg"></span>
-      <span class="new-tab-icon"><Icon name="plus" size={16} /></span>
+      <span class="new-tab-icon" data-sidebar-icon="new-tab"><Icon name="plus" size={16} /></span>
       {#if !collapsed}<span class="new-tab-label">New Tab</span>{/if}
     </button>
 
@@ -499,7 +499,10 @@
     display: grid;
     margin-inline: calc(var(--tab-pad) + 3px) 10px;
   }
+  /* Fills the row so it fades at the edge (Sidebar.svelte) rather than wrapping when narrow. */
   .new-tab-label {
+    flex: 1;
+    min-width: 0;
     position: relative;
   }
   .new-tab.collapsed {

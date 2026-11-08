@@ -21,7 +21,6 @@ pub struct StartupInfo {
     /// An incognito window (InPrivate pages, nothing saved).
     incognito: bool,
     startup_urls: Vec<String>,
-    windows11: bool,
     webview_version: String,
     version: String,
     data_dir: String,
@@ -60,7 +59,6 @@ pub async fn ui_ready(app: AppHandle, window: WebviewWindow) -> CmdResult<Startu
         profile,
         incognito,
         startup_urls,
-        windows11: win::is_windows_11(),
         webview_version: wry::webview_version().unwrap_or_default(),
         version: env!("CARGO_PKG_VERSION").into(),
         data_dir: paths().roaming.display().to_string(),

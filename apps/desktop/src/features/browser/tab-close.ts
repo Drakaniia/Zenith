@@ -5,18 +5,21 @@ import { tabsApi } from "./api";
 import { isNewTab } from "../../shared/url";
 import { focusAfterLayout, scheduleLayout } from "../../platform/layout.svelte";
 
-/** Tab to show after `id` goes away, following the order of the tab's own list. */
+/** Tab to show after `id` goes away, following the order of the tab's own list. Never an
+ *  Essential, and a regular tab never hands over to a pinned one: closing the last regular tab
+ *  leaves the space on its start page. */
 export function neighbor(store: BrowserStore, id: TabId, space: Space): TabId | undefined {
   const tab = store.tabs[id];
+  const regular = !!tab && !tab.pinned && !tab.essential;
+  const ids = (regular ? space.tabIds : [...store.pinnedOrder(space), ...space.tabIds]).filter(
+    (x) => store.tabs[x] && !store.tabs[x].essential,
+  );
   if (
     tab?.openerId &&
-    store.tabs[tab.openerId] &&
+    ids.includes(tab.openerId) &&
     tab.lastActive > (store.tabs[tab.openerId]?.lastActive ?? 0)
-  ) {
-    const opener = store.tabs[tab.openerId];
-    if (opener.essential || opener.spaceId === space.id) return opener.id;
-  }
-  const ids = store.order(space);
+  )
+    return tab.openerId;
   const i = ids.indexOf(id);
   const rest = ids.filter((x) => x !== id);
   if (!rest.length) return undefined;

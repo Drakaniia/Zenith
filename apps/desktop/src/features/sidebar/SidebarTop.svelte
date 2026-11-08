@@ -19,7 +19,7 @@
   const live = $derived(active?.live ? active : undefined);
 
   function toggleCompact() {
-    ui.flyout = false;
+
     settings.update({ compact: !settings.value.compact });
   }
 </script>

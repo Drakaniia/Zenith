@@ -1,17 +1,15 @@
 <script lang="ts">
   import Toggle from '$shared/ui/Toggle.svelte';
   import Segmented from '$shared/ui/Segmented.svelte';
-  import { settings, MATERIAL_FALLBACKS, SIDEBAR_MAX, SIDEBAR_MIN, type Settings } from '../settings.svelte';
+  import { settings, SIDEBAR_MAX, SIDEBAR_MIN, type Settings } from '../settings.svelte';
   import { ui } from '$shared/ui/ui.svelte';
   import { shortcutHint } from '$features/shortcuts/hints';
   import { SIDEBAR_POSITIONS, isStrip, positionHint } from '$features/sidebar/sidebar-position';
-  import { appInfo } from '$features/window/window.svelte';
   import { onboarding } from '$features/onboarding/onboarding.svelte';
   import { ACCENT_NAMES } from '$features/onboarding/onboarding-flow';
   import { browser, SPACE_COLORS } from '$features/browser/browser.svelte';
 
   const s = $derived(settings.value);
-  const info = $derived(appInfo.info);
 
   function set<K extends keyof Settings>(key: K, value: Settings[K]) {
     settings.update({ [key]: value } as Partial<Settings>);
@@ -54,38 +52,6 @@
             </label>
           {/each}
         </div>
-      </div>
-    {/if}
-    <div class="row">
-      <div class="text">
-        <b>Translucent sidebar</b>
-        <span>
-          {s.translucentSidebar && settings.materialFallback
-            ? MATERIAL_FALLBACKS[settings.materialFallback]
-            : info && !info.windows11
-              ? 'Needs Windows 11; Windows 10 uses the solid theme.'
-              : 'Your desktop shows through the sidebar. Off uses the least GPU and memory.'}
-        </span>
-      </div>
-      <Toggle
-        checked={s.translucentSidebar && (!info || info.windows11)}
-        disabled={!!info && !info.windows11}
-        onchange={(v) => set('translucentSidebar', v)}
-        label="Translucent sidebar"
-      />
-    </div>
-    {#if s.translucentSidebar && (!info || info.windows11)}
-      <div class="row">
-        <div class="text"><b>Sidebar material</b><span>Mica tints with your wallpaper; Acrylic blurs what is behind the window.</span></div>
-        <Segmented
-          value={s.material}
-          options={[
-            { value: 'mica', label: 'Mica' },
-            { value: 'mica-alt', label: 'Mica Alt' },
-            { value: 'acrylic', label: 'Acrylic' },
-          ]}
-          onchange={(v) => set('material', v)}
-        />
       </div>
     {/if}
     <div class="row">

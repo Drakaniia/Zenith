@@ -7,7 +7,6 @@ use tauri::{AppHandle, WebviewWindow};
 use super::wallpapers::{valid_wallpaper_data, wallpaper_file};
 use crate::app::command::{blocking, on_main, private, refuse_in_incognito, CmdResult};
 use crate::host::{self, paths, RuntimeConfig};
-use crate::platform::win;
 use crate::storage;
 
 #[derive(Deserialize)]
@@ -15,20 +14,9 @@ use crate::storage;
 pub struct Appearance {
     /// "system" | "light" | "dark"
     theme: String,
-    /// "mica" | "mica-alt" | "acrylic" | "solid"
-    material: String,
     page_background: [u8; 3],
     /// prefers-color-scheme for web content: "system" | "light" | "dark"
     content_scheme: String,
-}
-
-#[derive(Serialize)]
-pub struct AppliedSettings {
-    /// The material actually in use ("solid" whenever Windows cannot show one).
-    material: String,
-    /// Why a requested material fell back to solid: "windows10", "transparency-off" or
-    /// "battery-saver".
-    fallback: Option<&'static str>,
 }
 
 #[tauri::command]
@@ -37,40 +25,25 @@ pub async fn apply_settings(
     window: WebviewWindow,
     config: RuntimeConfig,
     appearance: Appearance,
-) -> CmdResult<AppliedSettings> {
+) -> CmdResult<()> {
     // App-wide settings come from the normal window; an incognito window only styles itself
     // (its settings changes last only as long as it is open).
     if !private(&window) {
         host::apply_config(config);
     }
-    let blocker = win::current_translucency_blocker();
-    let material = if blocker.is_some() { "solid".to_string() } else { appearance.material.clone() };
-    let fallback = blocker.filter(|_| appearance.material != "solid");
     let theme = match appearance.theme.as_str() {
         "light" => Some(tauri::Theme::Light),
         "dark" => Some(tauri::Theme::Dark),
         _ => None,
     };
     let _ = window.set_theme(theme);
-    let effect = match material.as_str() {
-        "mica" => Some(tauri::window::Effect::Mica),
-        "mica-alt" => Some(tauri::window::Effect::Tabbed),
-        "acrylic" => Some(tauri::window::Effect::Acrylic),
-        _ => None,
-    };
-    let effects = effect.map(|e| tauri::utils::config::WindowEffectsConfig {
-        effects: vec![e],
-        ..Default::default()
-    });
-    let _ = window.set_effects(effects);
     let bg = appearance.page_background;
     let scheme = appearance.content_scheme;
     on_main(&app, move || {
         host::set_page_background((bg[0], bg[1], bg[2]));
         host::set_content_color_scheme(&scheme);
     })
-    .await?;
-    Ok(AppliedSettings { material, fallback })
+    .await
 }
 
 #[tauri::command]

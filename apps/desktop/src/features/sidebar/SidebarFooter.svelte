@@ -54,7 +54,7 @@
 
 <footer class="foot" class:collapsed class:inline>
   <button class="icon-btn dl" title={withHint('Downloads', 'downloads')} onclick={() => (ui.downloadsOpen = !ui.downloadsOpen)} data-downloads-anchor>
-    <Icon name="download" />
+    <span class="motion-icon" data-sidebar-icon="downloads"><Icon name="download" /></span>
     {#if downloads.progress >= 0}
       <svg class="ring" viewBox="0 0 36 36" aria-hidden="true">
         <circle cx="18" cy="18" r="15" pathLength="100" stroke-dasharray="{Math.max(3, downloads.progress * 100)} 100" />
@@ -64,7 +64,7 @@
     {/if}
   </button>
   <button class="icon-btn" class:on={onNotes} title={notesKey ? `Notes (${notesKey})` : 'Notes'} data-action="notes" onclick={() => openNotes()}>
-    <Icon name="note" />
+    <span class="motion-icon" data-sidebar-icon="notes"><Icon name="note" /></span>
   </button>
   {#if updates.ready}
     <button
@@ -73,7 +73,7 @@
       disabled={updates.restarting}
       onclick={() => void updates.restart()}
     >
-      <Icon name="arrowDownToLine" />
+      <span class="motion-icon" data-sidebar-icon="update"><Icon name="arrowDownToLine" /></span>
       <span class="dot"></span>
     </button>
   {/if}
@@ -100,7 +100,7 @@
         {#if many && s.id !== browser.activeSpaceId}
           <span class="mini-dot"></span>
         {:else}
-          <span class="space-icon">{s.icon}</span>
+          <span class="space-icon" data-sidebar-icon="space:{s.id}">{s.icon}</span>
         {/if}
       </button>
     {/each}
@@ -115,11 +115,14 @@
       ui.openMenu(r.left, inline && r.top < window.innerHeight / 2 ? r.bottom + 4 : r.top - 8, createNewMenu());
     }}
   >
-    <Icon name="plus" />
+    <span class="motion-icon" data-sidebar-icon="create"><Icon name="plus" /></span>
   </button>
 </footer>
 
 <style>
+  .motion-icon {
+    display: grid;
+  }
   .foot {
     position: relative;
     flex: none;

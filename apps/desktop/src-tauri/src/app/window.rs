@@ -5,13 +5,10 @@ use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
-use tauri::utils::config::WindowEffectsConfig;
 use tauri::webview::ScrollBarStyle;
-use tauri::window::Effect;
 use tauri::{AppHandle, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 
 use super::startup::set_startup_urls;
-use crate::platform::win;
 use crate::{host, incognito, profiles, session, storage};
 
 pub(crate) static NEXT_INCOGNITO: AtomicU32 = AtomicU32::new(1);
@@ -155,14 +152,6 @@ pub(crate) fn create_window(app: &AppHandle, label: &str) -> tauri::Result<()> {
         .transparent(true)
         .shadow(true)
         .visible(false);
-    // Mica needs Windows 11 with transparency allowed; otherwise the UI paints the solid theme.
-    // The UI's settings then pick the material the user chose.
-    if win::translucency_blocker().is_none() {
-        builder = builder.effects(WindowEffectsConfig {
-            effects: vec![Effect::Mica],
-            ..Default::default()
-        });
-    }
     if private {
         // Known to the UI before its first render, so it never restores or saves a session.
         builder = builder.initialization_script("window.__ZENITH_INCOGNITO__ = true;");

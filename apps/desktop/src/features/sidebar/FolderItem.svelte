@@ -72,7 +72,7 @@
     oncontextmenu={menu}
   >
     <span class="bg"></span>
-    <svg class="folder-icon" class:open={!folder.collapsed} width="28" height="28" viewBox="0 0 28 28" aria-hidden="true">
+    <svg class="folder-icon" data-sidebar-icon="folder:{folder.id}" class:open={!folder.collapsed} width="28" height="28" viewBox="0 0 28 28" aria-hidden="true">
       <path class="back" d="M5 8.6a2.2 2.2 0 0 1 2.2-2.2h4.1c.5 0 1 .2 1.3.6l1.2 1.4h7.3a2.2 2.2 0 0 1 2.2 2.2v9.3a2.2 2.2 0 0 1-2.2 2.2H7.2A2.2 2.2 0 0 1 5 19.9z" />
       <path class="front" d="M5 12.1c0-1 .8-1.8 1.8-1.8h14.4c1 0 1.8.8 1.8 1.8v7.8a2.2 2.2 0 0 1-2.2 2.2H7.2A2.2 2.2 0 0 1 5 19.9z" />
       {#if hasActive && folder.collapsed}

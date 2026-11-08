@@ -123,11 +123,11 @@
         browser.resetPinned(tab.id);
       }}
     >
-      <span class="icon"><Favicon url={tab.url} favicon={tab.favicon} /></span>
+      <span class="icon" data-sidebar-icon="tab:{tab.id}"><Favicon url={tab.url} favicon={tab.favicon} /></span>
       <span class="reset-arrow"><Icon name="back" size={14} /></span>
     </button>
   {:else}
-    <span class="icon">
+    <span class="icon" data-sidebar-icon="tab:{tab.id}">
       {#if tab.crashed}
         <span class="warn"><Icon name="alert" size={15} /></span>
       {:else}
