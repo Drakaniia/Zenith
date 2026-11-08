@@ -1,4 +1,4 @@
-//! App updates. Releases are published on GitHub (see docs/RELEASING.md); every update is signed,
+//! App updates. Releases are published on GitHub (see apps/docs/src/content/docs/contributing/releasing.md); every update is signed,
 //! and the updater refuses anything whose signature does not match the public key in
 //! tauri.conf.json.
 //!

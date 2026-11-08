@@ -13,6 +13,7 @@
     "test:rust": "pnpm --filter @zenith/desktop test:rust",
     "docs:dev": "pnpm --filter @zenith/docs dev",
     "docs:build": "pnpm --filter @zenith/docs build",
+    "check:structure": "node scripts/check-structure.mjs",
     "release": "node scripts/release.mjs"
   },
   "packageManager": "pnpm@12.3.4"

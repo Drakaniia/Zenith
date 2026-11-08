@@ -2,7 +2,7 @@
  *
  * Values (sizes, colours, timings, easing curves) are adapted from Zen Browser's stylesheets
  * (https://github.com/zen-browser/desktop, src/zen/**), which are licensed under the Mozilla
- * Public License 2.0: http://mozilla.org/MPL/2.0/. See docs/ZEN-UI.md for the mapping.
+ * Public License 2.0: http://mozilla.org/MPL/2.0/. See apps/docs/src/content/docs/contributing/zen-ui.md for the mapping.
  *
  * The window background is Mica (or Acrylic); the chrome webview is transparent, so the window
  * tint below sits over the system material, the way Zen paints over Mica on Windows 11. */
