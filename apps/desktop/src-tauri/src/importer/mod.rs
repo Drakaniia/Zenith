@@ -7,6 +7,8 @@
 //!
 //! Only bookmarks and history are read. Passwords, cookies and open tabs are not imported.
 
+pub mod commands;
+
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};

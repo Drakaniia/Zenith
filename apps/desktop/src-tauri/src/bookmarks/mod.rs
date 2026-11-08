@@ -5,11 +5,13 @@
 //!
 //! Everything here is plain functions over a rusqlite connection, run on the database worker
 //! thread through `Db::call`, so they are tested against in-memory databases. The Tauri commands
-//! that call them live in commands.rs.
+//! that call them live in `commands`.
 //!
 //! Mistakes the user can fix (a bad address, a move into the folder's own subfolder) come back as
 //! `rusqlite::Error::ToSqlConversionFailure`, which displays as the message alone, so they pass
 //! through `Db::call` and reach the UI as readable text.
+
+pub mod commands;
 
 use std::collections::HashMap;
 use std::fmt;

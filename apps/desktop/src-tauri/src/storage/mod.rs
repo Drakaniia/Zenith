@@ -193,7 +193,7 @@ pub(crate) fn migrate(conn: &Connection) -> rusqlite::Result<()> {
 // ---------------------------------------------------------------------------------------------
 // Bookmarks
 //
-// The bookmark tree lives in bookmarks.rs. What stays here is the flat record the importers for
+// The bookmark tree lives in `bookmarks`. What stays here is the flat record the importers for
 // other browsers produce (the folder is a path like "Chrome / Dev"); `bookmarks::import_paths`
 // places those in the tree.
 
@@ -212,7 +212,6 @@ pub struct Bookmark {
     #[serde(default)]
     pub created: i64,
 }
-
 
 #[cfg(test)]
 mod tests {

@@ -5,11 +5,13 @@
 //! which covers the bulk of EasyList / EasyPrivacy network rules. Lookups walk the host's
 //! parent domains against two hash sets, so the cost per request is a few hash probes.
 
+pub mod commands;
+
 use std::collections::HashSet;
 
 use crate::platform::urls::site_of;
 
-pub const BUILTIN_LIST: &str = include_str!("../resources/blocklist.txt");
+pub const BUILTIN_LIST: &str = include_str!("../../resources/blocklist.txt");
 
 #[derive(Default)]
 pub struct Engine {

@@ -11,6 +11,7 @@
 //! - DRM-protected media (Encrypted Media Extensions, encrypted HLS, DASH ContentProtection,
 //!   Common Encryption) is detected and never downloaded.
 
+pub mod commands;
 pub mod dash;
 pub mod detect;
 pub mod hls;
