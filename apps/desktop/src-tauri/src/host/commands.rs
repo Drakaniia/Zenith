@@ -1,9 +1,5 @@
-//! Tauri commands for the chrome UI. Only the windows' local chrome webviews (`main`,
-//! `incognito-N`) can call these; page webviews are raw WebView2 views without the Tauri bridge.
-//! Commands that act on one window take the calling `WebviewWindow`.
-//!
-//! WebView2 objects are single-threaded, so webview work hops to the UI thread with
-//! `run_on_main_thread`; disk and network work runs on blocking worker threads.
+//! Commands for the tab host: tabs, the layout of the page views and focus, find in page,
+//! permission prompts, clearing browsing data, and debugging aids.
 
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, WebviewWindow};
@@ -162,7 +158,7 @@ pub async fn clear_browsing_data(
 }
 
 // ---------------------------------------------------------------------------------------------
-// Platform
+// Debugging
 
 #[tauri::command]
 pub async fn debug_cdp(app: AppHandle, method: String, params: Option<String>) -> CmdResult<String> {

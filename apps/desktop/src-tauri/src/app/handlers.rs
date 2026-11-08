@@ -1,4 +1,7 @@
-//! The commands the chrome UI can invoke (by function name, see `#[tauri::command]`).
+//! The commands the chrome UI can invoke (by function name, see `#[tauri::command]`). Each
+//! domain keeps its own in its `commands` module. Only the windows' local chrome webviews
+//! (`main`, `incognito-N`) can call these; page webviews are raw WebView2 views without the Tauri
+//! bridge. Commands that act on one window take the calling `WebviewWindow`.
 
 /// Every command, for `Builder::invoke_handler`.
 pub fn handler() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + Sync + 'static {
@@ -12,20 +15,20 @@ pub fn handler() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + Syn
         crate::session::commands::windows_restore,
         super::commands::chrome_devtools,
         super::commands::pick_file,
-        crate::commands::tab_create,
-        crate::commands::tab_close,
-        crate::commands::tab_navigate,
-        crate::commands::tab_command,
-        crate::commands::tab_sleep,
-        crate::commands::tab_set_glance,
-        crate::commands::tab_content_size,
-        crate::commands::set_layout,
-        crate::commands::focus_view,
-        crate::commands::find_in_page,
-        crate::commands::permission_respond,
+        crate::host::commands::tab_create,
+        crate::host::commands::tab_close,
+        crate::host::commands::tab_navigate,
+        crate::host::commands::tab_command,
+        crate::host::commands::tab_sleep,
+        crate::host::commands::tab_set_glance,
+        crate::host::commands::tab_content_size,
+        crate::host::commands::set_layout,
+        crate::host::commands::focus_view,
+        crate::host::commands::find_in_page,
+        crate::host::commands::permission_respond,
         crate::shortcuts::commands::set_shortcuts,
         crate::settings::commands::apply_settings,
-        crate::commands::clear_browsing_data,
+        crate::host::commands::clear_browsing_data,
         crate::session::commands::session_load,
         crate::session::commands::session_save,
         crate::settings::commands::settings_load,
@@ -89,8 +92,8 @@ pub fn handler() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + Syn
         crate::platform::win::commands::memory_stats,
         crate::platform::win::commands::system_memory_load,
         super::commands::clipboard_write,
-        crate::commands::debug_layout,
-        crate::commands::debug_cdp,
+        crate::host::commands::debug_layout,
+        crate::host::commands::debug_cdp,
         crate::updates::commands::update_status,
         crate::updates::commands::update_check,
         crate::updates::commands::update_restart,

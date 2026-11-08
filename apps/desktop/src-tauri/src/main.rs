@@ -6,7 +6,6 @@ mod app;
 mod blocker;
 mod bookmarks;
 mod card_commands;
-mod commands;
 mod downloads;
 mod extensions;
 mod history;

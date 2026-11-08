@@ -1,6 +1,9 @@
 //! What every command shares: the result type the UI receives (errors as plain strings),
 //! helpers that run work on the UI thread or on a blocking worker thread, and the checks for
 //! commands an incognito window may not use.
+//!
+//! WebView2 objects are single-threaded, so webview work hops to the UI thread with
+//! `run_on_main_thread`; disk and network work runs on blocking worker threads.
 
 use tauri::{AppHandle, WebviewWindow};
 
