@@ -8,7 +8,8 @@
   import CardEditor from './CardEditor.svelte';
   import { brandName, filterCards, formatExpiry, groupNumber, isExpired, type SavedCard } from './cards';
   import { needsMaster } from '../passwords';
-  import { timeAgo, ui } from '$shared/ui/ui.svelte';
+  import { timeAgo } from '$shared/format';
+  import { ui } from '$shared/ui/ui.svelte';
   import { vault, vaultApi } from '../vault.svelte';
 
   let cards = $state<SavedCard[]>([]);

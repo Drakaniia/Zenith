@@ -7,7 +7,9 @@
   import { browser } from '$features/browser/browser.svelte';
   import { settings, SIDEBAR_MIN } from '$features/settings/settings.svelte';
   import { bookmarks } from '$features/bookmarks/bookmarks.svelte';
-  import { downloads, permissions, ui } from '$shared/ui/ui.svelte';
+  import { downloads } from '$features/downloads/downloads.svelte';
+  import { permissions } from '$features/page/permissions.svelte';
+  import { ui } from '$shared/ui/ui.svelte';
   import { api, on } from '$platform/ipc';
   import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
   import { runAction } from './actions';

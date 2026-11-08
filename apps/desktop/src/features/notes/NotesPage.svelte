@@ -3,7 +3,8 @@
   import Icon from '$shared/ui/Icon.svelte';
   import { notes } from './notes.svelte';
   import { settings } from '$features/settings/settings.svelte';
-  import { ui, type MenuItem } from '$shared/ui/ui.svelte';
+  import { ui } from '$shared/ui/ui.svelte';
+  import { type MenuItem } from '$shared/ui/menu';
   import { copyText } from '../../app/actions';
   import { displayChord } from '$features/shortcuts/shortcuts';
   import {

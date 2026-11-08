@@ -1,7 +1,8 @@
 <script lang="ts">
   import Icon from '$shared/ui/Icon.svelte';
   import { browser } from '$features/browser/browser.svelte';
-  import { downloads, ui } from '$shared/ui/ui.svelte';
+  import { downloads } from '$features/downloads/downloads.svelte';
+  import { ui } from '$shared/ui/ui.svelte';
   import { updates } from '$features/updates/updates.svelte';
   import { dnd } from './sidebar-dnd.svelte';
   import { createNewMenu, spaceMenu } from '../../app/menus';

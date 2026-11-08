@@ -3,7 +3,8 @@
   import { tick } from 'svelte';
   import Icon from '$shared/ui/Icon.svelte';
   import Favicon from '$shared/ui/Favicon.svelte';
-  import { ui, type MenuItem, type MenuMods } from '$shared/ui/ui.svelte';
+  import { ui } from '$shared/ui/ui.svelte';
+  import { type MenuItem, type MenuMods } from '$shared/ui/menu';
   import { overlayLease } from '$platform/layout.svelte';
   import { browser } from '$features/browser/browser.svelte';
   import { zoomActive } from './actions';

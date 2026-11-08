@@ -2,7 +2,7 @@
   import { fly } from 'svelte/transition';
   import Icon from '$shared/ui/Icon.svelte';
   import { browser } from '$features/browser/browser.svelte';
-  import { permissions } from '$shared/ui/ui.svelte';
+  import { permissions } from './permissions.svelte';
   import { overlayLease } from '$platform/layout.svelte';
   import type { IconName } from '$shared/ui/icons';
 

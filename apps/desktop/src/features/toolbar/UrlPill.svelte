@@ -3,7 +3,8 @@
   import { browser } from '$features/browser/browser.svelte';
   import { bookmarks } from '$features/bookmarks/bookmarks.svelte';
   import { settings } from '$features/settings/settings.svelte';
-  import { rectOf, ui } from '$shared/ui/ui.svelte';
+  import { rectOf } from '$shared/ui/menu';
+  import { ui } from '$shared/ui/ui.svelte';
   import { copyText, toggleSiteBlocking, withHint } from '../../app/actions';
   import { bookmarkPage } from '$features/bookmarks/bookmark-actions';
   import { pageMenu } from '../../app/menus';

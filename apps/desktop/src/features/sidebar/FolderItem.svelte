@@ -4,7 +4,8 @@
   import TabItem from './TabItem.svelte';
   import { browser } from '$features/browser/browser.svelte';
   import { dnd } from './sidebar-dnd.svelte';
-  import { ui, type MenuItem } from '$shared/ui/ui.svelte';
+  import { ui } from '$shared/ui/ui.svelte';
+  import { type MenuItem } from '$shared/ui/menu';
   import type { Folder, Space } from '$shared/types';
 
   // A Zen tab folder (src/zen/folders): header with a two-layer folder icon that opens when the

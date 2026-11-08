@@ -12,7 +12,8 @@
   import { appMenu } from '../../app/menus';
   import { browser, needsWebview, tabTitle } from '$features/browser/browser.svelte';
   import { dnd } from './sidebar-dnd.svelte';
-  import { ui, type MenuItem } from '$shared/ui/ui.svelte';
+  import { ui } from '$shared/ui/ui.svelte';
+  import { type MenuItem } from '$shared/ui/menu';
   import { sidebarMenu, spaceMenu, tabMenu } from '../../app/menus';
   import { runAction, withHint } from '../../app/actions';
   import { settings } from '$features/settings/settings.svelte';

@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import Icon from '$shared/ui/Icon.svelte';
   import DownloadRow from './DownloadRow.svelte';
-  import { downloads } from '$shared/ui/ui.svelte';
+  import { downloads } from './downloads.svelte';
   import { settings } from '$features/settings/settings.svelte';
   import { appInfo } from '$platform/app.svelte';
   import { api } from '$platform/ipc';

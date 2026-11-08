@@ -5,7 +5,8 @@
   import Segmented from '$shared/ui/Segmented.svelte';
   import ShortcutEditor from '$features/shortcuts/ShortcutEditor.svelte';
   import { settings, MATERIAL_FALLBACKS, SIDEBAR_MAX, SIDEBAR_MIN, type Settings } from './settings.svelte';
-  import { ui, formatBytes } from '$shared/ui/ui.svelte';
+  import { ui } from '$shared/ui/ui.svelte';
+  import { formatBytes } from '$shared/format';
   import { api } from '$platform/ipc';
   import { makeDefaultBrowser } from '$features/default-browser/default-browser';
   import { openInternal, openNotes, shortcutHint } from '../../app/actions';
@@ -19,7 +20,7 @@
   import { ACCENT_NAMES, normalizeHomepage } from '$features/onboarding/onboarding-flow';
   import { browser, SPACE_COLORS } from '$features/browser/browser.svelte';
   import { updates, updateLine } from '$features/updates/updates.svelte';
-  import { timeAgo } from '$shared/ui/ui.svelte';
+  import { timeAgo } from '$shared/format';
   import type { BlockerStats, MemoryStats } from '$shared/types';
   import type { IconName } from '$shared/ui/icons';
 

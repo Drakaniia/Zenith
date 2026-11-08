@@ -6,7 +6,8 @@
   import { browser } from '$features/browser/browser.svelte';
   import { bookmarks } from '$features/bookmarks/bookmarks.svelte';
   import { settings } from '$features/settings/settings.svelte';
-  import { rectOf, ui, type PaletteMode } from '$shared/ui/ui.svelte';
+  import { rectOf } from '$shared/ui/menu';
+  import { ui, type PaletteMode } from '$shared/ui/ui.svelte';
   import { bookmarkPage } from '$features/bookmarks/bookmark-actions';
   import { keywordMatch, nodeLabel, parseRestriction, searchBookmarks, searchTagged } from '$features/bookmarks/bookmarks';
   import { api } from '$platform/ipc';

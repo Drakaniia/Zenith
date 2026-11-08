@@ -6,7 +6,8 @@
   import SpacePicker from './SpacePicker.svelte';
   import { bookmarks } from './bookmarks.svelte';
   import { browser } from '$features/browser/browser.svelte';
-  import { ui, type AnchorRect } from '$shared/ui/ui.svelte';
+  import { ui } from '$shared/ui/ui.svelte';
+  import { type AnchorRect } from '$shared/ui/menu';
   import { api } from '$platform/ipc';
   import { focusAfterLayout, overlayLease } from '$platform/layout.svelte';
   import { deleteNodes } from './bookmark-actions';

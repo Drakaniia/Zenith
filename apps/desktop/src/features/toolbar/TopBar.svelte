@@ -6,7 +6,8 @@
   import WindowControls from '$shared/ui/WindowControls.svelte';
   import { browser } from '$features/browser/browser.svelte';
   import { settings } from '$features/settings/settings.svelte';
-  import { ui, type MenuItem } from '$shared/ui/ui.svelte';
+  import { ui } from '$shared/ui/ui.svelte';
+  import { type MenuItem } from '$shared/ui/menu';
   import { api } from '$platform/ipc';
   import { appMenu } from '../../app/menus';
   import { openInternal, runAction, shortcutHint, withHint } from '../../app/actions';

@@ -1,7 +1,8 @@
 <script lang="ts">
   import { appInfo } from '$platform/app.svelte';
   import { api } from '$platform/ipc';
-  import { ui, type MenuItem } from '$shared/ui/ui.svelte';
+  import { ui } from '$shared/ui/ui.svelte';
+  import { type MenuItem } from '$shared/ui/menu';
   import { textOn } from './profiles';
   import { avatarFace } from './profile-picture';
   import type { ProfileInfo } from '$shared/types';

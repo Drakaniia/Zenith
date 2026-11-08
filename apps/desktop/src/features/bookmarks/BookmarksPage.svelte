@@ -5,7 +5,8 @@
   import HistoryPage from '$features/history/HistoryPage.svelte';
   import DownloadsPage from '$features/downloads/DownloadsPage.svelte';
   import { bookmarks } from './bookmarks.svelte';
-  import { ui, type MenuItem } from '$shared/ui/ui.svelte';
+  import { ui } from '$shared/ui/ui.svelte';
+  import { type MenuItem } from '$shared/ui/menu';
   import { api } from '$platform/ipc';
   import { bmDnd } from './bookmark-dnd.svelte';
   import {

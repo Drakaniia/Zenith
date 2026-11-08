@@ -11,7 +11,7 @@
   import { filterEntries, groupBySite, needsMaster, type ImportOpened, type PasswordEntry } from './passwords';
   import { ui } from '$shared/ui/ui.svelte';
   import { vault, vaultApi } from './vault.svelte';
-  import { timeAgo } from '$shared/ui/ui.svelte';
+  import { timeAgo } from '$shared/format';
 
   let entries = $state<PasswordEntry[]>([]);
   let loading = $state(true);

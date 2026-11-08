@@ -2,7 +2,8 @@
   import { fly, fade } from 'svelte/transition';
   import Icon from '$shared/ui/Icon.svelte';
   import DownloadRow from './DownloadRow.svelte';
-  import { downloads, ui } from '$shared/ui/ui.svelte';
+  import { downloads } from './downloads.svelte';
+  import { ui } from '$shared/ui/ui.svelte';
   import { overlayLease } from '$platform/layout.svelte';
   import { openInternal } from '../../app/actions';
 

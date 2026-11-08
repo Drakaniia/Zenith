@@ -1,7 +1,9 @@
 <script lang="ts">
   import Icon from '$shared/ui/Icon.svelte';
   import { api } from '$platform/ipc';
-  import { downloads, timeAgo, ui } from '$shared/ui/ui.svelte';
+  import { downloads } from './downloads.svelte';
+  import { timeAgo } from '$shared/format';
+  import { ui } from '$shared/ui/ui.svelte';
   import { downloadStatus } from './media';
   import type { DownloadItem } from '$shared/types';
   import type { IconName } from '$shared/ui/icons';

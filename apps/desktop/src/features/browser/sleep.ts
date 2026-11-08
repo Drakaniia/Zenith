@@ -5,7 +5,7 @@
 import { api } from "../../platform/ipc";
 import { browser } from "./browser.svelte";
 import { settings } from "../settings/settings.svelte";
-import { downloads } from "../../shared/ui/ui.svelte";
+import { downloads } from "../downloads/downloads.svelte";
 
 const SUSPEND_AFTER_MS = 60_000;
 const TICK_MS = 30_000;
