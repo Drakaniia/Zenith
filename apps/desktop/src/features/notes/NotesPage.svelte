@@ -1,23 +1,13 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte';
   import Icon from '$shared/ui/Icon.svelte';
+  import NoteList from './NoteList.svelte';
+  import NoteEditor from './NoteEditor.svelte';
   import { notes } from './notes.svelte';
   import { settings } from '$features/settings/settings.svelte';
   import { ui } from '$shared/ui/ui.svelte';
-  import { type MenuItem } from '$shared/ui/menu';
   import { copyText } from '$shared/clipboard';
-  import { displayChord } from '$features/shortcuts/shortcuts';
-  import {
-    copyableText,
-    formatEdited,
-    groupNotes,
-    isEmptyNote,
-    notePreview,
-    noteTitle,
-    UNTITLED,
-    wordCount,
-    type Note,
-  } from './notes';
+  import { copyableText, isEmptyNote, noteTitle, type Note } from './notes';
 
   // zenith://notes: the list of notes (search, most recently edited first) on the left, the
   // toolbar on top and the open note below it. State lives in the notes store, so switching tabs
@@ -34,33 +24,15 @@
 
   // Relative times ("5 min ago") stay current.
   let now = $state(Date.now());
-  const groups = $derived(
-    notes.query.trim() ? [{ label: 'Results', items: notes.visible }] : groupNotes(notes.visible, now),
-  );
-  const shortcut = $derived(settings.value.shortcuts.openNotes?.[0]);
 
-  let titleEl: HTMLInputElement | undefined = $state();
-  let bodyEl: HTMLTextAreaElement | undefined = $state();
   let searchEl: HTMLInputElement | undefined = $state();
-  let listEl: HTMLDivElement | undefined = $state();
-  /** The field undo/redo act on: the one last typed in. */
-  let lastField: HTMLInputElement | HTMLTextAreaElement | null = null;
-
-  let renaming = $state<string | null>(null);
-  let renameText = $state('');
+  let editor: NoteEditor | undefined = $state();
 
   function focusBody(atEnd = true) {
-    const el = bodyEl;
-    if (!el) return;
-    el.focus({ preventScroll: true });
-    if (atEnd) el.setSelectionRange(el.value.length, el.value.length);
+    editor?.focusBody(atEnd);
   }
 
   // The store asks for focus (the shortcut, "New note", Ctrl+F on this page).
-  $effect(() => {
-    if (!notes.focusEditor) return;
-    void tick().then(() => (active && !active.title && !active.body ? titleEl?.focus() : focusBody()));
-  });
   $effect(() => {
     if (!notes.focusSearch) return;
     if (narrow) drawer = true;
@@ -78,18 +50,8 @@
     drawer = false;
   }
 
-  function open(id: string) {
-    if (renaming && renaming !== id) commitRename();
-    notes.select(id);
-    if (narrow) drawer = false;
-  }
-
   function history(cmd: 'undo' | 'redo') {
-    const el = lastField?.isConnected ? lastField : bodyEl;
-    if (!el) return;
-    el.focus();
-    // The fields' own undo stacks, as Ctrl+Z / Ctrl+Y use them.
-    document.execCommand(cmd);
+    editor?.history(cmd);
   }
 
   async function copy(n: Note | null) {
@@ -109,76 +71,6 @@
         timeout: 6000,
         action: { label: 'Undo', run: () => notes.restore(removed) },
       });
-    }
-  }
-
-  function startRename(n: Note) {
-    renaming = n.id;
-    const shown = noteTitle(n);
-    renameText = n.title.trim() || shown === UNTITLED ? n.title : shown;
-  }
-
-  function commitRename() {
-    if (renaming) notes.rename(renaming, renameText);
-    renaming = null;
-    listEl?.focus();
-  }
-
-  function focusSelect(el: HTMLInputElement) {
-    el.focus();
-    el.select();
-  }
-
-  function noteMenu(e: MouseEvent, n: Note) {
-    e.preventDefault();
-    const items: MenuItem[] = [
-      { label: 'Rename', icon: 'edit', hint: 'F2', run: () => (open(n.id), startRename(n)) },
-      { label: 'Copy text', icon: 'copy', disabled: isEmptyNote(n), run: () => void copy(n) },
-      { separator: true },
-      { label: 'Delete', icon: 'trash', hint: 'Del', danger: true, run: () => void remove(n) },
-    ];
-    ui.openMenu(e.clientX, e.clientY, items);
-  }
-
-  // Keyboard use of the list: arrows move, Enter opens the note for writing, F2 renames.
-  function onListKey(e: KeyboardEvent) {
-    if (renaming) return;
-    const list = notes.visible;
-    const i = list.findIndex((n) => n.id === notes.activeId);
-    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-      e.preventDefault();
-      const next = list[Math.max(0, Math.min(list.length - 1, i + (e.key === 'ArrowDown' ? 1 : -1)))];
-      if (next) {
-        notes.select(next.id);
-        void tick().then(() => listEl?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: 'nearest' }));
-      }
-    } else if (e.key === 'Enter' && active) {
-      e.preventDefault();
-      if (narrow) drawer = false;
-      void tick().then(() => focusBody());
-    } else if (e.key === 'F2' && active) {
-      e.preventDefault();
-      startRename(active);
-    } else if (e.key === 'Delete' && active) {
-      e.preventDefault();
-      void remove(active);
-    }
-  }
-
-  function onSearchKey(e: KeyboardEvent) {
-    if (e.key === 'Escape' && notes.query) {
-      e.preventDefault();
-      e.stopPropagation();
-      notes.query = '';
-    } else if (e.key === 'Enter') {
-      const first = notes.visible[0];
-      if (first) {
-        open(first.id);
-        void tick().then(() => focusBody());
-      }
-    } else if (e.key === 'ArrowDown') {
-      e.preventDefault();
-      listEl?.focus();
     }
   }
 
@@ -260,139 +152,10 @@
       {#if narrow}
         <button class="scrim" aria-label="Close the notes list" onclick={() => (drawer = false)}></button>
       {/if}
-      <aside class="list" aria-label="Notes">
-        <div class="search">
-          <Icon name="search" size={15} />
-          <input
-            bind:this={searchEl}
-            bind:value={notes.query}
-            placeholder="Search notes"
-            spellcheck="false"
-            aria-label="Search notes"
-            onkeydown={onSearchKey}
-          />
-          {#if notes.query}
-            <button class="icon-btn sm" title="Clear search" onclick={() => ((notes.query = ''), searchEl?.focus())}>
-              <Icon name="close" size={13} />
-            </button>
-          {/if}
-        </div>
-
-        <div class="items" role="listbox" tabindex="0" aria-label="Notes" bind:this={listEl} onkeydown={onListKey}>
-          {#each groups as g (g.label)}
-            <div class="group">{g.label}</div>
-            {#each g.items as n (n.id)}
-              {@const preview = notePreview(n)}
-              <!-- svelte-ignore a11y_click_events_have_key_events -->
-              <div
-                class="item"
-                class:on={n.id === notes.activeId}
-                role="option"
-                aria-selected={n.id === notes.activeId}
-                tabindex="-1"
-                onclick={() => open(n.id)}
-                ondblclick={() => startRename(n)}
-                oncontextmenu={(e) => noteMenu(e, n)}
-              >
-                {#if renaming === n.id}
-                  <input
-                    class="rename"
-                    bind:value={renameText}
-                    use:focusSelect
-                    placeholder={UNTITLED}
-                    aria-label="Note title"
-                    onclick={(e) => e.stopPropagation()}
-                    onblur={commitRename}
-                    onkeydown={(e) => {
-                      e.stopPropagation();
-                      if (e.key === 'Enter') commitRename();
-                      else if (e.key === 'Escape') {
-                        renaming = null;
-                        listEl?.focus();
-                      }
-                    }}
-                  />
-                {:else}
-                  <span class="item-title ellipsis" class:untitled={noteTitle(n) === UNTITLED}>{noteTitle(n)}</span>
-                {/if}
-                <span class="item-meta">
-                  <span class="date">{formatEdited(n.updated, now)}</span>
-                  {#if preview}<span class="preview ellipsis">{preview}</span>{/if}
-                </span>
-              </div>
-            {/each}
-          {:else}
-            <div class="list-empty">
-              {#if !notes.loaded}
-                Loading…
-              {:else if notes.query.trim()}
-                No notes match “{notes.query.trim()}”
-              {:else}
-                No notes yet
-              {/if}
-            </div>
-          {/each}
-        </div>
-        {#if notes.items.length}
-          <footer class="count">{notes.items.length} {notes.items.length === 1 ? 'note' : 'notes'}</footer>
-        {/if}
-      </aside>
+      <NoteList {now} {narrow} bind:drawer bind:searchEl {focusBody} {copy} {remove} />
     {/if}
 
-    <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions -->
-    <main class="editor" class:wide onclick={(e) => e.target === e.currentTarget && focusBody()}>
-      {#if active}
-        {@const note = active}
-        {#key note.id}
-          <article class="doc">
-            <input
-              class="title"
-              bind:this={titleEl}
-              bind:value={() => note.title, (v) => notes.edit(note.id, { title: v })}
-              placeholder="Title"
-              aria-label="Note title"
-              spellcheck="true"
-              onfocus={(e) => (lastField = e.currentTarget)}
-              onkeydown={(e) => {
-                if (e.key === 'Enter' || (e.key === 'ArrowDown' && !e.shiftKey)) {
-                  e.preventDefault();
-                  focusBody(false);
-                  bodyEl?.setSelectionRange(0, 0);
-                }
-              }}
-            />
-            <div class="meta">
-              Edited {formatEdited(note.updated, now)}
-              <span aria-hidden="true">·</span>
-              {wordCount(note.body)} {wordCount(note.body) === 1 ? 'word' : 'words'}
-            </div>
-            <textarea
-              class="text"
-              bind:this={bodyEl}
-              bind:value={() => note.body, (v) => notes.edit(note.id, { body: v })}
-              placeholder="Start writing…"
-              aria-label="Note text"
-              spellcheck="true"
-              onfocus={(e) => (lastField = e.currentTarget)}
-            ></textarea>
-          </article>
-        {/key}
-      {:else if notes.loaded}
-        <div class="empty">
-          <div class="empty-icon"><Icon name="note" size={30} /></div>
-          <h2>{notes.items.length ? 'Pick a note' : 'Write something down'}</h2>
-          <p class="muted">
-            Notes are saved as you type and stay on this PC.
-            {#if shortcut}
-              Press
-              {#each displayChord(shortcut) as part, i (i)}<span class="kbd">{part}</span>{/each}
-              to open them from anywhere.
-            {/if}
-          </p>
-          <button class="btn primary" onclick={create}><Icon name="plus" size={15} />New note</button>
-        </div>
-      {/if}
-    </main>
+    <NoteEditor bind:this={editor} {wide} {now} {create} />
   </div>
 </div>
 
@@ -462,234 +225,11 @@
     min-height: 0;
     display: flex;
   }
-
-  /* ---- List of notes ---- */
-  .list {
-    flex: none;
-    width: 280px;
-    display: flex;
-    flex-direction: column;
-    min-height: 0;
-    border-right: 1px solid var(--line);
-    background: color-mix(in srgb, var(--text) 2%, var(--page-bg));
-  }
-  .narrow .list {
-    position: absolute;
-    z-index: 3;
-    inset: 0 auto 0 0;
-    width: min(300px, 86%);
-    box-shadow: var(--shadow);
-    animation: drawer-in 0.18s var(--ease-out);
-  }
-  @keyframes drawer-in {
-    from {
-      transform: translateX(-12px);
-      opacity: 0;
-    }
-  }
   .scrim {
     position: absolute;
     inset: 0;
     z-index: 2;
     background: var(--backdrop);
     border: 0;
-  }
-  .search {
-    flex: none;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    height: 34px;
-    margin: 10px 10px 4px;
-    padding: 0 6px 0 10px;
-    border-radius: var(--r-btn);
-    corner-shape: var(--sq);
-    background: var(--field);
-    border: 1px solid var(--line);
-    color: var(--text-3);
-    transition: border-color var(--fast);
-  }
-  .search:focus-within {
-    border-color: color-mix(in srgb, var(--accent) 70%, transparent);
-  }
-  .search input {
-    flex: 1;
-    min-width: 0;
-    border: 0;
-    outline: none;
-    background: transparent;
-    color: var(--text);
-    font-size: 13px;
-  }
-  .items {
-    flex: 1;
-    min-height: 0;
-    overflow-y: auto;
-    padding: 2px 6px 10px;
-    outline: none;
-  }
-  .group {
-    padding: 12px 8px 4px;
-    font-size: 11.5px;
-    font-weight: 600;
-    color: var(--text-3);
-  }
-  .item {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    padding: 8px 10px;
-    border-radius: var(--r-item);
-    corner-shape: var(--sq);
-    cursor: default;
-    user-select: none;
-  }
-  .item:hover {
-    background: var(--hover);
-  }
-  .item.on {
-    background: var(--selected);
-    box-shadow: var(--tab-shadow);
-  }
-  .items:focus-visible .item.on {
-    outline: 2px solid color-mix(in srgb, var(--accent) 70%, transparent);
-    outline-offset: -2px;
-  }
-  .item-title {
-    font-size: 13.5px;
-    font-weight: 600;
-    line-height: 1.35;
-  }
-  .item-title.untitled {
-    color: var(--text-3);
-    font-weight: 500;
-  }
-  .item-meta {
-    display: flex;
-    gap: 8px;
-    min-width: 0;
-    font-size: 12px;
-    line-height: 1.35;
-    color: var(--text-3);
-  }
-  .date {
-    flex: none;
-    color: var(--text-2);
-    font-variant-numeric: tabular-nums;
-  }
-  .preview {
-    min-width: 0;
-  }
-  .rename {
-    height: 24px;
-    margin: -2px -4px;
-    padding: 0 4px;
-    border-radius: 4px;
-    border: 1px solid color-mix(in srgb, var(--accent) 70%, transparent);
-    background: var(--field-focus);
-    color: var(--text);
-    font-size: 13.5px;
-    font-weight: 600;
-    outline: none;
-  }
-  .list-empty {
-    padding: 28px 12px;
-    text-align: center;
-    font-size: 12.5px;
-    color: var(--text-3);
-  }
-  .count {
-    flex: none;
-    padding: 8px 16px 10px;
-    font-size: 11.5px;
-    color: var(--text-3);
-    border-top: 1px solid var(--line);
-  }
-
-  /* ---- Editor ---- */
-  .editor {
-    flex: 1;
-    min-width: 0;
-    overflow-y: auto;
-    cursor: text;
-    padding: 28px 40px 80px;
-  }
-  .narrow .editor {
-    padding: 20px 20px 60px;
-  }
-  .doc {
-    max-width: 760px;
-    margin: 0 auto;
-    display: flex;
-    flex-direction: column;
-    cursor: auto;
-  }
-  .editor.wide .doc {
-    max-width: none;
-  }
-  .title {
-    border: 0;
-    outline: none;
-    background: transparent;
-    padding: 0;
-    color: var(--text);
-    font: 600 26px/1.3 var(--font-display);
-  }
-  .title::placeholder,
-  .text::placeholder {
-    color: var(--text-3);
-  }
-  .meta {
-    display: flex;
-    gap: 6px;
-    margin: 6px 0 18px;
-    font-size: 12px;
-    color: var(--text-3);
-  }
-  .text {
-    border: 0;
-    outline: none;
-    resize: none;
-    background: transparent;
-    padding: 0;
-    color: var(--text);
-    font: 15px/1.7 var(--font);
-    /* Grows with its text; the editor pane scrolls like a document. */
-    field-sizing: content;
-    min-height: 55vh;
-    tab-size: 4;
-    overflow-wrap: anywhere;
-  }
-  .empty {
-    height: 100%;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 10px;
-    text-align: center;
-    cursor: default;
-  }
-  .empty h2 {
-    margin: 6px 0 0;
-    font: 600 18px/1.3 var(--font-display);
-  }
-  .empty p {
-    margin: 0 0 8px;
-    max-width: 360px;
-    line-height: 1.6;
-  }
-  .empty .kbd {
-    margin: 0 1px;
-  }
-  .empty-icon {
-    width: 60px;
-    height: 60px;
-    border-radius: 18px;
-    corner-shape: var(--sq);
-    display: grid;
-    place-items: center;
-    color: var(--text-2);
-    background: var(--field);
   }
 </style>

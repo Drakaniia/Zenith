@@ -2,36 +2,22 @@
   import { fade, scale } from 'svelte/transition';
   import { tick } from 'svelte';
   import Icon from '$shared/ui/Icon.svelte';
-  import Favicon from '$shared/ui/Favicon.svelte';
+  import PaletteResults from './PaletteResults.svelte';
   import { browser } from '$features/browser/browser.svelte';
   import { bookmarks } from '$features/bookmarks/bookmarks.svelte';
   import { settings } from '$features/settings/settings.svelte';
   import { rectOf } from '$shared/ui/menu';
   import { ui, type PaletteMode } from '$shared/ui/ui.svelte';
   import { bookmarkPage } from '$features/bookmarks/bookmark-actions';
-  import { keywordMatch, nodeLabel, parseRestriction, searchBookmarks, searchTagged } from '$features/bookmarks/bookmarks';
+  import { parseRestriction } from '$features/bookmarks/bookmarks';
   import { historyApi } from '$features/history/api';
   import { searchApi } from './api';
   import { focusAfterLayout, overlayLease } from '$platform/layout.svelte';
-  import { commands } from './commands';
-  import { faviconFor, rememberFavicon } from '$shared/favicons';
-  import { scoreAny } from './fuzzy';
-  import { NEW_TAB_URL, SEARCH_ENGINES, isWebUrl, normalizeInput, prettyUrl, searchUrl, titleFor } from '$shared/url';
-  import { autofill, popularCandidates, type Autofill, type AutofillCandidate } from './autocomplete';
+  import { rememberFavicon } from '$shared/favicons';
+  import { NEW_TAB_URL, SEARCH_ENGINES, isWebUrl } from '$shared/url';
+  import { autofill, type Autofill } from './autocomplete';
+  import { autofillCandidates, paletteItems, type How, type Item } from './palette-sources';
   import type { HistoryEntry } from '$features/history/types';
-  import type { IconName } from '$shared/ui/icons';
-
-  type How = 'enter' | 'newTab' | 'glance';
-  interface Item {
-    key: string;
-    kind: 'go' | 'search' | 'tab' | 'bookmark' | 'history' | 'suggest' | 'command';
-    title: string;
-    subtitle?: string;
-    url?: string;
-    icon?: IconName;
-    favicon?: string;
-    run: (how: How) => void;
-  }
 
   let input: HTMLInputElement | undefined = $state();
   let list: HTMLDivElement | undefined = $state();
@@ -47,7 +33,6 @@
   let preview = $state<string | null>(null);
   /** The last edit typed a character at the end, so an inline completion may be offered. */
   let armed = false;
-  const POPULAR = popularCandidates();
 
   const open = $derived(ui.palette.open);
 
@@ -130,179 +115,13 @@
     if (restoreFocus) focusAfterLayout(browser.activeTab?.live ? browser.activeTab.id : null);
   }
 
-  const items = $derived.by<Item[]>(() => {
-    if (commandMode) {
-      return commands()
-        .map((c) => ({ c, s: q ? scoreAny(q, c.label, c.keywords) : 1 }))
-        .filter((x) => x.s > 0)
-        .sort((a, b) => b.s - a.s)
-        .slice(0, 14)
-        .map(({ c }) => ({
-          key: `c:${c.id}`,
-          kind: 'command' as const,
-          title: c.label,
-          icon: c.icon,
-          run: () => {
-            close(false);
-            c.run();
-          },
-        }));
-    }
-    // Zen's "Focus Search" (Ctrl+K): whatever is typed is searched with the default engine.
-    if (mode === 'search') {
-      if (!q) return [];
-      const url = searchUrl(q, settings.value.searchEngine);
-      const out: Item[] = [{ key: 'go', kind: 'search', title: q, subtitle: `Search ${engine.name}`, icon: 'search', run: (h) => go(url, h) }];
-      for (const s of suggestions.slice(0, 8)) {
-        if (s.toLowerCase() === q.toLowerCase()) continue;
-        const su = searchUrl(s, settings.value.searchEngine);
-        out.push({ key: `s:${s}`, kind: 'suggest', title: s, icon: 'search', run: (h) => go(su, h) });
-      }
-      return out;
-    }
-    // Firefox's restriction tokens: only bookmarks (*), tagged bookmarks (+), history (^) or tabs (%).
-    const only = restrict.restriction;
-    if (only === 'bookmarks' || only === 'tagged') {
-      const hits = only === 'tagged' ? searchTagged(bookmarks.index, restrict.rest) : searchBookmarks(bookmarks.index, restrict.rest, { limit: 12 });
-      return hits.map(
-        (b): Item => ({
-          key: `b:${b.id}`,
-          kind: 'bookmark',
-          title: nodeLabel(b),
-          subtitle: only === 'tagged' ? b.tags.join(', ') : prettyUrl(b.url),
-          url: b.url,
-          icon: 'bookmarkStar',
-          favicon: faviconFor(b.url),
-          run: (h) => go(b.url, h),
-        }),
-      );
-    }
-    if (only === 'history') {
-      return history.map(
-        (h): Item => ({ key: `h:${h.id}`, kind: 'history', title: h.title || prettyUrl(h.url), subtitle: prettyUrl(h.url), url: h.url, icon: 'history', favicon: faviconFor(h.url), run: (how) => go(h.url, how) }),
-      );
-    }
-    if (only === 'tabs') {
-      const open = Object.values(browser.tabs).filter((t) => t.id !== browser.glance?.tabId && t.url && !t.url.startsWith('zenith://newtab'));
-      const hits = restrict.rest ? open.map((t) => ({ t, s: scoreAny(restrict.rest, t.title, t.url) })).filter((x) => x.s > 0).sort((a, b) => b.s - a.s).map((x) => x.t) : [...open].sort((a, b) => b.lastActive - a.lastActive);
-      return hits.slice(0, 12).map(
-        (t): Item => ({
-          key: `t:${t.id}`,
-          kind: 'tab',
-          title: titleFor(t.url, t.title),
-          subtitle: prettyUrl(t.url),
-          favicon: t.favicon,
-          url: t.url,
-          run: () => {
-            close(false);
-            browser.activate(t.id);
-          },
-        }),
-      );
-    }
-    const out: Item[] = [];
-    const seen = new Set<string>();
-    // A bookmark's keyword typed alone (or with the words for its %s address) opens it first.
-    const kw = q ? keywordMatch(bookmarks.index, q) : null;
-    if (kw) {
-      seen.add(kw.url);
-      out.push({
-        key: `k:${kw.node.id}`,
-        kind: 'bookmark',
-        title: nodeLabel(kw.node),
-        subtitle: prettyUrl(kw.url),
-        url: kw.url,
-        icon: 'bookmarkStar',
-        favicon: faviconFor(kw.url),
-        run: (h) => go(kw.url, h),
-      });
-    }
-    if (q) {
-      // An inline completion leads; what was typed, taken literally, comes right after it.
-      const auto = fill;
-      if (auto) {
-        out.push({ key: 'go', kind: 'go', title: prettyUrl(auto.url), subtitle: 'Open address', icon: 'globe', url: auto.url, favicon: faviconFor(auto.url), run: (h) => go(auto.url, h) });
-        seen.add(auto.url);
-      }
-      const key = auto ? 'typed' : 'go';
-      const target = normalizeInput(q, settings.value.searchEngine);
-      const isSearch = target === searchUrl(q, settings.value.searchEngine);
-      out.push(
-        isSearch
-          ? { key, kind: 'search', title: q, subtitle: `Search ${engine.name}`, icon: 'search', run: (h) => go(target, h) }
-          : { key, kind: 'go', title: prettyUrl(target), subtitle: 'Open address', icon: 'globe', url: target, favicon: faviconFor(target), run: (h) => go(target, h) },
-      );
-      seen.add(target);
-    }
-    const currentId = mode === 'navigate' ? browser.activeTab?.id : undefined;
-    const tabs = Object.values(browser.tabs).filter((t) => t.id !== browser.glance?.tabId && t.id !== currentId);
-    const tabHits = q
-      ? tabs
-          .map((t) => ({ t, s: scoreAny(q, t.title, t.url) }))
-          .filter((x) => x.s > 0)
-          .sort((a, b) => b.s - a.s)
-          .slice(0, 4)
-          .map((x) => x.t)
-      : [...tabs].sort((a, b) => b.lastActive - a.lastActive).slice(0, 5);
-    for (const t of tabHits) {
-      seen.add(t.url);
-      out.push({
-        key: `t:${t.id}`,
-        kind: 'tab',
-        title: titleFor(t.url, t.title),
-        subtitle: prettyUrl(t.url),
-        favicon: t.favicon,
-        url: t.url,
-        run: () => {
-          close(false);
-          browser.activate(t.id);
-        },
-      });
-    }
-    if (q) {
-      // Bookmarks match on their title, address, tags and keyword.
-      let shown = 0;
-      for (const b of searchBookmarks(bookmarks.index, q)) {
-        if (shown >= 4) break;
-        if (seen.has(b.url)) continue;
-        seen.add(b.url);
-        shown++;
-        out.push({ key: `b:${b.id}`, kind: 'bookmark', title: nodeLabel(b), subtitle: prettyUrl(b.url), url: b.url, icon: 'bookmarkStar', favicon: faviconFor(b.url), run: (h) => go(b.url, h) });
-      }
-    }
-    for (const s of suggestions.slice(0, 4)) {
-      if (s.toLowerCase() === q.toLowerCase()) continue;
-      const url = searchUrl(s, settings.value.searchEngine);
-      out.push({ key: `s:${s}`, kind: 'suggest', title: s, icon: 'search', run: (h) => go(url, h) });
-    }
-    for (const h of history) {
-      if (seen.has(h.url)) continue;
-      seen.add(h.url);
-      out.push({ key: `h:${h.id}`, kind: 'history', title: h.title || prettyUrl(h.url), subtitle: prettyUrl(h.url), url: h.url, icon: 'history', favicon: faviconFor(h.url), run: (how) => go(h.url, how) });
-    }
-    if (q.length >= 2) {
-      for (const c of commands()
-        .map((c) => ({ c, s: scoreAny(q, c.label) }))
-        .filter((x) => x.s >= 900)
-        .slice(0, 2)) {
-        out.push({ key: `c:${c.c.id}`, kind: 'command', title: c.c.label, icon: c.c.icon, subtitle: 'Command', run: () => { close(false); c.c.run(); } });
-      }
-    }
-    return out;
-  });
+  const items = $derived.by<Item[]>(() =>
+    paletteItems({ commandMode, mode, q, restrict, fill, history, suggestions, engine, go, close }),
+  );
 
   async function scrollSelected() {
     await tick();
     list?.querySelector('.item.sel')?.scrollIntoView({ block: 'nearest' });
-  }
-
-  /** Everything that can complete an address, the user's own browsing weighted above the bundled sites. */
-  function candidates(): AutofillCandidate[] {
-    const out: AutofillCandidate[] = [];
-    for (const h of history) out.push({ url: h.url, weight: 10 + Math.min(h.visitCount, 50) });
-    for (const url of bookmarks.urls) out.push({ url, weight: 8 });
-    for (const t of Object.values(browser.tabs)) out.push({ url: t.url, weight: 4 });
-    return out.concat(POPULAR);
   }
 
   /** Offers (or updates) the inline completion, but only while the caret is where typing left it. */
@@ -311,7 +130,7 @@
     if (!el || !armed || preview !== null || commandMode || mode === 'search' || document.activeElement !== el) return;
     const caret = fill ? query.length : el.value.length;
     if (el.selectionStart !== caret || el.selectionEnd !== el.value.length) return;
-    fill = autofill(query, candidates());
+    fill = autofill(query, autofillCandidates(history));
   }
 
   function oninput(e: Event) {
@@ -462,42 +281,15 @@
         {/if}
       </div>
       {#if items.length}
-        <div class="results" role="listbox" bind:this={list}>
-          {#each items as it, i (it.key)}
-            <button
-              class="item"
-              class:sel={i === selected}
-              role="option"
-              aria-selected={i === selected}
-              onmousemove={() => {
-                if (selected === i) return;
-                selected = i;
-                preview = null;
-              }}
-              onclick={(e) => it.run(e.altKey ? 'newTab' : e.shiftKey ? 'glance' : 'enter')}
-            >
-              <span class="item-icon">
-                {#if it.kind === 'tab' || it.favicon}
-                  <Favicon url={it.url ?? ''} favicon={it.favicon} />
-                {:else}
-                  <Icon name={it.icon ?? 'globe'} size={16} />
-                {/if}
-                {#if it.kind === 'bookmark' || (it.url && bookmarks.has(it.url))}
-                  <span class="badge" title="Bookmarked"><Icon name="star" size={9} fill stroke={1.5} /></span>
-                {/if}
-              </span>
-              <span class="item-text">
-                <span class="item-title ellipsis">{it.title}</span>
-                {#if it.subtitle}<span class="item-sub ellipsis">{it.subtitle}</span>{/if}
-              </span>
-              {#if it.kind === 'tab'}
-                <span class="tag">Switch to tab</span>
-              {:else if i === selected && it.kind !== 'command'}
-                <span class="tag">↵</span>
-              {/if}
-            </button>
-          {/each}
-        </div>
+        <PaletteResults
+          {items}
+          {selected}
+          bind:list
+          onhover={(i) => {
+            selected = i;
+            preview = null;
+          }}
+        />
       {/if}
       <div class="hints">
         <span><span class="kbd">↵</span> open</span>
@@ -604,66 +396,7 @@
   .star.on {
     color: var(--accent-button);
   }
-  .badge {
-    position: absolute;
-    right: -3px;
-    bottom: -3px;
-    display: grid;
-    color: var(--accent-button);
-    pointer-events: none;
-  }
-  .results {
-    max-height: min(440px, 55vh);
-    overflow-y: auto;
-    padding: 6px 4px;
-  }
-  .item {
-    width: 100%;
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    min-height: 45px;
-    padding: 0 12px;
-    border-radius: 10px;
-    corner-shape: var(--sq);
-    text-align: left;
-  }
-  .item:hover {
-    background: var(--hover);
-  }
-  .item.sel {
-    background: color-mix(in srgb, var(--accent) 20%, var(--element-bg));
-  }
-  .item-icon {
-    position: relative;
-    width: 28px;
-    height: 28px;
-    border-radius: 8px;
-    display: grid;
-    place-items: center;
-    background: var(--element-bg);
-    color: var(--text-2);
-    flex: none;
-  }
-  .item-text {
-    flex: 1;
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 1px;
-  }
-  .item-title {
-    font-size: 13.5px;
-  }
-  .item-sub {
-    font-size: 12px;
-    color: var(--text-3);
-  }
-  .tag {
-    font-size: 11.5px;
-    color: var(--text-3);
-    white-space: nowrap;
-  }
+
   .hints {
     display: flex;
     gap: 16px;
