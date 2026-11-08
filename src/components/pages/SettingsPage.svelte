@@ -283,6 +283,9 @@
   }
 
   onMount(() => {
+    // The search box is ready to type in: the keyboard moves from the page webviews to the chrome.
+    void api.focusView(null);
+    void tick().then(() => searchEl?.focus());
     void refreshBlocker(false);
     void refreshMemory();
     void api.defaultBrowserStatus().then((d) => (defaultStatus = d)).catch(() => {});
