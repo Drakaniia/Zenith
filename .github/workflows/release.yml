@@ -42,7 +42,7 @@ jobs:
 
       - uses: swatinem/rust-cache@v2
         with:
-          workspaces: src-tauri -> target
+          workspaces: apps/desktop/src-tauri -> target
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -79,4 +79,5 @@ jobs:
           releaseDraft: false
           prerelease: ${{ contains(env.TAG, '-') }}
           updaterJsonPreferNsis: true
+          projectPath: apps/desktop
           tauriScript: pnpm tauri

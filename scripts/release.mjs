@@ -69,10 +69,10 @@ const LOCK_VERSION =
   /(\[\[package\]\]\r?\nname = "zenith"\r?\nversion = ")([^"]*)(")/;
 
 export const FILES = [
-  { path: "package.json", pattern: JSON_VERSION },
-  { path: "src-tauri/Cargo.toml", pattern: CARGO_VERSION },
-  { path: "src-tauri/Cargo.lock", pattern: LOCK_VERSION },
-  { path: "src-tauri/tauri.conf.json", pattern: JSON_VERSION },
+  { path: "apps/desktop/package.json", pattern: JSON_VERSION },
+  { path: "apps/desktop/src-tauri/Cargo.toml", pattern: CARGO_VERSION },
+  { path: "apps/desktop/src-tauri/Cargo.lock", pattern: LOCK_VERSION },
+  { path: "apps/desktop/src-tauri/tauri.conf.json", pattern: JSON_VERSION },
 ];
 
 export function setVersion(text, pattern, version, what = "the file") {

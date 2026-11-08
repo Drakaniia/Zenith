@@ -8,7 +8,7 @@ import {
   nextVersion,
   readVersion,
   setVersion,
-} from "../scripts/release.mjs";
+} from "./release.mjs";
 
 test("versions bump and compare like semver", () => {
   assert.equal(nextVersion("0.1.0", "patch"), "0.1.1");

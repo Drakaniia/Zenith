@@ -131,7 +131,9 @@ settings:
 
 importers:
 
-  .:
+  .: {}
+
+  apps/desktop:
     dependencies:
       '@tauri-apps/api':
         specifier: ^2.12.4
@@ -164,6 +166,8 @@ importers:
       vite:
         specifier: ^8.3.6
         version: 8.3.6
+
+  packages/brand: {}
 
 packages:
 

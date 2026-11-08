@@ -1,0 +1,10 @@
+{
+  "name": "@zenith/brand",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Zenith's logo and brand assets, shared by the desktop app and the website",
+  "type": "module",
+  "exports": {
+    "./logo.svg": "./logo.svg"
+  }
+}

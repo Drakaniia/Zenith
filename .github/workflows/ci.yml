@@ -23,7 +23,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: swatinem/rust-cache@v2
         with:
-          workspaces: src-tauri -> target
+          workspaces: apps/desktop/src-tauri -> target
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
       - name: Check frontend
@@ -31,6 +31,6 @@ jobs:
       - name: Test frontend
         run: pnpm test
       - name: Build frontend for Rust tests
-        run: pnpm build
+        run: pnpm --filter @zenith/desktop build
       - name: Test backend
         run: pnpm test:rust

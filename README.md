@@ -29,7 +29,7 @@ A lightweight, Zen-style web browser for Windows 11, built with Tauri 2 (Rust) a
 | Everything, 1 tab (including GPU and renderers)                   | 284 MB (Edge, fresh profile: 548 MB) |          |
 | Requests reaching the network on 6 news sites, blocking on        | −75 %                                |          |
 
-Details and method: [measurements/README.md](measurements/README.md).
+Details and method: [apps/desktop/measurements/README.md](apps/desktop/measurements/README.md).
 
 ## Requirements
 
@@ -39,7 +39,7 @@ Windows 11, or Windows 10 22H2 with the Solid theme (Mica needs Windows 11), plu
 
 Download `Zenith_<version>_x64-setup.exe` from [GitHub Releases](https://github.com/Drakaniia/Zenith/releases/latest). After that, Zenith updates itself: new versions download in the background and install silently when you close it. To publish a release, see [docs/RELEASING.md](docs/RELEASING.md).
 
-Run `src-tauri\target\release\bundle\nsis\Zenith_0.1.0_x64-setup.exe` (per-user install, no administrator rights). It registers Zenith as a browser in **Settings › Apps › Default apps**. To make it the default, use **Settings › Default browser › Make default** in Zenith, which opens that Windows page (Windows does not let apps change the default silently).
+Run `apps\desktop\src-tauri\target\release\bundle\nsis\Zenith_0.1.0_x64-setup.exe` (per-user install, no administrator rights). It registers Zenith as a browser in **Settings › Apps › Default apps**. To make it the default, use **Settings › Default browser › Make default** in Zenith, which opens that Windows page (Windows does not let apps change the default silently).
 
 ## Build from source
 
@@ -48,7 +48,7 @@ Prerequisites: Rust 1.85+ with the MSVC toolchain, Node.js 22+, pnpm.
 ```powershell
 pnpm install
 pnpm app:dev      # development build with hot reload
-pnpm app:build    # release build + NSIS installer in src-tauri\target\release\bundle\nsis
+pnpm app:build    # release build + NSIS installer in apps\desktop\src-tauri\target\release\bundle\nsis
 ```
 
 ## Tests
@@ -60,6 +60,7 @@ pnpm test:rust    # Rust unit tests (blocker, URL validation, storage, shortcuts
                   #  video downloader: HLS/DASH parsing, MP4 merging, downloads against a local server)
 
 # End-to-end, against an isolated test instance (own profile, never touches your windows)
+cd apps/desktop
 powershell -ExecutionPolicy Bypass -File scripts/dev/build.ps1
 powershell -ExecutionPolicy Bypass -File scripts/dev/run.ps1 -Fresh
 node scripts/dev/e2e.mjs
