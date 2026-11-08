@@ -1,0 +1,49 @@
+---
+title: Zenith
+description: A lightweight, Zen-style web browser for Windows, built on Microsoft Edge WebView2.
+template: splash
+hero:
+  tagline: A lightweight, Zen-style web browser for Windows 11, built with Tauri and Svelte on top of the WebView2 engine that ships with Windows.
+  image:
+    file: ../../../../../packages/brand/logo.svg
+    alt: Zenith logo
+  actions:
+    - text: Download for Windows
+      link: https://github.com/Drakaniia/Zenith/releases/latest
+      icon: external
+      variant: primary
+    - text: Get started
+      link: /getting-started/install/
+      icon: right-arrow
+      variant: minimal
+---
+
+import { Card, CardGrid } from '@astrojs/starlight/components';
+
+## What you get
+
+<CardGrid>
+	<Card title="Vertical tabs and spaces" icon="list-format">
+		Tabs live in a sidebar. Group them into spaces, each with its own name, emoji and accent colour.
+		Essentials and pinned tabs stay one click away.
+	</Card>
+	<Card title="Split view and Glance" icon="seti:layout">
+		Put two tabs side by side with Ctrl+Alt+S, or Alt+click a link to preview it in a floating card
+		without leaving the page.
+	</Card>
+	<Card title="Compact mode" icon="laptop">
+		Press Ctrl+Alt+C and the page fills the window. The sidebar and toolbar float in from the edges
+		when you need them.
+	</Card>
+	<Card title="Ad and tracker blocking" icon="approve-check">
+		EasyList and EasyPrivacy are built in, with custom lists, a per-site toggle and a counter of
+		blocked requests.
+	</Card>
+	<Card title="Passwords and payment cards" icon="seti:lock">
+		Save sign-ins and cards encrypted on your PC, and fill them in on login and checkout forms.
+	</Card>
+	<Card title="Small and quick" icon="rocket">
+		A 1.78 MB installer, a visible window in under a second, and about 93 MB of app overhead with one
+		tab open. No telemetry and no accounts.
+	</Card>
+</CardGrid>

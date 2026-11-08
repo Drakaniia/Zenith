@@ -1,0 +1,17 @@
+{
+  "name": "@zenith/docs",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Zenith's documentation website, built with Astro Starlight",
+  "type": "module",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview"
+  },
+  "dependencies": {
+    "@astrojs/starlight": "^0.42.10",
+    "@zenith/brand": "workspace:*",
+    "astro": "^7.4.7"
+  }
+}
