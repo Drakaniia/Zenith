@@ -2,17 +2,17 @@
   import { tick, onMount } from 'svelte';
   import Icon from '$shared/ui/Icon.svelte';
   import Favicon from '$shared/ui/Favicon.svelte';
+  import BookmarksPanelHistory from './BookmarksPanelHistory.svelte';
   import { bookmarks } from './bookmarks.svelte';
   import { settings, PANEL_DEFAULT, PANEL_MAX, PANEL_MIN } from '$features/settings/settings.svelte';
   import { ui } from '$shared/ui/ui.svelte';
-  import { historyApi } from '$features/history/api';
   import { webviewApi } from '$platform/webview-api';
   import { bmDnd } from './bookmark-dnd.svelte';
   import { ROOTS, ROOT_TITLES, ancestors, kids, nodeLabel, searchBookmarks } from './bookmarks';
   import { faviconFor } from '$shared/favicons';
   import { bookmarkNodeMenu, rootIcon } from './menus';
   import { copyNodes, deleteNodes, mouseHow, openBookmark, openHow, pasteNodes } from './bookmark-actions';
-  import { displayHost, prettyUrl } from '$shared/url';
+  import { displayHost } from '$shared/url';
   import type { BookmarkNode } from './types';
   import type { HistoryEntry } from '$features/history/types';
 
@@ -169,39 +169,8 @@
   }
 
   // ---------------------------------------------------------------- history view
+  // Kept here so the last list stays on screen while a new search runs (BookmarksPanelHistory).
   let history = $state<HistoryEntry[]>([]);
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  let seq = 0;
-  $effect(() => {
-    if (view !== 'history') return;
-    const text = query;
-    clearTimeout(timer);
-    const mine = ++seq;
-    timer = setTimeout(
-      async () => {
-        const r = await historyApi.historySearch(text.trim(), 80).catch(() => []);
-        if (mine === seq) history = r;
-      },
-      text ? 120 : 0,
-    );
-  });
-
-  function dayLabel(ms: number) {
-    const d = new Date(ms);
-    if (d.toDateString() === new Date().toDateString()) return 'Today';
-    if (d.toDateString() === new Date(Date.now() - 86_400_000).toDateString()) return 'Yesterday';
-    return d.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
-  }
-  const days = $derived.by(() => {
-    const out: { label: string; items: HistoryEntry[] }[] = [];
-    for (const h of history) {
-      const l = query.trim() ? 'Results' : dayLabel(h.lastVisit);
-      const last = out[out.length - 1];
-      if (last?.label === l) last.items.push(h);
-      else out.push({ label: l, items: [h] });
-    }
-    return out;
-  });
 
   // ---------------------------------------------------------------- header
   function viewMenu(e: MouseEvent) {
@@ -288,26 +257,7 @@
   </div>
 
   {#if view === 'history'}
-    <div class="list" bind:this={listEl}>
-      {#each days as d (d.label)}
-        <div class="group">{d.label}</div>
-        {#each d.items as h (h.id)}
-          <button
-            class="row leaf"
-            title={h.url}
-            onclick={(e) => openBookmark(h.url, mouseHow(e))}
-            onauxclick={(e) => e.button === 1 && openBookmark(h.url, 'background')}
-          >
-            <span class="tw"></span>
-            <Favicon url={h.url} favicon={faviconFor(h.url)} size={16} />
-            <span class="label ellipsis">{h.title || prettyUrl(h.url)}</span>
-            <span class="sub ellipsis">{displayHost(h.url)}</span>
-          </button>
-        {/each}
-      {:else}
-        <p class="empty">{query ? 'No matching pages' : 'Pages you visit will show up here'}</p>
-      {/each}
-    </div>
+    <BookmarksPanelHistory {query} bind:history bind:list={listEl} />
   {:else if found}
     <div class="list" bind:this={listEl}>
       {#each found as n (n.id)}
@@ -481,12 +431,6 @@
     overflow-y: auto;
     padding: 2px 4px 8px;
     outline: none;
-  }
-  .group {
-    padding: 10px 8px 4px;
-    font-size: 12px;
-    font-weight: 600;
-    color: var(--text-2);
   }
   .row {
     position: relative;
