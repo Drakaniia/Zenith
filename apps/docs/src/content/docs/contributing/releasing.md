@@ -1,11 +1,14 @@
-# Releasing and updates
+---
+title: Releasing and updates
+description: How installed copies update themselves, how to cut a release, and the one-time signing setup.
+---
 
 ## How updates reach users
 
 Installed copies of Zenith update themselves:
 
 1. A minute after startup, then every six hours, Zenith reads `latest.json` from the latest GitHub Release (`https://github.com/Drakaniia/Zenith/releases/latest/download/latest.json`).
-2. If the release is newer, its installer downloads in the background and its signature is checked against the public key in `src-tauri/tauri.conf.json`. A file that doesn't match is never installed.
+2. If the release is newer, its installer downloads in the background and its signature is checked against the public key in `apps/desktop/src-tauri/tauri.conf.json`. A file that doesn't match is never installed.
 3. A **Restart to update** button appears in the sidebar footer. Settings › About also shows the update.
 4. The update installs silently when Zenith closes, or right away from **Restart to update**. The NSIS installer runs per-user in quiet mode with no prompts or administrator rights. After **Restart to update** it reopens Zenith, and session restore brings the tabs back.
 
@@ -19,7 +22,7 @@ git push origin HEAD
 git push origin v0.2.0      # the tag starts the release build
 ```
 
-`pnpm release` refuses to run with uncommitted changes. It bumps the version in `package.json`, `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock` and `src-tauri/tauri.conf.json`, then commits and tags. `--push` pushes both for you; `--dry-run` only shows what would change.
+`pnpm release` refuses to run with uncommitted changes. It bumps the version in `apps/desktop/package.json`, `apps/desktop/src-tauri/Cargo.toml`, `apps/desktop/src-tauri/Cargo.lock` and `apps/desktop/src-tauri/tauri.conf.json`, then commits and tags. `--push` pushes both for you; `--dry-run` only shows what would change.
 
 The tag starts `.github/workflows/release.yml` on GitHub Actions (Windows):
 

@@ -1,6 +1,9 @@
-# Zen Browser UI in Zenith
+---
+title: Zen Browser UI in Zenith
+description: Which parts of Zenith's interface follow Zen Browser's source, what was taken, and what was left out.
+---
 
-Zenith's chrome is modelled on [Zen Browser](https://github.com/zen-browser/desktop)'s desktop UI. This file maps each part of Zenith's shell to the Zen source it follows, and records what was taken and what was not.
+Zenith's chrome is modelled on [Zen Browser](https://github.com/zen-browser/desktop)'s desktop UI. Source paths on this page are relative to `apps/desktop`. This page maps each part of Zenith's shell to the Zen source it follows, and records what was taken and what was not.
 
 ## Licensing
 

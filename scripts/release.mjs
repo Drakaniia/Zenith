@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Cuts a release: bumps the version everywhere it is written, commits, and tags. Pushing the tag
-// makes .github/workflows/release.yml build, sign and publish it (see docs/RELEASING.md).
+// makes .github/workflows/release.yml build, sign and publish it (see apps/docs/src/content/docs/contributing/releasing.md).
 //
 //   pnpm release 0.2.0            explicit version (or: patch | minor | major)
 //   pnpm release patch --push     also push the commit and the tag
