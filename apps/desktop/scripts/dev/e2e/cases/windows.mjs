@@ -152,15 +152,7 @@ test("narrow-multiple-toolbars", async () => {
     resizeWindow(1280, 820);
     await sleep(500);
     await ui(`document.querySelector('.list .tab.active .close')?.click()`);
-    await ui(`document.querySelector('[data-action=app-menu]').click()`);
-    await waitUi(`!!document.querySelector('.menu')`, "app menu");
-    await ui(
-      `[...document.querySelectorAll('.menu .item')].find((b) => b.textContent.includes('Settings')).click()`,
-    );
-    await waitUi(
-      `!!document.querySelector('#settings-tabs select')`,
-      "settings page",
-    );
+    await openSettings();
     await ui(
       `[...document.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Single toolbar').click()`,
     );

@@ -1,35 +1,12 @@
 // Probe: does WebView2 report user zoom (Ctrl+wheel on the page) to the chrome UI?
+import { connect } from "./cdp-session.mjs";
+
 const PORT = Number(process.env.ZENITH_REMOTE_DEBUG_PORT || 9444);
 const list = async () =>
   (await (await fetch(`http://127.0.0.1:${PORT}/json/list`)).json()).filter(
     (t) => t.type === "page",
   );
-async function connect(t) {
-  const ws = new WebSocket(t.webSocketDebuggerUrl);
-  await new Promise((res, rej) => ((ws.onopen = res), (ws.onerror = rej)));
-  let id = 0;
-  const pending = new Map();
-  ws.onmessage = (ev) => {
-    const m = JSON.parse(ev.data);
-    if (m.id && pending.has(m.id)) (pending.get(m.id)(m), pending.delete(m.id));
-  };
-  const send = (method, params = {}) =>
-    new Promise(
-      (r) => (
-        pending.set(++id, r),
-        ws.send(JSON.stringify({ id, method, params }))
-      ),
-    );
-  const ev = async (expression) =>
-    (
-      await send("Runtime.evaluate", {
-        expression,
-        awaitPromise: true,
-        returnByValue: true,
-      })
-    ).result?.result?.value;
-  return { send, ev, close: () => ws.close() };
-}
+
 const all = await list();
 const ui = await connect(all.find((t) => t.url.includes("tauri.localhost")));
 const page = await connect(

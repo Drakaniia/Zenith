@@ -1,39 +1,14 @@
 // Probe: how does WebView2 report a muted tab that plays audio once it is in the background?
 // Opens a page, mutes it, starts an inaudible tone, switches away, then samples the tab's
 // audible flag (as shown in the sidebar) and the AudioContext state for ~70 s.
+import { connect } from "./cdp-session.mjs";
+
 const PORT = Number(process.env.ZENITH_REMOTE_DEBUG_PORT || 9444);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const list = async () =>
   (await (await fetch(`http://127.0.0.1:${PORT}/json/list`)).json()).filter(
     (t) => t.type === "page",
   );
-
-async function connect(t) {
-  const ws = new WebSocket(t.webSocketDebuggerUrl);
-  await new Promise((res, rej) => ((ws.onopen = res), (ws.onerror = rej)));
-  let id = 0;
-  const pending = new Map();
-  ws.onmessage = (ev) => {
-    const m = JSON.parse(ev.data);
-    if (m.id && pending.has(m.id)) (pending.get(m.id)(m), pending.delete(m.id));
-  };
-  const send = (method, params = {}) =>
-    new Promise(
-      (r) => (
-        pending.set(++id, r),
-        ws.send(JSON.stringify({ id, method, params }))
-      ),
-    );
-  const ev = async (expression) =>
-    (
-      await send("Runtime.evaluate", {
-        expression,
-        awaitPromise: true,
-        returnByValue: true,
-      })
-    ).result?.result?.value;
-  return { send, ev, close: () => ws.close() };
-}
 
 const chromeT = (await list()).find((t) => t.url.includes("tauri.localhost"));
 const ui = await connect(chromeT);
