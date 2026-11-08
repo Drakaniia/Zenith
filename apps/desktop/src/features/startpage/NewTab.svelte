@@ -11,7 +11,7 @@
   import { startPage } from './startpage.svelte';
   import { MAX_SAVED_SITES, TILE_METRICS, composeTiles, greetingFor, textTone, type SavedSite } from './startpage';
   import { ui } from '$shared/ui/ui.svelte';
-  import { api } from '$platform/ipc';
+  import { historyApi } from '$features/history/api';
   import { incognito } from '$features/window/window.svelte';
   import { SEARCH_ENGINES, displayHost, hostOf, titleFor } from '$shared/url';
   import type { HistoryEntry } from '$features/history/types';
@@ -87,7 +87,7 @@
   $effect(() => {
     if (!settings.value.showTopSites || incognito || topLoaded) return;
     topLoaded = true;
-    void api
+    void historyApi
       .historyTop(80)
       .then((rows) => {
         const seen = new Set<string>();

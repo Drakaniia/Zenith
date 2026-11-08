@@ -1,6 +1,7 @@
 // What the user does with bookmarks, shared by the toolbar, sidebar, Library, menus, popups and
 // shortcuts. The menus that offer these are built in menus.ts.
-import { api } from "../../platform/ipc";
+import { bookmarksApi } from "./api";
+import { shell } from "../../platform/shell";
 import { browser } from "../browser/browser.svelte";
 import { bookmarks } from "./bookmarks.svelte";
 import { settings } from "../settings/settings.svelte";
@@ -228,8 +229,8 @@ export async function importBookmarksFile() {
 
 export async function exportBookmarksFile() {
   try {
-    const path = await api.bookmarksExport();
-    if (path) ui.toast("Bookmarks exported", { icon: "check", action: { label: "Show", run: () => void api.showInFolder(path) } });
+    const path = await bookmarksApi.bookmarksExport();
+    if (path) ui.toast("Bookmarks exported", { icon: "check", action: { label: "Show", run: () => void shell.showInFolder(path) } });
   } catch (e) {
     ui.toast(`Export failed: ${e}`, { icon: "alert" });
   }
@@ -237,8 +238,8 @@ export async function exportBookmarksFile() {
 
 export async function backupBookmarksFile() {
   try {
-    const path = await api.bookmarksBackup();
-    if (path) ui.toast("Backup saved", { icon: "check", action: { label: "Show", run: () => void api.showInFolder(path) } });
+    const path = await bookmarksApi.bookmarksBackup();
+    if (path) ui.toast("Backup saved", { icon: "check", action: { label: "Show", run: () => void shell.showInFolder(path) } });
   } catch (e) {
     ui.toast(`Backup failed: ${e}`, { icon: "alert" });
   }

@@ -1,8 +1,9 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte';
+  import { downloadsApi } from './api';
   import { fly, fade } from 'svelte/transition';
   import Icon from '$shared/ui/Icon.svelte';
-  import { api, on } from '$platform/ipc';
+  import { on } from '$platform/ipc';
   import { browser } from '$features/browser/browser.svelte';
   import { settings } from '$features/settings/settings.svelte';
   import { ui } from '$shared/ui/ui.svelte';
@@ -33,7 +34,7 @@
     loading = true;
     error = '';
     try {
-      const r = await api.mediaList(target.tabId, scan);
+      const r = await downloadsApi.mediaList(target.tabId, scan);
       if (mine !== seq) return;
       for (const item of r.items) {
         if (!picks[item.id]) picks[item.id] = { variant: item.variants[0]?.id ?? '', audio: item.audioTracks[0]?.id ?? '' };
@@ -121,7 +122,7 @@
     busy[item.id] = true;
     try {
       const p = picks[item.id];
-      await api.mediaDownload(target.tabId, item.id, p?.variant || null, variantIsAudio(item) ? null : p?.audio || null);
+      await downloadsApi.mediaDownload(target.tabId, item.id, p?.variant || null, variantIsAudio(item) ? null : p?.audio || null);
       started[item.id] = true;
     } catch (e) {
       ui.toast(String(e), { icon: 'alert', timeout: 6000 });

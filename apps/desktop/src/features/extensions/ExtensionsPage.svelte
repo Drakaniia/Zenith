@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import Icon from '$shared/ui/Icon.svelte';
   import Toggle from '$shared/ui/Toggle.svelte';
-  import { api } from '$platform/ipc';
+  import { extensionsApi } from './api';
   import { browser } from '$features/browser/browser.svelte';
   import { ui } from '$shared/ui/ui.svelte';
   import { settings } from '$features/settings/settings.svelte';
@@ -35,13 +35,13 @@
   async function fromStore() {
     const input = storeInput.trim();
     if (!input) return;
-    await install(() => api.extInstallStore(input));
+    await install(() => extensionsApi.extInstallStore(input));
     storeInput = '';
   }
 
   async function setEnabled(ext: ExtensionInfo, enabled: boolean) {
     try {
-      await api.extSetEnabled(ext.id, enabled);
+      await extensionsApi.extSetEnabled(ext.id, enabled);
       await refresh();
     } catch (e) {
       ui.toast(String(e), { icon: 'alert' });
@@ -51,7 +51,7 @@
 
   async function remove(ext: ExtensionInfo) {
     try {
-      await api.extRemove(ext.id);
+      await extensionsApi.extRemove(ext.id);
       if (extensions.isPinned(ext.id)) extensions.togglePin(ext.id);
       ui.toast(`Removed ${ext.name}`, { icon: 'trash' });
     } catch (e) {
@@ -83,8 +83,8 @@
         <button class="btn primary" disabled={busy || !storeInput.trim()} onclick={fromStore}>{busy ? 'Installing…' : 'Install'}</button>
       </div>
       <div class="buttons">
-        <button class="btn" disabled={busy} onclick={() => install(api.extInstallFolder)}><Icon name="folder" size={15} />Load unpacked folder</button>
-        <button class="btn" disabled={busy} onclick={() => install(api.extInstallCrx)}><Icon name="file" size={15} />Install .crx file</button>
+        <button class="btn" disabled={busy} onclick={() => install(extensionsApi.extInstallFolder)}><Icon name="folder" size={15} />Load unpacked folder</button>
+        <button class="btn" disabled={busy} onclick={() => install(extensionsApi.extInstallCrx)}><Icon name="file" size={15} />Install .crx file</button>
         <span class="grow"></span>
         {#if extensions.updates.length}
           <button class="btn primary" disabled={extensions.updating.length > 0} onclick={() => void extensions.updateAll()}>

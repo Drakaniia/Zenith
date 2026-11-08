@@ -5,7 +5,7 @@
   import { downloads } from './downloads.svelte';
   import { settings } from '$features/settings/settings.svelte';
   import { appInfo } from '$features/window/window.svelte';
-  import { api } from '$platform/ipc';
+  import { shell } from '$platform/shell';
 
   let query = $state('');
   onMount(() => void downloads.load());
@@ -23,7 +23,7 @@
     <header>
       <h1>Downloads</h1>
       <div class="tools">
-        {#if folder}<button class="btn" onclick={() => void api.openPath(folder)}><Icon name="folder" size={15} />Open folder</button>{/if}
+        {#if folder}<button class="btn" onclick={() => void shell.openPath(folder)}><Icon name="folder" size={15} />Open folder</button>{/if}
         <button class="btn" onclick={() => downloads.remove(null)} disabled={!downloads.items.some((d) => d.state !== 'progress')}>
           <Icon name="eraser" size={15} />Clear list
         </button>

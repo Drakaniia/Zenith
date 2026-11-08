@@ -1,6 +1,6 @@
 <script lang="ts">
   import Icon from '$shared/ui/Icon.svelte';
-  import { api } from '$platform/ipc';
+  import { shell } from '$platform/shell';
   import { ui } from '$shared/ui/ui.svelte';
 
   let { value, ondone, doneLabel = 'Done' }: { value: string; ondone: () => void; doneLabel?: string } = $props();
@@ -8,7 +8,7 @@
 
   async function copy() {
     try {
-      await api.clipboardWrite(value);
+      await shell.clipboardWrite(value);
       ui.toast('Recovery key copied. Store it somewhere safe, then clear your clipboard.', { icon: 'copy', timeout: 5000 });
     } catch (e) {
       ui.toast(`Could not copy: ${e}`, { icon: 'alert' });

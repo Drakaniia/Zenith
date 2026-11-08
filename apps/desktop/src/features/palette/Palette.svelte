@@ -10,7 +10,8 @@
   import { ui, type PaletteMode } from '$shared/ui/ui.svelte';
   import { bookmarkPage } from '$features/bookmarks/bookmark-actions';
   import { keywordMatch, nodeLabel, parseRestriction, searchBookmarks, searchTagged } from '$features/bookmarks/bookmarks';
-  import { api } from '$platform/ipc';
+  import { historyApi } from '$features/history/api';
+  import { searchApi } from './api';
   import { focusAfterLayout, overlayLease } from '$platform/layout.svelte';
   import { commands } from '../../app/actions';
   import { faviconFor, rememberFavicon } from '$shared/favicons';
@@ -92,7 +93,7 @@
     }
     const mine = ++seq;
     historyTimer = setTimeout(async () => {
-      const r = await api.historySearch(text, restricted === 'history' ? 14 : 7).catch(() => []);
+      const r = await historyApi.historySearch(text, restricted === 'history' ? 14 : 7).catch(() => []);
       if (mine !== seq) return;
       history = r;
       refreshFill();
@@ -100,7 +101,7 @@
     const looksLikeUrl = !/\s/.test(text) && text.includes('.');
     if (settings.value.searchSuggestions && text.length > 1 && !looksLikeUrl && !restricted) {
       suggestTimer = setTimeout(async () => {
-        const r = await api.searchSuggest(settings.value.searchEngine, text).catch(() => []);
+        const r = await searchApi.searchSuggest(settings.value.searchEngine, text).catch(() => []);
         if (mine === seq) suggestions = r;
       }, 150);
     } else suggestions = [];

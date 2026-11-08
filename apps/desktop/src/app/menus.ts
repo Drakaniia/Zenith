@@ -1,5 +1,5 @@
 // Context menus for chrome UI elements (the page itself uses WebView2's menu).
-import { api } from "../platform/ipc";
+import { tabsApi } from "../features/browser/api";
 import { browser, needsWebview } from "../features/browser/browser.svelte";
 import {
   copyText,
@@ -183,7 +183,7 @@ function pickedTabsMenu(picked: Tab[]): MenuItem[] {
       label: "Reload tabs",
       icon: "reload",
       run: () => {
-        for (const t of picked) if (t.live) void api.tabCommand(t.id, "reload");
+        for (const t of picked) if (t.live) void tabsApi.tabCommand(t.id, "reload");
       },
     },
     { separator: true },
@@ -225,7 +225,7 @@ export function tabMenu(
       label: "Reload",
       icon: "reload",
       disabled: !tab.live,
-      run: () => void api.tabCommand(tab.id, "reload"),
+      run: () => void tabsApi.tabCommand(tab.id, "reload"),
     },
     { label: "Duplicate", icon: "copy", run: () => browser.duplicate(tab.id) },
     ...(opts.rename

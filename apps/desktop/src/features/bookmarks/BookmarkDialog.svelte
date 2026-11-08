@@ -8,7 +8,7 @@
   import { bookmarks } from './bookmarks.svelte';
   import { browser } from '$features/browser/browser.svelte';
   import { ui } from '$shared/ui/ui.svelte';
-  import { api } from '$platform/ipc';
+  import { webviewApi } from '$platform/webview-api';
   import { focusAfterLayout, overlayLease } from '$platform/layout.svelte';
   import { faviconFor } from '$shared/favicons';
   import { bookmarkTitle, formatTags, parseTags, tabsFolderName } from './bookmarks';
@@ -55,7 +55,7 @@
         parent = bookmarks.defaultParent();
         spaces = [];
       }
-      void api.focusView(null);
+      void webviewApi.focusView(null);
       void tick().then(() => {
         first?.focus();
         first?.select();

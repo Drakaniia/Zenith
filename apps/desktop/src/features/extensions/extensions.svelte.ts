@@ -1,5 +1,5 @@
 // Installed extensions, install offers from pages, Web Store updates and pinned toolbar icons.
-import { api } from "$platform/ipc";
+import { extensionsApi } from "./api";
 import { browser } from "$features/browser/browser.svelte";
 import { settings } from "$features/settings/settings.svelte";
 import { ui } from "$shared/ui/ui.svelte";
@@ -38,7 +38,7 @@ class ExtensionStore {
 
   async refresh() {
     try {
-      this.items = await api.extList();
+      this.items = await extensionsApi.extList();
       this.error = "";
     } catch (e) {
       this.error = String(e);
@@ -105,7 +105,7 @@ class ExtensionStore {
   async accept(offer: PendingOffer) {
     this.offers = this.offers.filter((o) => o.token !== offer.token);
     try {
-      const ext = await api.extOfferAccept(offer.token);
+      const ext = await extensionsApi.extOfferAccept(offer.token);
       await this.refresh();
       this.updates = this.updates.filter((u) => u.id !== ext.id);
       ui.toast(`Added ${ext.name}`, {
@@ -123,7 +123,7 @@ class ExtensionStore {
 
   decline(offer: PendingOffer) {
     this.offers = this.offers.filter((o) => o.token !== offer.token);
-    void api.extOfferDiscard(offer.token).catch(() => {});
+    void extensionsApi.extOfferDiscard(offer.token).catch(() => {});
   }
 
   // ----------------------------------------------------------------- updates
@@ -132,7 +132,7 @@ class ExtensionStore {
     if (this.checking) return;
     this.checking = true;
     try {
-      this.updates = await api.extCheckUpdates();
+      this.updates = await extensionsApi.extCheckUpdates();
       if (silent && this.updates.length) {
         const n = this.updates.length;
         ui.toast(
@@ -159,7 +159,7 @@ class ExtensionStore {
     if (this.updating.includes(u.id)) return;
     this.updating = [...this.updating, u.id];
     try {
-      const ext = await api.extUpdate(u.id);
+      const ext = await extensionsApi.extUpdate(u.id);
       this.updates = this.updates.filter((x) => x.id !== u.id);
       // Reinstalling keeps the Chrome id, so pins stay; follow the id if it changed anyway.
       if (ext.id !== u.id && this.isPinned(u.id)) {

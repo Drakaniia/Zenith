@@ -1,6 +1,7 @@
 // User settings: owned by the UI, persisted as JSON by the backend, and pushed to the backend
 // wherever Rust needs them (appearance, shortcuts, blocker, downloads).
-import { api } from "$platform/ipc";
+import { settingsApi } from "./api";
+import { shortcutsApi } from "$features/shortcuts/api";
 import { fadeChange } from "$shared/ui/fade";
 import { defaultShortcuts, mergeShortcuts } from "$features/shortcuts/shortcuts";
 import { SEARCH_ENGINES } from "$shared/url";
@@ -284,7 +285,7 @@ class SettingsStore {
 
   async #read() {
     try {
-      const raw = await api.settingsLoad();
+      const raw = await settingsApi.settingsLoad();
       if (raw) {
         const saved = JSON.parse(raw) as Partial<Settings>;
         // Before the sidebar toggle, "solid" was one of the materials.
@@ -340,7 +341,7 @@ class SettingsStore {
   save(push = true) {
     clearTimeout(this.#saveTimer);
     this.#saveTimer = setTimeout(
-      () => void api.settingsSave(JSON.stringify(this.value)),
+      () => void settingsApi.settingsSave(JSON.stringify(this.value)),
       300,
     );
     if (push) void this.push();
@@ -367,7 +368,7 @@ class SettingsStore {
     };
     if (!root.dataset.theme || !root.dataset.material) apply();
     else if (root.dataset.theme !== theme || root.dataset.material !== material) fadeChange(apply);
-    const applied = await api.applySettings(
+    const applied = await settingsApi.applySettings(
       {
         downloadDir: s.downloadDir,
         recordHistory: s.recordHistory,
@@ -414,7 +415,7 @@ class SettingsStore {
         global: global && GLOBAL_ACTIONS.has(action),
       }),
     );
-    this.globalShortcutConflicts = (await api.setShortcuts(bindings)) ?? [];
+    this.globalShortcutConflicts = (await shortcutsApi.setShortcuts(bindings)) ?? [];
   }
 
   enabledLists() {

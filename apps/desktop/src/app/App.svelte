@@ -1,5 +1,11 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte';
+  import { blockerApi } from '$features/blocker/api';
+  import { bookmarksApi } from '$features/bookmarks/api';
+  import { historyApi } from '$features/history/api';
+  import { shell } from '$platform/shell';
+  import { tabsApi } from '$features/browser/api';
+  import { windowApi } from '$features/window/api';
   import { fade } from 'svelte/transition';
   import { cubicOut } from 'svelte/easing';
   import { compactEase, slidePx, slideX, springEase } from '$shared/ui/motion';
@@ -10,7 +16,7 @@
   import { downloads } from '$features/downloads/downloads.svelte';
   import { permissions } from '$features/page/permissions.svelte';
   import { ui } from '$shared/ui/ui.svelte';
-  import { api, on } from '$platform/ipc';
+  import { on } from '$platform/ipc';
   import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
   import { runAction } from './actions';
   import { barPinned } from '$features/bookmarks/bookmark-actions';
@@ -123,7 +129,7 @@
     saveTimer = setTimeout(() => {
       if (json !== lastSaved) {
         lastSaved = json;
-        void api.sessionSave(json);
+        void tabsApi.sessionSave(json);
       }
     }, 400);
   });
@@ -175,9 +181,9 @@
     clearTimeout(saveTimer);
     try {
       await notes.flush().catch(() => {});
-      if (!incognito) await api.sessionSave(browser.snapshot());
+      if (!incognito) await tabsApi.sessionSave(browser.snapshot());
     } finally {
-      await api.windowClose();
+      await windowApi.windowClose();
     }
   }
 
@@ -301,7 +307,7 @@
         } else if (known && d.state === 'completed') {
           ui.toast(`Downloaded ${d.fileName ?? 'file'}`, {
             icon: 'check',
-            action: { label: 'Open', run: () => void api.openPath(d.path) },
+            action: { label: 'Open', run: () => void shell.openPath(d.path) },
           });
         }
       }),
@@ -335,26 +341,26 @@
       // does, so returning users never see it flash by.
       if (shouldOnboard(s, incognito)) onboarding.begin();
       const weekly = Date.now() - s.filterListsUpdated > 7 * 86_400_000;
-      void api
+      void blockerApi
         .blockerConfigure(settings.enabledLists(), weekly && s.blockerEnabled, s.blockerDisabledSites)
         .then(() => {
           if (weekly) settings.update({ filterListsUpdated: Date.now() });
         })
         .catch(() => {});
-      if (s.historyDays > 0) void api.historyPrune(s.historyDays).catch(() => {});
+      if (s.historyDays > 0) void historyApi.historyPrune(s.historyDays).catch(() => {});
 
       requestAnimationFrame(() => (motionReady = true));
       if (incognito) browser.startPrivate();
       else {
-        const saved = await api.sessionLoad().catch(() => null);
+        const saved = await tabsApi.sessionLoad().catch(() => null);
         browser.restore(saved?.data ?? null, saved?.keep ?? s.restoreSession, saved?.fresh ?? false);
         // The main window brings back the other windows that were open when Zenith quit.
-        void api.windowsRestore(s.restoreSession).catch(() => {});
+        void windowApi.windowsRestore(s.restoreSession).catch(() => {});
       }
       await pushed;
       await tick();
       requestAnimationFrame(async () => {
-        const info = await api.uiReady();
+        const info = await windowApi.uiReady();
         appInfo.info = info;
         for (const url of info.startupUrls) browser.openTab(url);
         // A window with nothing to show opens the home page.
@@ -369,7 +375,7 @@
       startSleepScheduler();
       void bookmarks.load();
       // Today's automatic backup of the bookmarks (the first start of the day writes it).
-      if (!incognito) void api.bookmarksAutoBackup().catch(() => {});
+      if (!incognito) void bookmarksApi.bookmarksAutoBackup().catch(() => {});
       void vault.refresh();
       void downloads.load();
       void updates.load();

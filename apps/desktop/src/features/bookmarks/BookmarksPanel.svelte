@@ -5,7 +5,8 @@
   import { bookmarks } from './bookmarks.svelte';
   import { settings, PANEL_DEFAULT, PANEL_MAX, PANEL_MIN } from '$features/settings/settings.svelte';
   import { ui } from '$shared/ui/ui.svelte';
-  import { api } from '$platform/ipc';
+  import { historyApi } from '$features/history/api';
+  import { webviewApi } from '$platform/webview-api';
   import { bmDnd } from './bookmark-dnd.svelte';
   import { ROOTS, ROOT_TITLES, ancestors, kids, nodeLabel, searchBookmarks } from './bookmarks';
   import { faviconFor } from '$shared/favicons';
@@ -178,7 +179,7 @@
     const mine = ++seq;
     timer = setTimeout(
       async () => {
-        const r = await api.historySearch(text.trim(), 80).catch(() => []);
+        const r = await historyApi.historySearch(text.trim(), 80).catch(() => []);
         if (mine === seq) history = r;
       },
       text ? 120 : 0,
@@ -220,7 +221,7 @@
 
   // The keyboard goes to the search box when the sidebar opens.
   onMount(() => {
-    void api.focusView(null);
+    void webviewApi.focusView(null);
     void tick().then(() => search?.focus());
   });
 

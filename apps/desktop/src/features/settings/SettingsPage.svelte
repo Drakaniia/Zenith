@@ -7,7 +7,13 @@
   import { settings, MATERIAL_FALLBACKS, SIDEBAR_MAX, SIDEBAR_MIN, type Settings } from './settings.svelte';
   import { ui } from '$shared/ui/ui.svelte';
   import { formatBytes } from '$shared/format';
-  import { api } from '$platform/ipc';
+  import { blockerApi } from '$features/blocker/api';
+  import { defaultBrowserApi } from '$features/default-browser/api';
+  import { downloadsApi } from '$features/downloads/api';
+  import { historyApi } from '$features/history/api';
+  import { settingsApi } from './api';
+  import { shell } from '$platform/shell';
+  import { webviewApi } from '$platform/webview-api';
   import { makeDefaultBrowser } from '$features/default-browser/default-browser';
   import { openInternal, openNotes, shortcutHint } from '../../app/actions';
   import { bookmarks } from '$features/bookmarks/bookmarks.svelte';
@@ -81,13 +87,13 @@
   }
 
   async function refreshMemory() {
-    memory = await api.memoryStats().catch(() => null);
+    memory = await settingsApi.memoryStats().catch(() => null);
   }
 
   async function refreshBlocker(update = false) {
     updating = update;
     try {
-      stats = await api.blockerConfigure(settings.enabledLists(), update, s.blockerDisabledSites);
+      stats = await blockerApi.blockerConfigure(settings.enabledLists(), update, s.blockerDisabledSites);
       if (update) settings.update({ filterListsUpdated: Date.now() });
     } catch (e) {
       ui.toast(`Could not update filter lists: ${e}`, { icon: 'alert' });
@@ -117,7 +123,7 @@
     if (clearKinds.downloads) kinds.push('downloads');
     if (clearKinds.permissions) kinds.push('permissions');
     try {
-      await api.clearBrowsingData(kinds, since, clearKinds.history);
+      await settingsApi.clearBrowsingData(kinds, since, clearKinds.history);
       ui.toast('Browsing data cleared', { icon: 'check' });
     } catch (e) {
       ui.toast(`Could not clear data: ${e}`, { icon: 'alert' });
@@ -129,19 +135,19 @@
   async function makeDefault() {
     try {
       await makeDefaultBrowser();
-      setTimeout(async () => (defaultStatus = await api.defaultBrowserStatus()), 1500);
+      setTimeout(async () => (defaultStatus = await defaultBrowserApi.defaultBrowserStatus()), 1500);
     } catch {
       /* makeDefaultBrowser already said why */
     }
   }
 
   async function pickDownloadDir() {
-    const dir = await api.pickFolder('Choose a download folder');
+    const dir = await shell.pickFolder('Choose a download folder');
     if (dir) set('downloadDir', dir);
   }
 
   async function refreshTools() {
-    ffmpeg = (await api.mediaTools().catch(() => ({ ffmpeg: null }))).ffmpeg;
+    ffmpeg = (await downloadsApi.mediaTools().catch(() => ({ ffmpeg: null }))).ffmpeg;
   }
 
   function setFfmpeg<K extends 'useFfmpeg' | 'ffmpegPath'>(key: K, value: Settings[K]) {
@@ -151,7 +157,7 @@
   }
 
   async function pickFfmpeg() {
-    const path = await api.mediaPickFfmpeg();
+    const path = await downloadsApi.mediaPickFfmpeg();
     if (path) setFfmpeg('ffmpegPath', path);
   }
 
@@ -286,11 +292,11 @@
 
   onMount(() => {
     // The search box is ready to type in: the keyboard moves from the page webviews to the chrome.
-    void api.focusView(null);
+    void webviewApi.focusView(null);
     void tick().then(() => searchEl?.focus());
     void refreshBlocker(false);
     void refreshMemory();
-    void api.defaultBrowserStatus().then((d) => (defaultStatus = d)).catch(() => {});
+    void defaultBrowserApi.defaultBrowserStatus().then((d) => (defaultStatus = d)).catch(() => {});
     void refreshTools();
     const t = setInterval(refreshMemory, 5000);
     if (section) void tick().then(() => jump(section));
@@ -642,7 +648,7 @@
                     onclick={() => {
                       settings.value.blockerDisabledSites = s.blockerDisabledSites.filter((x) => x !== site);
                       settings.save(false);
-                      void api.blockerSetDisabledSites(settings.value.blockerDisabledSites);
+                      void blockerApi.blockerSetDisabledSites(settings.value.blockerDisabledSites);
                     }}><Icon name="close" size={14} /></button
                   >
                 </div>
@@ -665,7 +671,7 @@
               onchange={(e) => {
                 const days = Number((e.currentTarget as HTMLSelectElement).value);
                 set('historyDays', days);
-                if (days > 0) void api.historyPrune(days);
+                if (days > 0) void historyApi.historyPrune(days);
               }}
             >
               <option value={7}>1 week</option>
@@ -912,8 +918,8 @@
               <button
                 class="btn ghost"
                 onclick={async () => {
-                  await api.defaultBrowserUnregister();
-                  defaultStatus = await api.defaultBrowserStatus();
+                  await defaultBrowserApi.defaultBrowserUnregister();
+                  defaultStatus = await defaultBrowserApi.defaultBrowserStatus();
                 }}>Unregister</button
               >
             </div>

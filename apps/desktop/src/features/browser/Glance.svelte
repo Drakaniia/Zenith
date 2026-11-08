@@ -8,7 +8,7 @@
   import { ui } from '$shared/ui/ui.svelte';
   import { springEase } from '$shared/ui/motion';
   import type { GlanceState } from './types';
-  import { api } from '$platform/ipc';
+  import { tabsApi } from './api';
 
   // Zen's Glance (src/zen/glance): a page previewed in a card over the current tab, 80 % of the
   // content area wide, with round action buttons beside it. Opens with a 350 ms spring.
@@ -56,7 +56,7 @@
     let stop = false;
     const measure = async () => {
       if (stop) return;
-      const s = await api.tabContentSize(id).catch(() => null);
+      const s = await tabsApi.tabContentSize(id).catch(() => null);
       if (stop || !s || s.x < 1 || s.y < 1) return;
       fit = { id, w: Math.min(800, Math.max(25, s.x)), h: Math.min(600, Math.max(25, s.y)) };
       scheduleLayout();

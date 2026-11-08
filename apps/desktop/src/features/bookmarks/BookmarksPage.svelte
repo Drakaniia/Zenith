@@ -7,7 +7,7 @@
   import { bookmarks } from './bookmarks.svelte';
   import { ui } from '$shared/ui/ui.svelte';
   import { type MenuItem } from '$shared/ui/menu';
-  import { api } from '$platform/ipc';
+  import { bookmarksApi } from './api';
   import { bmDnd } from './bookmark-dnd.svelte';
   import {
     ROOTS,
@@ -438,7 +438,7 @@
   // ---------------------------------------------------------------- the toolbar menus
   let backups = $state<BookmarkBackup[]>([]);
   async function loadBackups() {
-    backups = await api.bookmarkBackups().catch(() => []);
+    backups = await bookmarksApi.bookmarkBackups().catch(() => []);
   }
   onMount(() => {
     void bookmarks.load(true);

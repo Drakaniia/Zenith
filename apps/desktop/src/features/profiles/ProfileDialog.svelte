@@ -4,7 +4,8 @@
   import Icon from '$shared/ui/Icon.svelte';
   import { appInfo } from '$features/window/window.svelte';
   import { browser } from '$features/browser/browser.svelte';
-  import { api } from '$platform/ipc';
+  import { profilesApi } from './api';
+  import { webviewApi } from '$platform/webview-api';
   import { ui } from '$shared/ui/ui.svelte';
   import { focusAfterLayout, overlayLease } from '$platform/layout.svelte';
   import { MAX_PROFILE_NAME, cleanProfileName, deleteBlocker, nextProfileColor, profileInitial, textOn } from './profiles';
@@ -41,7 +42,7 @@
 
   async function refresh() {
     try {
-      view = await api.profilesList();
+      view = await profilesApi.profilesList();
     } catch (e) {
       error = String(e);
     }
@@ -54,7 +55,7 @@
     error = '';
     note = '';
     confirmDelete = false;
-    void api.focusView(null);
+    void webviewApi.focusView(null);
     void refresh().then(async () => {
       if (s.mode !== 'edit' || !view) return;
       const p = s.id ? view.profiles.find((x) => x.id === s.id) : null;
@@ -89,7 +90,7 @@
 
   async function open(p: ProfileEntry) {
     try {
-      await api.profileOpen(p.id);
+      await profilesApi.profileOpen(p.id);
       close();
     } catch (e) {
       error = String(e);
@@ -126,13 +127,13 @@
     try {
       const icon = await renderedIcon();
       if (isNew) {
-        const p = await api.profileCreate(cleaned, color, avatar, icon, shortcut);
+        const p = await profilesApi.profileCreate(cleaned, color, avatar, icon, shortcut);
         // Like other browsers: a new profile opens right away, in its own window.
-        await api.profileOpen(p.id);
+        await profilesApi.profileOpen(p.id);
         ui.toast(`Opening “${p.name}” in a new window`, { icon: 'user' });
         close();
       } else if (editing) {
-        const p = await api.profileUpdate(editing.id, cleaned, color, avatar, icon);
+        const p = await profilesApi.profileUpdate(editing.id, cleaned, color, avatar, icon);
         if (appInfo.info && appInfo.info.profile.id === p.id) appInfo.info.profile = p;
         back();
       }
@@ -148,7 +149,7 @@
     busy = true;
     error = '';
     try {
-      await api.profileShortcut(editing.id);
+      await profilesApi.profileShortcut(editing.id);
       note = `Added “Zenith - ${editing.name}” to the desktop.`;
       await refresh();
     } catch (e) {
@@ -163,7 +164,7 @@
     busy = true;
     error = '';
     try {
-      await api.profileDelete(editing.id);
+      await profilesApi.profileDelete(editing.id);
       ui.toast(`Deleted the profile “${editing.name}”`, { icon: 'trash' });
       fromList = true;
       back();

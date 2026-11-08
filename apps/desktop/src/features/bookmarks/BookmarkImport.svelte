@@ -5,7 +5,8 @@
   import { browser } from '$features/browser/browser.svelte';
   import { settings } from '$features/settings/settings.svelte';
   import { ui } from '$shared/ui/ui.svelte';
-  import { api } from '$platform/ipc';
+  import { bookmarksApi } from './api';
+  import { webviewApi } from '$platform/webview-api';
   import { focusAfterLayout, overlayLease } from '$platform/layout.svelte';
   import { plural } from '$features/onboarding/onboarding-flow';
   import { importBookmarksFile } from './bookmark-actions';
@@ -43,8 +44,8 @@
     errors = [];
     wantBookmarks = true;
     wantHistory = false;
-    void api.focusView(null);
-    void api
+    void webviewApi.focusView(null);
+    void bookmarksApi
       .importSources()
       .catch(() => [] as ImportSource[])
       .then((list) => {
@@ -69,7 +70,7 @@
     result = '';
     errors = [];
     try {
-      const r = await api.importRun(
+      const r = await bookmarksApi.importRun(
         source.id,
         wantBookmarks && source.bookmarks,
         wantHistory && canHistory,

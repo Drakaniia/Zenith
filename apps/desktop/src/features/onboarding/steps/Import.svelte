@@ -3,7 +3,7 @@
   import { onboarding } from '../onboarding.svelte';
   import { settings } from '$features/settings/settings.svelte';
   import { bookmarks as bookmarkStore } from '$features/bookmarks/bookmarks.svelte';
-  import { api } from '$platform/ipc';
+  import { bookmarksApi } from '$features/bookmarks/api';
   import { plural } from '../onboarding-flow';
   import type { ImportSource } from '$features/bookmarks/types';
 
@@ -35,7 +35,7 @@
   );
 
   onMount(async () => {
-    sources = await api.importSources().catch(() => []);
+    sources = await bookmarksApi.importSources().catch(() => []);
     chosen = sources[0]?.id ?? '';
   });
 
@@ -58,7 +58,7 @@
     busy = true;
     status = null;
     try {
-      const r = await api.importRun(
+      const r = await bookmarksApi.importRun(
         source.id,
         wantBookmarks && source.bookmarks,
         wantHistory && source.history && settings.value.recordHistory,
@@ -79,7 +79,7 @@
 
   async function fromFile() {
     try {
-      const n = await api.bookmarksImport();
+      const n = await bookmarksApi.bookmarksImport();
       if (n > 0) {
         status = { text: `Imported ${plural(n, 'bookmark')} from the file.`, errors: [] };
         record('a bookmarks file', n, 0);

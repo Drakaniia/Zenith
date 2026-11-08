@@ -2,7 +2,8 @@
 // renderer), then fully unloaded after the configured timeout. Tabs playing audio, downloading,
 // or shown in split view / Glance are exempt. Under system memory pressure the least recently
 // used background tabs are unloaded early.
-import { api } from "../../platform/ipc";
+import { settingsApi } from "../settings/api";
+import { tabsApi } from "./api";
 import { browser } from "./browser.svelte";
 import { settings } from "../settings/settings.svelte";
 import { downloads } from "../downloads/downloads.svelte";
@@ -47,14 +48,14 @@ export async function tick(now = Date.now()) {
     }
     if (s.suspendHidden && !tab.suspended && hiddenFor >= SUSPEND_AFTER_MS) {
       tab.suspended = true;
-      void api
+      void tabsApi
         .tabCommand(tab.id, "suspend")
         .catch(() => (tab.suspended = false));
     }
     idle.push({ id: tab.id, since });
   }
   if (s.memoryPressure && idle.length) {
-    const load = await api.systemMemoryLoad().catch(() => 0);
+    const load = await settingsApi.systemMemoryLoad().catch(() => 0);
     if (load >= PRESSURE_LOAD) {
       idle.sort((a, b) => a.since - b.since);
       for (const { id } of idle.slice(0, 3)) await browser.sleep(id);

@@ -1,6 +1,6 @@
 // The browser model: spaces, tabs, essentials, split view and Glance. The UI owns this state;
 // the backend owns the webviews and reports their state through `tab-update` patches.
-import { api } from "$platform/ipc";
+import { tabsApi } from "./api";
 import { settings } from "$features/settings/settings.svelte";
 import { rememberFavicon } from "$shared/favicons";
 import type { ClosedTab, Folder, GlanceState, PopupAnchor, Space, SpaceId, SplitLayout, Tab, TabId, TabPatch } from "./types";
@@ -414,7 +414,7 @@ class BrowserStore {
     const scroll = tab.scroll;
     tab.scroll = undefined;
     try {
-      await api.tabCreate({
+      await tabsApi.tabCreate({
         id: tab.id,
         url: tab.url,
         muted: tab.muted,
@@ -484,7 +484,7 @@ class BrowserStore {
     }
     tab.error = "";
     if (tab.live) {
-      void api.tabNavigate(tab.id, url).catch((e) => (tab.error = String(e)));
+      void tabsApi.tabNavigate(tab.id, url).catch((e) => (tab.error = String(e)));
     } else {
       tab.url = url;
       tab.title = "";
@@ -560,7 +560,7 @@ class BrowserStore {
       space.pinnedIds = space.pinnedIds.filter((x) => x !== id);
       space.tabIds = space.tabIds.filter((x) => x !== id);
     }
-    if (tab.live) void api.tabClose(id);
+    if (tab.live) void tabsApi.tabClose(id);
     this.hiddenAt.delete(id);
     this.audibleAt.delete(id);
     delete this.tabs[id];
@@ -627,7 +627,7 @@ class BrowserStore {
     tab.suspended = false;
     tab.media = 0;
     try {
-      const scroll = await api.tabSleep(id);
+      const scroll = await tabsApi.tabSleep(id);
       if (scroll && (scroll.x > 0 || scroll.y > 0)) tab.scroll = scroll;
     } catch {
       /* the webview may already be gone */
@@ -754,14 +754,14 @@ class BrowserStore {
   }
 
   resetZoom(id: TabId) {
-    if (this.tabs[id]?.live) return api.tabCommand(id, "zoom", 1);
+    if (this.tabs[id]?.live) return tabsApi.tabCommand(id, "zoom", 1);
   }
 
   setMuted(id: TabId, muted: boolean) {
     const tab = this.tabs[id];
     if (!tab) return;
     tab.muted = muted;
-    if (tab.live) void api.tabCommand(id, muted ? "mute" : "unmute");
+    if (tab.live) void tabsApi.tabCommand(id, muted ? "mute" : "unmute");
   }
 
   // ------------------------------------------------------------------------------------------
@@ -830,7 +830,7 @@ class BrowserStore {
     const draft = makeTab(url, "", { openerId, live: true, loading: true });
     this.tabs[draft.id] = draft;
     this.glance = { tabId: draft.id, openerId, popup: false, anchor };
-    void api
+    void tabsApi
       .tabCreate({
         id: draft.id,
         url,
@@ -852,7 +852,7 @@ class BrowserStore {
     });
     if (this.glance) this.closeGlance();
     this.glance = { tabId: id, openerId, popup: true };
-    void api.tabSetGlance(id, true);
+    void tabsApi.tabSetGlance(id, true);
     focusAfterLayout(id);
     scheduleLayout();
   }
@@ -862,7 +862,7 @@ class BrowserStore {
     if (!g) return;
     this.glance = null;
     if (this.tabs[g.tabId]) {
-      void api.tabClose(g.tabId);
+      void tabsApi.tabClose(g.tabId);
       delete this.tabs[g.tabId];
     }
     focusAfterLayout(this.activeTab?.live ? this.activeTab.id : null);
@@ -875,7 +875,7 @@ class BrowserStore {
     const tab = g && this.tabs[g.tabId];
     if (!g || !tab) return;
     this.glance = null;
-    void api.tabSetGlance(tab.id, false);
+    void tabsApi.tabSetGlance(tab.id, false);
     const space = this.activeSpace!;
     tab.spaceId = space.id;
     tab.openerId = g.openerId;
@@ -899,7 +899,7 @@ class BrowserStore {
       if (site && site !== oldSite) {
         const want = settings.value.siteZoom[site] ?? 1;
         if (Math.abs(want - tab.zoom) > 0.001)
-          void api.tabCommand(tab.id, "zoom", want);
+          void tabsApi.tabCommand(tab.id, "zoom", want);
       }
     }
     if (p.title !== undefined) tab.title = p.title;
@@ -954,7 +954,7 @@ class BrowserStore {
     if (tab.live) {
       // The renderer is gone, so there is no scroll position to save: just free the view.
       tab.live = false;
-      await api.tabClose(id).catch(() => {});
+      await tabsApi.tabClose(id).catch(() => {});
     }
     tab.crashed = "";
     await this.wake(tab);

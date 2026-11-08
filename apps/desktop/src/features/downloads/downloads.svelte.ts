@@ -1,6 +1,6 @@
 // The downloads list: WebView2 downloads and media downloader jobs, newest first.
 import type { DownloadItem } from "./types";
-import { api } from "$platform/ipc";
+import { downloadsApi } from "./api";
 
 class DownloadStore {
   items = $state<DownloadItem[]>([]);
@@ -21,8 +21,8 @@ class DownloadStore {
     if (this.loaded) return;
     this.loaded = true;
     const [history, active] = await Promise.all([
-      api.downloadsHistory(200),
-      api.downloadsActive(),
+      downloadsApi.downloadsHistory(200),
+      downloadsApi.downloadsActive(),
     ]);
     const map = new Map<number, DownloadItem>();
     for (const d of history) map.set(d.id, d);
@@ -45,7 +45,7 @@ class DownloadStore {
   }
 
   async remove(id: number | null) {
-    await api.downloadsRemove(id);
+    await downloadsApi.downloadsRemove(id);
     this.items =
       id === null
         ? this.items.filter((d) => d.state === "progress")

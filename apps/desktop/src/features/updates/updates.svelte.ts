@@ -1,5 +1,6 @@
 // App updates: mirrors the backend's update state and restarts into a downloaded update.
-import { api } from "$platform/ipc";
+import { tabsApi } from "$features/browser/api";
+import { updatesApi } from "./api";
 import { browser } from "$features/browser/browser.svelte";
 import { ui } from "$shared/ui/ui.svelte";
 import type { UpdateStatus } from "./types";
@@ -13,7 +14,7 @@ class UpdateStore {
 
   async load() {
     try {
-      this.apply(await api.updateStatus());
+      this.apply(await updatesApi.updateStatus());
     } catch {
       /* the backend may not be ready yet */
     }
@@ -36,7 +37,7 @@ class UpdateStore {
   }
 
   async check() {
-    this.apply(await api.updateCheck());
+    this.apply(await updatesApi.updateCheck());
   }
 
   /** Saves the session, then quits into the update; the installer reopens Zenith. */
@@ -44,8 +45,8 @@ class UpdateStore {
     if (this.restarting) return;
     this.restarting = true;
     try {
-      await api.sessionSave(browser.snapshot());
-      await api.updateRestart();
+      await tabsApi.sessionSave(browser.snapshot());
+      await updatesApi.updateRestart();
     } catch (e) {
       this.restarting = false;
       ui.toast(`Could not install the update: ${e}`, { icon: "alert" });

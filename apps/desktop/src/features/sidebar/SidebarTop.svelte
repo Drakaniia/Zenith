@@ -5,7 +5,7 @@
   import { browser } from '$features/browser/browser.svelte';
   import { settings } from '$features/settings/settings.svelte';
   import { ui } from '$shared/ui/ui.svelte';
-  import { api } from '$platform/ipc';
+  import { tabsApi } from '$features/browser/api';
   import { appMenu } from '../../app/menus';
   import { withHint } from '../../app/actions';
   import { incognito } from '$features/window/window.svelte';
@@ -63,20 +63,20 @@
   {/if}
   <span class="spacer" data-tauri-drag-region></span>
   {#if single}
-    <button class="icon-btn" title={withHint('Back', 'back')} disabled={!live?.canGoBack} onclick={() => live && api.tabCommand(live.id, 'back')}>
+    <button class="icon-btn" title={withHint('Back', 'back')} disabled={!live?.canGoBack} onclick={() => live && tabsApi.tabCommand(live.id, 'back')}>
       <Icon name="back" />
     </button>
-    <button class="icon-btn" title={withHint('Forward', 'forward')} disabled={!live?.canGoForward} onclick={() => live && api.tabCommand(live.id, 'forward')}>
+    <button class="icon-btn" title={withHint('Forward', 'forward')} disabled={!live?.canGoForward} onclick={() => live && tabsApi.tabCommand(live.id, 'forward')}>
       <Icon name="forward" />
     </button>
     {#if live?.loading}
-      <button class="icon-btn" title="Stop" onclick={() => live && api.tabCommand(live.id, 'stop')}><Icon name="stop" /></button>
+      <button class="icon-btn" title="Stop" onclick={() => live && tabsApi.tabCommand(live.id, 'stop')}><Icon name="stop" /></button>
     {:else}
       <button
         class="icon-btn"
         title={withHint('Reload', 'reload')}
         disabled={!live && !active?.crashed}
-        onclick={() => active && (active.crashed ? browser.reviveCrashed(active.id) : api.tabCommand(active.id, 'reload'))}
+        onclick={() => active && (active.crashed ? browser.reviveCrashed(active.id) : tabsApi.tabCommand(active.id, 'reload'))}
       >
         <Icon name="reload" />
       </button>

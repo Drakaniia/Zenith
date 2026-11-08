@@ -1,6 +1,11 @@
 // One dispatcher for keyboard shortcuts, menus and palette commands.
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { api } from "../platform/ipc";
+import { blockerApi } from "../features/blocker/api";
+import { pageApi } from "../features/page/api";
+import { shell } from "../platform/shell";
+import { tabsApi } from "../features/browser/api";
+import { webviewApi } from "../platform/webview-api";
+import { windowApi } from "../features/window/api";
 import { browser, tabTitle } from "../features/browser/browser.svelte";
 import { chooseChatbot, toggleChatbot } from "../features/chatbot/chatbot";
 import {
@@ -75,7 +80,7 @@ export function openNotes(opts: { create?: boolean } = {}) {
   ui.closeMenu();
   if (ui.palette.open) ui.palette.open = false;
   // The notes page is part of the chrome UI: take the keyboard from the page webviews.
-  void api.focusView(null);
+  void webviewApi.focusView(null);
   void notes.load().then(() => {
     if (opts.create || !notes.items.length) notes.create();
     else notes.focusEditor++;
@@ -89,7 +94,7 @@ export async function copyText(text: string) {
   try {
     await navigator.clipboard.writeText(text);
   } catch {
-    await api.clipboardWrite(text);
+    await shell.clipboardWrite(text);
   }
 }
 
@@ -105,13 +110,13 @@ function zoomStep(tab: Tab | undefined, dir: number) {
         : [...ZOOM_LEVELS].reverse().find((l) => l < cur - 0.001);
     z = next ?? cur;
   }
-  void api.tabCommand(tab.id, "zoom", z);
+  void tabsApi.tabCommand(tab.id, "zoom", z);
 }
 
 export function openFind(tab: Tab | undefined) {
   if (!tab?.live) return;
   ui.find = { ...ui.find, open: true, tabId: tab.id };
-  void api.focusView(null);
+  void webviewApi.focusView(null);
   requestAnimationFrame(() => document.getElementById("find-input")?.focus());
 }
 
@@ -136,10 +141,10 @@ export function toggleSiteBlocking(tab: Tab | undefined) {
     ? list.filter((s) => s !== site)
     : [...list, site];
   settings.save(false);
-  void api
+  void blockerApi
     .blockerSetDisabledSites(settings.value.blockerDisabledSites)
     .then(() => {
-      if (tab.live) void api.tabCommand(tab.id, "reload");
+      if (tab.live) void tabsApi.tabCommand(tab.id, "reload");
     });
   ui.toast(
     disabled
@@ -154,7 +159,7 @@ export function toggleSiteBlocking(tab: Tab | undefined) {
 /** Opens a new incognito window (a separate process), optionally with pages to load. */
 export async function openIncognito(urls: string[] = []) {
   try {
-    await api.incognitoOpen(urls.filter(isWebUrl));
+    await windowApi.incognitoOpen(urls.filter(isWebUrl));
   } catch (e) {
     ui.toast(String(e), { icon: "incognito" });
   }
@@ -164,9 +169,9 @@ export async function openIncognito(urls: string[] = []) {
 export async function quitApp() {
   try {
     await notes.flush();
-    await api.sessionSave(browser.snapshot());
+    await tabsApi.sessionSave(browser.snapshot());
   } finally {
-    await api.quit();
+    await windowApi.quit();
   }
 }
 
@@ -240,7 +245,7 @@ function pageInfo(tab: Tab | undefined) {
 
 /** Ctrl+O: a local file in a new tab. */
 async function openLocalFile() {
-  const path = await api.pickFile().catch(() => null);
+  const path = await shell.pickFile().catch(() => null);
   if (!path) return;
   try {
     browser.openTab(new URL("file:///" + path.replace(/\\/g, "/").replace(/^\/+/, "")).href);
@@ -256,7 +261,7 @@ async function pageTool<T>(tab: Tab | undefined, cmd: string, arg?: unknown): Pr
     return undefined;
   }
   try {
-    return await api.tabCommand<T>(tab.id, cmd, arg);
+    return await tabsApi.tabCommand<T>(tab.id, cmd, arg);
   } catch (e) {
     ui.toast(String(e), { icon: "alert" });
     return undefined;
@@ -333,9 +338,9 @@ export async function runAction(
     case "commandPalette":
       return ui.openPalette("command");
     case "back":
-      return live && api.tabCommand(live.id, "back");
+      return live && tabsApi.tabCommand(live.id, "back");
     case "forward":
-      return live && api.tabCommand(live.id, "forward");
+      return live && tabsApi.tabCommand(live.id, "forward");
     case "goHome": {
       const home = settings.value.homepage || NEW_TAB_URL;
       if (tab && !tab.essential) return browser.navigate(tab, home);
@@ -350,14 +355,14 @@ export async function runAction(
       return;
     case "escape":
       // Esc in a page that is still loading stops it; the page gets the key either way.
-      return live?.loading && api.tabCommand(live.id, "stop");
+      return live?.loading && tabsApi.tabCommand(live.id, "stop");
     case "reload":
       if (tab?.crashed) return browser.reviveCrashed(tab.id);
-      return live && api.tabCommand(live.id, "reload");
+      return live && tabsApi.tabCommand(live.id, "reload");
     case "hardReload":
-      return live && api.tabCommand(live.id, "hardReload");
+      return live && tabsApi.tabCommand(live.id, "hardReload");
     case "stop":
-      return live && api.tabCommand(live.id, "stop");
+      return live && tabsApi.tabCommand(live.id, "stop");
     case "copyUrl":
       if (tab && !tab.url.startsWith("zenith://")) {
         await copyText(tab.url);
@@ -392,7 +397,7 @@ export async function runAction(
         ui.toast("Screenshot saved", {
           icon: "check",
           timeout: 6000,
-          action: { label: "Open", run: () => void api.openPath(path) },
+          action: { label: "Open", run: () => void shell.openPath(path) },
         });
       return;
     }
@@ -406,7 +411,7 @@ export async function runAction(
       return void pageTool(live ?? Object.values(browser.tabs).find((t) => t.live), "taskManager");
     case "browserToolbox":
     case "browserConsole":
-      return api.chromeDevtools().catch((e) => ui.toast(String(e), { icon: "alert" }));
+      return windowApi.chromeDevtools().catch((e) => ui.toast(String(e), { icon: "alert" }));
     case "inspector":
     case "webConsole":
     case "jsDebugger":
@@ -433,7 +438,7 @@ export async function runAction(
     case "findPrev":
       if (!ui.find.open) return openFind(live);
       if (ui.find.query)
-        void api.find(ui.find.tabId, action === "findNext" ? "next" : "prev");
+        void pageApi.find(ui.find.tabId, action === "findNext" ? "next" : "prev");
       return;
     case "zoomIn":
       return zoomStep(live, 1);
@@ -442,18 +447,18 @@ export async function runAction(
     case "zoomReset":
       return zoomStep(live, 0);
     case "print":
-      return live && api.tabCommand(live.id, "print");
+      return live && tabsApi.tabCommand(live.id, "print");
     case "savePage":
-      return live && api.tabCommand(live.id, "saveAs");
+      return live && tabsApi.tabCommand(live.id, "saveAs");
     case "downloadMedia":
       if (live && isWebUrl(live.url)) ui.openMedia(live.id);
       else ui.toast("Open a page with a video first", { icon: "film" });
       return;
     case "devtools":
-      return live && api.tabCommand(live.id, "devtools");
+      return live && tabsApi.tabCommand(live.id, "devtools");
     case "viewSource":
       if (live) {
-        const src = await api.tabCommand<string>(live.id, "viewSource");
+        const src = await tabsApi.tabCommand<string>(live.id, "viewSource");
         if (src) browser.openTab(src, { openerId: live.id });
       }
       return;
@@ -517,11 +522,11 @@ export async function runAction(
       return chooseChatbot(false);
     case "newWindow":
       // From an incognito window a normal window opens, without that window's spaces.
-      return api.windowOpen(incognito ? null : browser.snapshot()).catch((e) => ui.toast(String(e), { icon: "alert" }));
+      return windowApi.windowOpen(incognito ? null : browser.snapshot()).catch((e) => ui.toast(String(e), { icon: "alert" }));
     case "closeWindow":
       return void getCurrentWindow().close();
     case "undoCloseWindow":
-      if (!(await api.windowUndoClose().catch(() => false)))
+      if (!(await windowApi.windowUndoClose().catch(() => false)))
         ui.toast("No recently closed windows", { icon: "window" });
       return;
     case "fullscreen": {

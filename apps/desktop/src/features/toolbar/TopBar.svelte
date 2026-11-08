@@ -8,7 +8,7 @@
   import { settings } from '$features/settings/settings.svelte';
   import { ui } from '$shared/ui/ui.svelte';
   import { type MenuItem } from '$shared/ui/menu';
-  import { api } from '$platform/ipc';
+  import { tabsApi } from '$features/browser/api';
   import { appMenu } from '../../app/menus';
   import { openInternal, runAction, shortcutHint, withHint } from '../../app/actions';
   import { appInfo, incognito } from '$features/window/window.svelte';
@@ -67,18 +67,18 @@
   function overflowItems(): MenuItem[] {
     const items: MenuItem[] = [];
     if (hidden.has('back'))
-      items.push({ label: 'Back', icon: 'back', hint: shortcutHint('back'), disabled: !live?.canGoBack, run: () => live && api.tabCommand(live.id, 'back') });
+      items.push({ label: 'Back', icon: 'back', hint: shortcutHint('back'), disabled: !live?.canGoBack, run: () => live && tabsApi.tabCommand(live.id, 'back') });
     if (hidden.has('forward'))
-      items.push({ label: 'Forward', icon: 'forward', hint: shortcutHint('forward'), disabled: !live?.canGoForward, run: () => live && api.tabCommand(live.id, 'forward') });
+      items.push({ label: 'Forward', icon: 'forward', hint: shortcutHint('forward'), disabled: !live?.canGoForward, run: () => live && tabsApi.tabCommand(live.id, 'forward') });
     if (hidden.has('reload')) {
-      if (live?.loading) items.push({ label: 'Stop', icon: 'stop', run: () => live && api.tabCommand(live.id, 'stop') });
+      if (live?.loading) items.push({ label: 'Stop', icon: 'stop', run: () => live && tabsApi.tabCommand(live.id, 'stop') });
       else
         items.push({
           label: 'Reload',
           icon: 'reload',
           hint: shortcutHint('reload'),
           disabled: !live && !tab?.crashed,
-          run: () => tab && (tab.crashed ? browser.reviveCrashed(tab.id) : api.tabCommand(tab.id, 'reload')),
+          run: () => tab && (tab.crashed ? browser.reviveCrashed(tab.id) : tabsApi.tabCommand(tab.id, 'reload')),
         });
     }
     if (hidden.has('split'))
@@ -111,24 +111,24 @@
     </button>
   {/if}
   {#if !hidden.has('back')}
-    <button class="icon-btn" title={withHint('Back', 'back')} disabled={!live?.canGoBack} onclick={() => live && api.tabCommand(live.id, 'back')}>
+    <button class="icon-btn" title={withHint('Back', 'back')} disabled={!live?.canGoBack} onclick={() => live && tabsApi.tabCommand(live.id, 'back')}>
       <Icon name="back" />
     </button>
   {/if}
   {#if !hidden.has('forward')}
-    <button class="icon-btn" title={withHint('Forward', 'forward')} disabled={!live?.canGoForward} onclick={() => live && api.tabCommand(live.id, 'forward')}>
+    <button class="icon-btn" title={withHint('Forward', 'forward')} disabled={!live?.canGoForward} onclick={() => live && tabsApi.tabCommand(live.id, 'forward')}>
       <Icon name="forward" />
     </button>
   {/if}
   {#if !hidden.has('reload')}
     {#if live?.loading}
-      <button class="icon-btn" title="Stop" onclick={() => live && api.tabCommand(live.id, 'stop')}><Icon name="stop" /></button>
+      <button class="icon-btn" title="Stop" onclick={() => live && tabsApi.tabCommand(live.id, 'stop')}><Icon name="stop" /></button>
     {:else}
       <button
         class="icon-btn"
         title={withHint('Reload', 'reload')}
         disabled={!live && !tab?.crashed}
-        onclick={() => tab && (tab.crashed ? browser.reviveCrashed(tab.id) : api.tabCommand(tab.id, 'reload'))}
+        onclick={() => tab && (tab.crashed ? browser.reviveCrashed(tab.id) : tabsApi.tabCommand(tab.id, 'reload'))}
       >
         <Icon name="reload" />
       </button>

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import Icon from '$shared/ui/Icon.svelte';
-  import { api } from '$platform/ipc';
+  import { historyApi } from './api';
   import { browser } from '$features/browser/browser.svelte';
   import { ui } from '$shared/ui/ui.svelte';
   import { openInternal } from '../../app/actions';
@@ -20,7 +20,7 @@
     if (loading) return;
     loading = true;
     try {
-      const batch = await api.historySearch(query, PAGE, reset ? 0 : rows.length);
+      const batch = await historyApi.historySearch(query, PAGE, reset ? 0 : rows.length);
       rows = reset ? batch : [...rows, ...batch];
       done = batch.length < PAGE;
       if (reset) selected = new Set();
@@ -55,7 +55,7 @@
   });
 
   async function remove(ids: number[]) {
-    await api.historyDelete(ids);
+    await historyApi.historyDelete(ids);
     rows = rows.filter((r) => !ids.includes(r.id));
     selected = new Set();
     ui.toast(ids.length === 1 ? 'Removed from history' : `Removed ${ids.length} entries`, { icon: 'trash' });

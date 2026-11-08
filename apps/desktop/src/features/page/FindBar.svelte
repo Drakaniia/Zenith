@@ -1,7 +1,7 @@
 <script lang="ts">
   import { slide } from 'svelte/transition';
   import Icon from '$shared/ui/Icon.svelte';
-  import { api } from '$platform/ipc';
+  import { pageApi } from './api';
   import { ui } from '$shared/ui/ui.svelte';
   import { focusAfterLayout } from '$platform/layout.svelte';
 
@@ -14,21 +14,21 @@
       if (!f.query) {
         f.matches = 0;
         f.active = -1;
-        void api.find(f.tabId, 'stop');
+        void pageApi.find(f.tabId, 'stop');
         return;
       }
-      void api.find(f.tabId, 'start', f.query, f.caseSensitive);
+      void pageApi.find(f.tabId, 'start', f.query, f.caseSensitive);
     }, 90);
   }
 
   function step(dir: 'next' | 'prev') {
     if (!ui.find.query) return;
-    void api.find(ui.find.tabId, dir);
+    void pageApi.find(ui.find.tabId, dir);
   }
 
   function close() {
     const id = ui.find.tabId;
-    void api.find(id, 'stop');
+    void pageApi.find(id, 'stop');
     ui.find.open = false;
     ui.find.matches = 0;
     ui.find.active = -1;

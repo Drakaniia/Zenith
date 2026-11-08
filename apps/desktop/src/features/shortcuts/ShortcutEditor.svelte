@@ -2,7 +2,7 @@
   import Icon from '$shared/ui/Icon.svelte';
   import { settings } from '$features/settings/settings.svelte';
   import { ui } from '$shared/ui/ui.svelte';
-  import { api } from '$platform/ipc';
+  import { shortcutsApi } from './api';
   import { ACTIONS, ACTION_LABELS, GROUPS, chordFromEvent, defaultShortcuts, displayChord, isReserved } from './shortcuts';
 
   /** The settings page search: narrows the list by action name on top of the editor's own filter. */
@@ -30,7 +30,7 @@
     ui.shortcutRecording = true;
     window.addEventListener('keydown', onKey, true);
     // Let the chrome see the raw keys while recording.
-    await api.setShortcuts([]);
+    await shortcutsApi.setShortcuts([]);
   }
 
   async function stopRecording() {

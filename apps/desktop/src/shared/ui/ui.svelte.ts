@@ -3,7 +3,7 @@
 import type { IconName } from "./icons";
 import type { TabId } from "$features/browser/types";
 import type { AnchorRect, MenuItem } from "./menu";
-import { api } from "$platform/ipc";
+import { webviewApi } from "$platform/webview-api";
 
 /** `search`: Zen's Focus Search, where the typed text is always a web search. */
 export type PaletteMode = "navigate" | "newTab" | "command" | "search";
@@ -90,7 +90,7 @@ class UiStore {
     this.media = null;
     this.bookmarkPopup = null;
     this.palette = { open: true, mode, query, selectAll: true };
-    void api.focusView(null);
+    void webviewApi.focusView(null);
   }
 
   closePalette() {
@@ -102,7 +102,7 @@ class UiStore {
     this.downloadsOpen = false;
     this.palette.open = false;
     this.media = { tabId, hint };
-    void api.focusView(null);
+    void webviewApi.focusView(null);
   }
 
   openMenu(x: number, y: number, items: MenuItem[]) {

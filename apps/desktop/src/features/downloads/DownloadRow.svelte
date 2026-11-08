@@ -1,6 +1,7 @@
 <script lang="ts">
   import Icon from '$shared/ui/Icon.svelte';
-  import { api } from '$platform/ipc';
+  import { downloadsApi } from './api';
+  import { shell } from '$platform/shell';
   import { downloads } from './downloads.svelte';
   import { timeAgo } from '$shared/format';
   import { ui } from '$shared/ui/ui.svelte';
@@ -27,7 +28,7 @@
 </script>
 
 <div class="row" class:compact class:done={d.state === 'completed'}>
-  <button class="file" title={d.path} disabled={d.state !== 'completed'} onclick={() => act(() => api.openPath(d.path))}>
+  <button class="file" title={d.path} disabled={d.state !== 'completed'} onclick={() => act(() => shell.openPath(d.path))}>
     <span class="ficon" class:bad={d.state === 'interrupted'} class:live={d.live && d.state === 'progress'}><Icon name={icon} size={17} /></span>
     <span class="meta">
       <span class="name ellipsis">{name}</span>
@@ -39,24 +40,24 @@
   </button>
   <div class="actions">
     {#if d.state === 'progress' && d.live}
-      <button class="icon-btn sm" title="Stop recording and keep the file" onclick={() => act(() => api.downloadAction(d.id, 'stop'))}><Icon name="square" size={13} /></button>
-      <button class="icon-btn sm" title="Cancel and discard" onclick={() => act(() => api.downloadAction(d.id, 'cancel'))}><Icon name="close" size={14} /></button>
+      <button class="icon-btn sm" title="Stop recording and keep the file" onclick={() => act(() => downloadsApi.downloadAction(d.id, 'stop'))}><Icon name="square" size={13} /></button>
+      <button class="icon-btn sm" title="Cancel and discard" onclick={() => act(() => downloadsApi.downloadAction(d.id, 'cancel'))}><Icon name="close" size={14} /></button>
     {:else if d.state === 'progress'}
       {#if d.paused}
-        <button class="icon-btn sm" title="Resume" onclick={() => act(() => api.downloadAction(d.id, 'resume'))}><Icon name="play" size={14} /></button>
+        <button class="icon-btn sm" title="Resume" onclick={() => act(() => downloadsApi.downloadAction(d.id, 'resume'))}><Icon name="play" size={14} /></button>
       {:else}
-        <button class="icon-btn sm" title="Pause" onclick={() => act(() => api.downloadAction(d.id, 'pause'))}><Icon name="pause" size={14} /></button>
+        <button class="icon-btn sm" title="Pause" onclick={() => act(() => downloadsApi.downloadAction(d.id, 'pause'))}><Icon name="pause" size={14} /></button>
       {/if}
-      <button class="icon-btn sm" title="Cancel" onclick={() => act(() => api.downloadAction(d.id, 'cancel'))}><Icon name="close" size={14} /></button>
+      <button class="icon-btn sm" title="Cancel" onclick={() => act(() => downloadsApi.downloadAction(d.id, 'cancel'))}><Icon name="close" size={14} /></button>
     {:else if d.state === 'interrupted' && d.canResume}
-      <button class="icon-btn sm" title="Retry" onclick={() => act(() => api.downloadAction(d.id, 'resume'))}><Icon name="reload" size={14} /></button>
+      <button class="icon-btn sm" title="Retry" onclick={() => act(() => downloadsApi.downloadAction(d.id, 'resume'))}><Icon name="reload" size={14} /></button>
       {#if d.live}
-        <button class="icon-btn sm" title="Save what was recorded" onclick={() => act(() => api.downloadAction(d.id, 'stop'))}><Icon name="save" size={14} /></button>
+        <button class="icon-btn sm" title="Save what was recorded" onclick={() => act(() => downloadsApi.downloadAction(d.id, 'stop'))}><Icon name="save" size={14} /></button>
       {/if}
       <button class="icon-btn sm" title="Remove from list" onclick={() => act(() => downloads.remove(d.id))}><Icon name="trash" size={14} /></button>
     {:else}
       {#if d.state === 'completed'}
-        <button class="icon-btn sm" title="Show in folder" onclick={() => act(() => api.showInFolder(d.path))}><Icon name="folder" size={14} /></button>
+        <button class="icon-btn sm" title="Show in folder" onclick={() => act(() => shell.showInFolder(d.path))}><Icon name="folder" size={14} /></button>
       {/if}
       <button class="icon-btn sm" title="Remove from list" onclick={() => act(() => downloads.remove(d.id))}><Icon name="trash" size={14} /></button>
     {/if}

@@ -8,7 +8,7 @@
   import { browser } from '$features/browser/browser.svelte';
   import { ui } from '$shared/ui/ui.svelte';
   import { type AnchorRect } from '$shared/ui/menu';
-  import { api } from '$platform/ipc';
+  import { webviewApi } from '$platform/webview-api';
   import { focusAfterLayout, overlayLease } from '$platform/layout.svelte';
   import { deleteNodes } from './bookmark-actions';
   import { faviconFor } from '$shared/favicons';
@@ -41,7 +41,7 @@
       foldersOpen = false;
       busy = false;
       // The keyboard moves from the page to the panel.
-      void api.focusView(null);
+      void webviewApi.focusView(null);
       void tick().then(() => {
         input?.focus();
         input?.select();

@@ -1,7 +1,7 @@
 // Live start-page state shared by every new tab: the preferences (kept in settings.json), the
 // "cleared" view entered by holding the pointer over the settings button, uploaded backgrounds
 // (stored on disk by the backend, cached here), and the daily background change.
-import { api } from "$platform/ipc";
+import { startpageApi } from "./api";
 import { settings } from "$features/settings/settings.svelte";
 import { GALLERY_IDS, galleryById, galleryUrl } from "./wallpapers";
 import {
@@ -102,7 +102,7 @@ class StartPageStore {
   ensureImage(id: string) {
     if (this.images[id] || this.#loading.has(id)) return;
     this.#loading.add(id);
-    api
+    startpageApi
       .wallpaperLoad(id)
       .then((data) => {
         if (data) this.images[id] = data;
@@ -166,7 +166,7 @@ class StartPageStore {
 
     const id = newWallpaperId(Date.now(), Math.random());
     try {
-      await api.wallpaperSave(id, data);
+      await startpageApi.wallpaperSave(id, data);
     } catch (e) {
       throw new Error(typeof e === "string" ? e : "The image couldn't be saved.");
     }
@@ -182,7 +182,7 @@ class StartPageStore {
       background: p.background === `custom:${id}` ? "" : p.background,
     });
     delete this.images[id];
-    await api.wallpaperDelete(id).catch((e) => console.warn("background could not be deleted", e));
+    await startpageApi.wallpaperDelete(id).catch((e) => console.warn("background could not be deleted", e));
   }
 }
 

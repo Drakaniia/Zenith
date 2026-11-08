@@ -8,7 +8,7 @@
   import MasterPasswordForm from './MasterPasswordForm.svelte';
   import { browser } from '$features/browser/browser.svelte';
   import { overlayLease, paneRectOf } from '$platform/layout.svelte';
-  import { api } from '$platform/ipc';
+  import { webviewApi } from '$platform/webview-api';
   import { openInternal } from '../../app/actions';
   import { settings } from '$features/settings/settings.svelte';
   import { ui } from '$shared/ui/ui.svelte';
@@ -75,7 +75,7 @@
   function close(refocus = true) {
     const tab = s?.tabId;
     vault.closeSuggest();
-    if (refocus && tab) void api.focusView(tab).catch(() => {});
+    if (refocus && tab) void webviewApi.focusView(tab).catch(() => {});
   }
 
   async function choose(a: SavedAccount, master: string | null = null) {
@@ -86,18 +86,18 @@
     if (needPrompt) {
       pending = a;
       // The master password field needs the keyboard.
-      void api.focusView(null);
+      void webviewApi.focusView(null);
       return;
     }
     busy = true;
     try {
       await vaultApi.fill(tab, a.id, master);
       vault.closeSuggest(false);
-      void api.focusView(tab).catch(() => {});
+      void webviewApi.focusView(tab).catch(() => {});
     } catch (e) {
       if (needsMaster(e)) {
         pending = a;
-        void api.focusView(null);
+        void webviewApi.focusView(null);
         await tick();
       } else if (master) {
         throw e;
@@ -119,7 +119,7 @@
     if (!s || busy || !armed) return;
     // Cards always need the master password, even when the vault is unlocked.
     pendingCard = c;
-    void api.focusView(null);
+    void webviewApi.focusView(null);
   }
 
   async function unlockAndFillCard(master: string) {
@@ -129,7 +129,7 @@
     try {
       await vaultApi.fillCard(tab, pendingCard.id, master);
       vault.closeSuggest(false);
-      void api.focusView(tab).catch(() => {});
+      void webviewApi.focusView(tab).catch(() => {});
     } finally {
       busy = false;
     }
@@ -145,7 +145,7 @@
       ui.toast(String(e), { icon: 'alert' });
     }
     vault.closeSuggest(false);
-    void api.focusView(tab).catch(() => {});
+    void webviewApi.focusView(tab).catch(() => {});
   }
 
   function manage() {

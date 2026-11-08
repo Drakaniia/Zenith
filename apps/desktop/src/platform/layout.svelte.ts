@@ -4,7 +4,8 @@
 // window DIPs) becomes the webview bounds. Floating UI takes an "overlay lease" while mounted:
 // with any lease held, the backend raises the transparent chrome above the page webviews so
 // menus, the palette and Glance draw over live pages.
-import { api, type LayoutSpec, type PaneSpec } from "./ipc";
+import type { LayoutSpec, PaneSpec } from "./webview-api";
+import { webviewApi } from "./webview-api";
 
 interface Registry {
   isLive(id: string): boolean;
@@ -194,7 +195,7 @@ async function flush() {
       if (root.dataset.material === "solid") await nextPaint();
     }
     try {
-      await api.setLayout(spec);
+      await webviewApi.setLayout(spec);
     } catch (e) {
       console.warn("set_layout failed", e);
     }
@@ -205,7 +206,7 @@ async function flush() {
     pendingFocus = undefined;
     if (target === null || registry.isLive(target)) {
       try {
-        await api.focusView(target);
+        await webviewApi.focusView(target);
       } catch {
         /* ignore */
       }

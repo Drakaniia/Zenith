@@ -1,6 +1,6 @@
 <script lang="ts">
   import { appInfo } from '$features/window/window.svelte';
-  import { api } from '$platform/ipc';
+  import { profilesApi } from './api';
   import { ui } from '$shared/ui/ui.svelte';
   import { type MenuItem } from '$shared/ui/menu';
   import { textOn } from './profiles';
@@ -26,7 +26,7 @@
     busy = true;
     const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
     try {
-      const view = await api.profilesList();
+      const view = await profilesApi.profilesList();
       const current = view.profiles.find((p) => p.id === view.active);
       const items: MenuItem[] = [
         { label: 'Profiles', heading: true },
@@ -53,7 +53,7 @@
 
   async function open(id: string) {
     try {
-      await api.profileOpen(id);
+      await profilesApi.profileOpen(id);
     } catch (err) {
       ui.toast(String(err), { icon: 'alert' });
     }

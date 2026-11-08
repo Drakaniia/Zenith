@@ -8,7 +8,7 @@
   import SidebarFooter from './SidebarFooter.svelte';
   import UrlPill from '$features/toolbar/UrlPill.svelte';
   import ExtensionButtons from '$features/extensions/ExtensionButtons.svelte';
-  import { api } from '$platform/ipc';
+  import { tabsApi } from '$features/browser/api';
   import { appMenu } from '../../app/menus';
   import { browser, needsWebview, tabTitle } from '$features/browser/browser.svelte';
   import { dnd } from './sidebar-dnd.svelte';
@@ -220,21 +220,21 @@
   {/if}
 
   {#if merged}
-    <button class="icon-btn" title={withHint('Back', 'back')} disabled={!live?.canGoBack} onclick={() => live && api.tabCommand(live.id, 'back')}>
+    <button class="icon-btn" title={withHint('Back', 'back')} disabled={!live?.canGoBack} onclick={() => live && tabsApi.tabCommand(live.id, 'back')}>
       <Icon name="back" />
     </button>
-    <button class="icon-btn" title={withHint('Forward', 'forward')} disabled={!live?.canGoForward} onclick={() => live && api.tabCommand(live.id, 'forward')}>
+    <button class="icon-btn" title={withHint('Forward', 'forward')} disabled={!live?.canGoForward} onclick={() => live && tabsApi.tabCommand(live.id, 'forward')}>
       <Icon name="forward" />
     </button>
     {#if live?.loading}
-      <button class="icon-btn" title="Stop" onclick={() => api.tabCommand(live.id, 'stop')}><Icon name="stop" /></button>
+      <button class="icon-btn" title="Stop" onclick={() => tabsApi.tabCommand(live.id, 'stop')}><Icon name="stop" /></button>
     {:else}
       {@const t = browser.activeTab}
       <button
         class="icon-btn"
         title={withHint('Reload', 'reload')}
         disabled={!live && !t?.crashed}
-        onclick={() => t && (t.crashed ? browser.reviveCrashed(t.id) : api.tabCommand(t.id, 'reload'))}
+        onclick={() => t && (t.crashed ? browser.reviveCrashed(t.id) : tabsApi.tabCommand(t.id, 'reload'))}
       >
         <Icon name="reload" />
       </button>

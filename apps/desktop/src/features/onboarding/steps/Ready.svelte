@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { onboarding } from '../onboarding.svelte';
   import { settings } from '$features/settings/settings.svelte';
-  import { api } from '$platform/ipc';
+  import { defaultBrowserApi } from '$features/default-browser/api';
   import { SEARCH_ENGINES, prettyUrl } from '$shared/url';
   import { ACCENT_NAMES, plural, type StepId } from '../onboarding-flow';
 
@@ -11,7 +11,7 @@
   let asked = $state(false);
 
   onMount(() => {
-    void api
+    void defaultBrowserApi
       .defaultBrowserStatus()
       .then((d) => (isDefault = d.isDefault))
       .catch(() => (isDefault = null));
@@ -59,7 +59,7 @@
   async function makeDefault() {
     asked = true;
     try {
-      await api.defaultBrowserRegister();
+      await defaultBrowserApi.defaultBrowserRegister();
     } catch {
       asked = false;
     }

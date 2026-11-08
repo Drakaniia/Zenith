@@ -1,13 +1,13 @@
 // The "make Zenith your default browser" prompt: a toast on every launch while Zenith isn't the
 // default. Windows doesn't let apps take over links silently, so the action opens its settings.
-import { api } from "../../platform/ipc";
+import { defaultBrowserApi } from "./api";
 import { ui } from "../../shared/ui/ui.svelte";
 
 let promptId = 0;
 
 /** Shows the prompt (it stays until acted on or closed) if Zenith isn't the default browser. */
 export async function promptDefaultBrowser() {
-  const status = await api.defaultBrowserStatus().catch(() => null);
+  const status = await defaultBrowserApi.defaultBrowserStatus().catch(() => null);
   if (!status || status.isDefault) return;
   ui.dismiss(promptId);
   promptId = ui.toast("Zenith isn't your default browser", {
@@ -21,7 +21,7 @@ export async function promptDefaultBrowser() {
 export async function makeDefaultBrowser() {
   ui.dismiss(promptId);
   try {
-    await api.defaultBrowserRegister();
+    await defaultBrowserApi.defaultBrowserRegister();
     ui.toast("Choose Zenith in the Windows settings window that opened", { icon: "globe", timeout: 6000 });
   } catch (e) {
     ui.toast(`Registration failed: ${e}`, { icon: "alert" });

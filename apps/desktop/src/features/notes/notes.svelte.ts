@@ -3,7 +3,8 @@
 // reopened. Edits are saved shortly after typing stops, and before switching notes or closing
 // the window. Other windows' changes arrive through `notes-changed`.
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
-import { api, on } from "$platform/ipc";
+import { notesApi } from "./api";
+import { on } from "$platform/ipc";
 import { filterNotes, isEmptyNote, newNoteId, type Note } from "./notes";
 
 const SAVE_DELAY = 500;
@@ -51,7 +52,7 @@ class NotesStore {
   async #refresh() {
     let list: Note[];
     try {
-      list = await api.notesList();
+      list = await notesApi.notesList();
     } catch (e) {
       this.saveError = `Notes could not be loaded: ${e}`;
       return;
@@ -119,7 +120,7 @@ class NotesStore {
     this.#dirty.delete(id);
     this.unsaved = this.#dirty.size;
     try {
-      await api.noteDelete(id);
+      await notesApi.noteDelete(id);
     } catch (e) {
       this.saveError = `The note could not be deleted: ${e}`;
     }
@@ -145,7 +146,7 @@ class NotesStore {
         const note = this.items.find((n) => n.id === id);
         if (!note) continue;
         try {
-          await api.noteSave($state.snapshot(note) as Note);
+          await notesApi.noteSave($state.snapshot(note) as Note);
           this.saveError = "";
         } catch (e) {
           this.#dirty.add(id);

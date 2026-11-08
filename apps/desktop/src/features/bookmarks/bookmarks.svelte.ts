@@ -3,7 +3,9 @@
 // is reloaded after it; other windows reload on `bookmarks-changed`. The tree logic itself
 // (lookup, search, drag-move planning) is in bookmarks.ts.
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
-import { api, on } from "$platform/ipc";
+import { bookmarksApi } from "./api";
+import { faviconsApi } from "$shared/favicons-api";
+import { on } from "$platform/ipc";
 import { browser } from "$features/browser/browser.svelte";
 import { settings } from "$features/settings/settings.svelte";
 import { fetchMissingFavicons } from "$shared/favicons";
@@ -72,7 +74,7 @@ class BookmarkStore {
     // Overlapping loads can finish out of order: only the latest request's answer counts.
     const mine = ++this.#seq;
     try {
-      const list = await api.bookmarksList();
+      const list = await bookmarksApi.bookmarksList();
       if (mine === this.#seq) {
         this.nodes = list;
         this.loaded = true;
@@ -86,7 +88,7 @@ class BookmarkStore {
   /** Icons for bookmarks whose site has none yet; the lists redraw when some arrive. */
   async #icons(list: BookmarkNode[]) {
     const urls = list.filter((n) => n.kind === "bookmark").map((n) => n.url);
-    const got = await fetchMissingFavicons(urls, (u) => api.faviconFetch(u));
+    const got = await fetchMissingFavicons(urls, (u) => faviconsApi.faviconFetch(u));
     // A new array of the same nodes: everything drawn from the list asks for its icon again.
     if (got > 0) this.nodes = [...this.nodes];
   }
@@ -225,16 +227,16 @@ class BookmarkStore {
   }
 
   async add(parent: number, nodes: NewBookmarkNode[], index?: number): Promise<number[]> {
-    const ids = await api.bookmarksAdd(parent, index ?? null, nodes);
+    const ids = await bookmarksApi.bookmarksAdd(parent, index ?? null, nodes);
     await this.load(true);
     if (ids.length) {
       let now = ids;
       let at = this.index.byId.get(ids[0])?.position ?? null;
       this.#record({
         label: nodes.length === 1 && nodes[0].kind === "folder" ? "new folder" : "add",
-        undo: () => api.bookmarksRemove(now.map((n) => this.#id(n))),
+        undo: () => bookmarksApi.bookmarksRemove(now.map((n) => this.#id(n))),
         redo: async () => {
-          const fresh = await api.bookmarksAdd(this.#id(parent), at, nodes);
+          const fresh = await bookmarksApi.bookmarksAdd(this.#id(parent), at, nodes);
           fresh.forEach((n, i) => now[i] !== undefined && this.#alias.set(now[i], n));
           now = fresh;
           at = null;
@@ -282,21 +284,21 @@ class BookmarkStore {
       if (patch.keyword !== undefined) before.keyword = n.keyword;
       if (patch.spaces !== undefined) before.spaces = [...n.spaces];
     }
-    await api.bookmarkUpdate(id, patch);
+    await bookmarksApi.bookmarkUpdate(id, patch);
     await this.load(true);
-    if (n) this.#record({ label: "edit", undo: () => api.bookmarkUpdate(this.#id(id), before), redo: () => api.bookmarkUpdate(this.#id(id), patch) });
+    if (n) this.#record({ label: "edit", undo: () => bookmarksApi.bookmarkUpdate(this.#id(id), before), redo: () => bookmarksApi.bookmarkUpdate(this.#id(id), patch) });
   }
 
   async move(id: number, parent: number, index: number) {
     const n = this.index.byId.get(id);
-    await api.bookmarkMove(id, parent, index);
+    await bookmarksApi.bookmarkMove(id, parent, index);
     await this.load(true);
     if (n?.parent != null) {
       const from = { parent: n.parent, index: n.position };
       this.#record({
         label: "move",
-        undo: () => api.bookmarkMove(this.#id(id), this.#id(from.parent), from.index),
-        redo: () => api.bookmarkMove(this.#id(id), this.#id(parent), index),
+        undo: () => bookmarksApi.bookmarkMove(this.#id(id), this.#id(from.parent), from.index),
+        redo: () => bookmarksApi.bookmarkMove(this.#id(id), this.#id(parent), index),
       });
     }
   }
@@ -308,24 +310,24 @@ class BookmarkStore {
     if (!plans.length) return false;
     const from = plans.map((p) => ({ id: p.id, parent: this.index.byId.get(p.id)?.parent ?? p.parent, index: this.index.byId.get(p.id)?.position ?? 0 }));
     try {
-      for (const p of plans) await api.bookmarkMove(p.id, p.parent, p.index);
+      for (const p of plans) await bookmarksApi.bookmarkMove(p.id, p.parent, p.index);
     } finally {
       await this.load(true);
     }
     this.#record({
       label: "move",
       undo: async () => {
-        for (const f of [...from].reverse()) await api.bookmarkMove(this.#id(f.id), this.#id(f.parent), f.index);
+        for (const f of [...from].reverse()) await bookmarksApi.bookmarkMove(this.#id(f.id), this.#id(f.parent), f.index);
       },
       redo: async () => {
-        for (const p of plans) await api.bookmarkMove(this.#id(p.id), this.#id(p.parent), p.index);
+        for (const p of plans) await bookmarksApi.bookmarkMove(this.#id(p.id), this.#id(p.parent), p.index);
       },
     });
     return true;
   }
 
   async reorder(parent: number, order: number[]) {
-    await api.bookmarksReorder(parent, order);
+    await bookmarksApi.bookmarksReorder(parent, order);
     await this.load(true);
   }
 
@@ -348,7 +350,7 @@ class BookmarkStore {
       const tree = toTree(this.index, id);
       if (tree) removed.push({ id, parent: node.parent, index: node.position, tree });
     }
-    await api.bookmarksRemove(ids);
+    await bookmarksApi.bookmarksRemove(ids);
     await this.load(true);
     if (removed.length) {
       let gone = ids;
@@ -358,13 +360,13 @@ class BookmarkStore {
         undo: async () => {
           const back: number[] = [];
           for (const r of [...removed].sort((a, b) => a.index - b.index)) {
-            const [fresh] = await api.bookmarksAdd(this.#id(r.parent), r.index, [r.tree]);
+            const [fresh] = await bookmarksApi.bookmarksAdd(this.#id(r.parent), r.index, [r.tree]);
             if (r.id !== undefined && fresh !== undefined) this.#alias.set(r.id, fresh);
             back.push(fresh);
           }
           gone = back;
         },
-        redo: () => api.bookmarksRemove(gone.map((n) => this.#id(n))),
+        redo: () => bookmarksApi.bookmarksRemove(gone.map((n) => this.#id(n))),
       });
     }
     return removed;
@@ -373,7 +375,7 @@ class BookmarkStore {
   /** Puts deleted nodes back, each at the position it had. */
   async restore(removed: RemovedNode[]) {
     for (const r of [...removed].sort((a, b) => a.index - b.index)) {
-      await api.bookmarksAdd(r.parent, r.index, [r.tree]);
+      await bookmarksApi.bookmarksAdd(r.parent, r.index, [r.tree]);
     }
     await this.load(true);
   }
@@ -406,7 +408,7 @@ class BookmarkStore {
 
   /** The star button: removes every bookmark of an address. */
   async removeUrl(url: string) {
-    await api.bookmarksRemoveUrl(url);
+    await bookmarksApi.bookmarksRemoveUrl(url);
     await this.load(true);
   }
 
@@ -414,20 +416,20 @@ class BookmarkStore {
   // Files
 
   async importHtml(): Promise<number> {
-    const n = await api.bookmarksImport();
+    const n = await bookmarksApi.bookmarksImport();
     if (n > 0) await this.load(true);
     return n;
   }
 
   /** Replaces everything with a backup file's; null when the dialog was cancelled. */
   async restoreFile(): Promise<number | null> {
-    const n = await api.bookmarksRestore();
+    const n = await bookmarksApi.bookmarksRestore();
     if (n !== null) await this.load(true);
     return n;
   }
 
   async restoreBackup(name: string): Promise<number> {
-    const n = await api.bookmarksRestoreBackup(name);
+    const n = await bookmarksApi.bookmarksRestoreBackup(name);
     await this.load(true);
     return n;
   }

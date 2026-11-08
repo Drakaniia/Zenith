@@ -1,6 +1,6 @@
 // Site permission requests (camera, location, notifications, …) waiting for an answer.
 import type { PermissionRequest } from "./types";
-import { api } from "$platform/ipc";
+import { pageApi } from "./api";
 
 class PermissionStore {
   queue = $state<PermissionRequest[]>([]);
@@ -9,7 +9,7 @@ class PermissionStore {
   }
   async answer(p: PermissionRequest, allow: boolean, remember: boolean) {
     this.queue = this.queue.filter((x) => x.requestId !== p.requestId);
-    await api.permissionRespond(p.requestId, allow, remember);
+    await pageApi.permissionRespond(p.requestId, allow, remember);
   }
   dropTab(tabId: string) {
     this.queue = this.queue.filter((x) => x.tabId !== tabId);
