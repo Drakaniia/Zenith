@@ -66,9 +66,12 @@
   const showSidebar = $derived(!compact && !pageFullscreen);
   /** Compact mode with the toolbar hidden too (Ctrl+Alt+T): it floats in from the top edge. */
   const hideToolbar = $derived(compact && settings.value.compactHideToolbar && !single && !pageFullscreen);
-  const showTopBar = $derived(!single && !pageFullscreen && !hideToolbar);
   /** A tab strip at the top is the window's top row, so it holds the window controls. */
   const stripHasControls = $derived(side === 'top' && showSidebar);
+  /** The strip at the top is also the toolbar (navigation, address bar, menus): one row, no
+   *  toolbar below it. */
+  const stripIsToolbar = $derived(stripHasControls);
+  const showTopBar = $derived(!single && !pageFullscreen && !hideToolbar && !stripIsToolbar);
   /** The bookmarks toolbar has a row of its own. In the single-toolbar layout, when it hasn't, it
    *  still appears next to the window controls while the pointer is at the top edge. */
   const barOn = $derived(!pageFullscreen && barPinned());
@@ -464,13 +467,15 @@
       </div>
     {/if}
   {/if}
-  {#if showTopBar}
+  {#if showTopBar || (stripIsToolbar && barOn)}
     <div
       class="toolbar-slot"
       in:slidePx={{ y: -16, duration: motionMs(), easing: springEase }}
       out:slidePx={{ y: -16, duration: motionMs() * 0.6, easing: cubicOut }}
     >
-      <TopBar controls={!stripHasControls} />
+      {#if showTopBar}
+        <TopBar controls={!stripHasControls} />
+      {/if}
       {#if barOn}
         <div class="bar-row" transition:fade={{ duration: 150 }}>
           <BookmarksBar />
@@ -713,12 +718,13 @@
     --lay-side-top: 0px;
     --lay-glass: 0px;
   }
+  /* One row: the strip holds the toolbar too, so only the bookmarks bar can sit below it. */
   .app.side-top {
     --lay-bar-top: var(--strip-h);
-    --lay-top: calc(var(--strip-h) + var(--zen-toolbar-h));
+    --lay-top: var(--strip-h);
   }
   .app.side-top.has-bar {
-    --lay-top: calc(var(--strip-h) + var(--zen-toolbar-h) + var(--bm-bar-h));
+    --lay-top: calc(var(--strip-h) + var(--bm-bar-h));
   }
   .app.side-top.compact {
     --lay-bar-top: 0px;
@@ -852,6 +858,8 @@
     z-index: 2;
     background: var(--page-scrim);
   }
+  /* --space-c is a registered colour (app.css), so changing the space's accent fades the tint
+   * instead of switching it. */
   .space-bg {
     position: absolute;
     inset: 0;

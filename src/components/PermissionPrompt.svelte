@@ -61,7 +61,7 @@
     left: 24px;
   }
   :global(.app.side-top) .prompt {
-    top: calc(var(--strip-h) + var(--topbar) + 14px);
+    top: calc(var(--strip-h) + 14px);
   }
   :global(.app.compact) ~ .prompt,
   :global(.app.compact) .prompt {

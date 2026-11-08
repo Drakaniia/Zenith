@@ -33,7 +33,7 @@ export function positionHint(position: SidebarPosition): string {
     case "right":
       return "The sidebar is on the right side of the window.";
     case "top":
-      return "Tabs in a strip above the toolbar.";
+      return "Tabs, address bar and tools in a single row at the top.";
     case "bottom":
       return "Tabs in a strip along the bottom of the window.";
     default:

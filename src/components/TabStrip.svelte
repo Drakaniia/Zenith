@@ -6,6 +6,10 @@
   import WindowControls from './WindowControls.svelte';
   import ProfileButton from './sidebar/ProfileButton.svelte';
   import SidebarFooter from './sidebar/SidebarFooter.svelte';
+  import UrlPill from './UrlPill.svelte';
+  import ExtensionButtons from './ExtensionButtons.svelte';
+  import { api } from '../lib/ipc';
+  import { appMenu } from '../lib/menus';
   import { browser, needsWebview, tabTitle } from '../lib/browser.svelte';
   import { dnd } from '../lib/sidebar-dnd.svelte';
   import { ui, type MenuItem } from '../lib/ui.svelte';
@@ -19,13 +23,17 @@
   // tabs as icons, pinned folders, the space's tabs and the New Tab button, then the sidebar's
   // footer (downloads, notes, the space switcher, "+"). As the window's top row it also holds the
   // window controls. The collapsed layout makes every tab icon-only.
+  // `merged`: the strip is also the toolbar (one row at the top of the window): navigation
+  // buttons, the address bar and the page and app menus sit between the tabs and the footer.
   let {
     edge = 'top',
     floating = false,
     collapsed = false,
     controls = false,
-  }: { edge?: 'top' | 'bottom'; floating?: boolean; collapsed?: boolean; controls?: boolean } = $props();
+    merged = false,
+  }: { edge?: 'top' | 'bottom'; floating?: boolean; collapsed?: boolean; controls?: boolean; merged?: boolean } = $props();
 
+  const live = $derived(browser.activeTab?.live ? browser.activeTab : undefined);
   const space = $derived(browser.activeSpace);
   const activeId = $derived(browser.activeTab?.id);
   const essentials = $derived(browser.essentials.map((id) => browser.tabs[id]).filter(Boolean));
@@ -210,6 +218,28 @@
     </span>
   {/if}
 
+  {#if merged}
+    <button class="icon-btn" title={withHint('Back', 'back')} disabled={!live?.canGoBack} onclick={() => live && api.tabCommand(live.id, 'back')}>
+      <Icon name="back" />
+    </button>
+    <button class="icon-btn" title={withHint('Forward', 'forward')} disabled={!live?.canGoForward} onclick={() => live && api.tabCommand(live.id, 'forward')}>
+      <Icon name="forward" />
+    </button>
+    {#if live?.loading}
+      <button class="icon-btn" title="Stop" onclick={() => api.tabCommand(live.id, 'stop')}><Icon name="stop" /></button>
+    {:else}
+      {@const t = browser.activeTab}
+      <button
+        class="icon-btn"
+        title={withHint('Reload', 'reload')}
+        disabled={!live && !t?.crashed}
+        onclick={() => t && (t.crashed ? browser.reviveCrashed(t.id) : api.tabCommand(t.id, 'reload'))}
+      >
+        <Icon name="reload" />
+      </button>
+    {/if}
+  {/if}
+
   {#if essentials.length}
     <div class="group essentials" data-zone="essentials">
       {#each essentials as tab (tab.id)}
@@ -275,7 +305,34 @@
     <Icon name="plus" />
   </button>
 
-  <span class="spacer" data-tauri-drag-region></span>
+  {#if merged}
+    <UrlPill variant="toolbar" />
+    <span class="spacer after-pill" data-tauri-drag-region></span>
+    <button
+      class="icon-btn"
+      class:on={!!browser.activeSplit}
+      title={browser.activeSplit ? withHint('Exit split view', 'unsplit') : withHint('Split view', 'splitVertical')}
+      data-action="split"
+      onclick={() => void runAction(browser.activeSplit ? 'unsplit' : 'splitVertical')}
+      disabled={!browser.activeTab}
+    >
+      <Icon name={browser.activeSplit ? 'unsplit' : 'split'} />
+    </button>
+    <ExtensionButtons />
+    <button
+      class="icon-btn"
+      title="Menu"
+      data-action="app-menu"
+      onclick={(e) => {
+        const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+        ui.openMenu(Math.max(4, r.right - 240), r.bottom + 6, appMenu());
+      }}
+    >
+      <Icon name="more" />
+    </button>
+  {:else}
+    <span class="spacer" data-tauri-drag-region></span>
+  {/if}
   <SidebarFooter inline />
   {#if controls && !floating}
     <WindowControls />
@@ -342,6 +399,18 @@
     flex: 1 1 0 !important;
     min-width: 8px;
     align-self: stretch;
+  }
+  /* The address bar gives up width to the tabs, which scroll first once the row is full. */
+  .strip > :global(.pill.toolbar) {
+    flex: 100 1 0%;
+    min-width: 140px;
+  }
+  .spacer.after-pill {
+    flex: 1 1 0 !important;
+    min-width: 4px;
+  }
+  .icon-btn.on {
+    background: var(--element-bg);
   }
   .divider {
     width: 1px;
