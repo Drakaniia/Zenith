@@ -12,7 +12,7 @@ use tauri::{AppHandle, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, Webv
 
 use super::startup::set_startup_urls;
 use crate::platform::win;
-use crate::{host, incognito, profile_commands, profiles, session, storage};
+use crate::{host, incognito, profiles, session, storage};
 
 pub(crate) static NEXT_INCOGNITO: AtomicU32 = AtomicU32::new(1);
 static NEXT_WINDOW: AtomicU32 = AtomicU32::new(1);
@@ -183,7 +183,7 @@ pub(crate) fn create_window(app: &AppHandle, label: &str) -> tauri::Result<()> {
     }
     // A profile with a picture shows it as its window (and taskbar) icon.
     if !private {
-        if let Some(icon) = profile_commands::window_icon() {
+        if let Some(icon) = profiles::commands::window_icon() {
             let _ = window.set_icon(icon);
         }
     }

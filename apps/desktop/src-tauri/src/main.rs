@@ -14,7 +14,6 @@ mod incognito;
 mod media;
 mod notes;
 mod platform;
-mod profile_commands;
 mod profiles;
 mod search;
 mod session;

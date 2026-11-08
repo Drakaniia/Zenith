@@ -132,11 +132,11 @@ pub fn handler() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + Syn
         crate::vault::card_commands::cards_delete,
         crate::vault::card_commands::card_offer_respond,
         crate::vault::card_commands::autofill_fill_card,
-        crate::profile_commands::profiles_list,
-        crate::profile_commands::profile_create,
-        crate::profile_commands::profile_update,
-        crate::profile_commands::profile_open,
-        crate::profile_commands::profile_delete,
-        crate::profile_commands::profile_shortcut,
+        crate::profiles::commands::profiles_list,
+        crate::profiles::commands::profile_create,
+        crate::profiles::commands::profile_update,
+        crate::profiles::commands::profile_open,
+        crate::profiles::commands::profile_delete,
+        crate::profiles::commands::profile_shortcut,
     ]
 }

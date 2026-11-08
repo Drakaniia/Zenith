@@ -17,7 +17,7 @@ pub struct StartupInfo {
     /// Running on a separate profile (ZENITH_PROFILE_DIR), e.g. an automated test instance.
     test_profile: bool,
     /// The browser profile this process runs (see profiles.rs).
-    profile: crate::profile_commands::ProfileInfo,
+    profile: crate::profiles::commands::ProfileInfo,
     /// An incognito window (InPrivate pages, nothing saved).
     incognito: bool,
     startup_urls: Vec<String>,
@@ -54,7 +54,7 @@ pub async fn ui_ready(app: AppHandle, window: WebviewWindow) -> CmdResult<Startu
         }
     }
     let startup_urls = super::startup::take_startup_urls(&label);
-    let profile = blocking(crate::profile_commands::current_info).await?;
+    let profile = blocking(crate::profiles::commands::current_info).await?;
     Ok(StartupInfo {
         test_profile,
         profile,

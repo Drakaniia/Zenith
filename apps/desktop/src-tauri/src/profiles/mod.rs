@@ -25,6 +25,8 @@
 //! process can show it, and it becomes the window icon and the desktop shortcut's icon. The
 //! revision changes with every new picture so Explorer's icon cache never shows an old one.
 
+pub mod commands;
+
 use std::fs::{self, File, OpenOptions};
 use std::os::windows::ffi::OsStrExt;
 use std::os::windows::fs::OpenOptionsExt;

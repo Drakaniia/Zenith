@@ -1,4 +1,4 @@
-//! Tauri commands for browser profiles (see profiles.rs). Each profile runs in its own Zenith
+//! Tauri commands for browser profiles (see `profiles`). Each profile runs in its own Zenith
 //! process; these list and edit the shared profile list and start or focus other profiles.
 
 use base64::Engine;
@@ -6,14 +6,9 @@ use serde::Serialize;
 use tauri::image::Image;
 use tauri::{AppHandle, Manager, WebviewWindow};
 
+use crate::app::command::{blocking, CmdResult};
 use crate::host;
 use crate::profiles::{self, Look, Profile};
-
-type CmdResult<T> = Result<T, String>;
-
-async fn blocking<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> CmdResult<T> {
-    tauri::async_runtime::spawn_blocking(f).await.map_err(|e| e.to_string())
-}
 
 /// Profile management changes data outside the window; incognito windows stay out of it.
 fn refuse_in_incognito(window: &WebviewWindow) -> CmdResult<()> {
