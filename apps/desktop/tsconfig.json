@@ -16,7 +16,14 @@
     "checkJs": false,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
-    "noFallthroughCasesInSwitch": true
+    "noFallthroughCasesInSwitch": true,
+    "allowImportingTsExtensions": true,
+    "paths": {
+      "$features/*": ["./src/features/*"],
+      "$shared/*": ["./src/shared/*"],
+      "$platform/*": ["./src/platform/*"]
+    }
   },
-  "include": ["src/**/*.ts", "src/**/*.svelte"]
+  "include": ["src/**/*.ts", "src/**/*.svelte"],
+  "exclude": ["src/**/*.test.ts"]
 }

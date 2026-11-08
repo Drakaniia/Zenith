@@ -9,7 +9,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "check": "svelte-check --tsconfig ./tsconfig.json --threshold warning",
-    "test": "node --test \"tests/**/*.test.ts\"",
+    "test": "node --test \"src/**/*.test.ts\"",
     "test:rust": "cargo test --manifest-path src-tauri/Cargo.toml --features tauri/custom-protocol",
     "tauri": "tauri",
     "app:dev": "tauri dev",

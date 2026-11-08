@@ -1,4 +1,4 @@
-// Generates src/lib/profile-avatars.ts: the emoji offered as profile pictures, taken from
+// Generates src/features/profiles/generated/profile-avatars.ts: the emoji offered as profile pictures, taken from
 // Microsoft's Fluent Emoji (flat style, MIT licence) through @iconify-json/fluent-emoji-flat.
 // Only the curated icons below are copied, so the app doesn't ship the whole set.
 //
@@ -42,5 +42,5 @@ export const PROFILE_EMOJI: ProfileEmoji[] = [
 ${entries.join("\n")}
 ];
 `;
-writeFileSync(`${root}src/lib/profile-avatars.ts`, out);
-console.log(`Wrote ${PICKS.length} emoji to src/lib/profile-avatars.ts`);
+writeFileSync(`${root}src/features/profiles/generated/profile-avatars.ts`, out);
+console.log(`Wrote ${PICKS.length} emoji to src/features/profiles/generated/profile-avatars.ts`);

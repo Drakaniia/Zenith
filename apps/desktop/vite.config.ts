@@ -1,9 +1,21 @@
 import { defineConfig } from "vite";
 import { svelte } from "@sveltejs/vite-plugin-svelte";
+import { fileURLToPath } from "node:url";
+
+const dir = (path: string) => fileURLToPath(new URL(path, import.meta.url));
 
 // The chrome UI is served to the main Tauri webview only. Tab webviews never load it.
 export default defineConfig({
   plugins: [svelte()],
+  // Keep in sync with `paths` in tsconfig.json. Plain .ts modules that Node's test runner loads
+  // use relative imports instead (Node resolves no aliases).
+  resolve: {
+    alias: {
+      $features: dir("./src/features"),
+      $shared: dir("./src/shared"),
+      $platform: dir("./src/platform"),
+    },
+  },
   clearScreen: false,
   server: {
     host: "127.0.0.1",
