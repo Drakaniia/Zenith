@@ -1,9 +1,11 @@
 // Transient UI state: which overlay is open (palette, menu, find bar, popovers, dialogs), toasts
 // and the compact-mode reveal. Feature stores own their data; this only coordinates what shows.
 import type { IconName } from "./icons";
-import type { TabId } from "$features/browser/types";
 import type { AnchorRect, MenuItem } from "./menu";
 import { webviewApi } from "$platform/webview-api";
+
+/** A tab's id (see features/browser/types.ts; shared code depends on no feature). */
+type TabId = string;
 
 /** `search`: Zen's Focus Search, where the typed text is always a web search. */
 export type PaletteMode = "navigate" | "newTab" | "command" | "search";

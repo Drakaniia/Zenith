@@ -4,9 +4,9 @@ import "./app/actions";
 import App from "./app/App.svelte";
 
 async function start() {
-  // Dev server opened in an ordinary browser: stand in for the backend (see platform/preview/mock.ts).
+  // Dev server opened in an ordinary browser: stand in for the backend (see app/preview/mock.ts).
   if (import.meta.env.DEV && !("__TAURI_INTERNALS__" in window)) {
-    const { installPreviewMock } = await import("./platform/preview/mock");
+    const { installPreviewMock } = await import("./app/preview/mock");
     installPreviewMock();
   }
   return mount(App, { target: document.getElementById("app")! });
