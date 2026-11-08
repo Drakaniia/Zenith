@@ -15,7 +15,8 @@
   import { ui } from '$shared/ui/ui.svelte';
   import { type MenuItem } from '$shared/ui/menu';
   import { sidebarMenu, spaceMenu, tabMenu } from '../../app/menus';
-  import { runAction, withHint } from '../../app/actions';
+  import { runAction } from '$platform/actions';
+  import { withHint } from '$features/shortcuts/hints';
   import { settings } from '$features/settings/settings.svelte';
   import { incognito } from '$features/window/window.svelte';
   import type { Folder, Tab } from '$features/browser/types';

@@ -10,7 +10,9 @@
   import { type MenuItem } from '$shared/ui/menu';
   import { tabsApi } from '$features/browser/api';
   import { appMenu } from '../../app/menus';
-  import { openInternal, runAction, shortcutHint, withHint } from '../../app/actions';
+  import { openInternal } from '$features/browser/target';
+  import { runAction } from '$platform/actions';
+  import { shortcutHint, withHint } from '$features/shortcuts/hints';
   import { appInfo, incognito } from '$features/window/window.svelte';
 
   // Zen's #nav-bar for the multiple-toolbars and collapsed layouts (38px): navigation buttons,

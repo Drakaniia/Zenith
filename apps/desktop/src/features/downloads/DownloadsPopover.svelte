@@ -5,7 +5,7 @@
   import { downloads } from './downloads.svelte';
   import { ui } from '$shared/ui/ui.svelte';
   import { overlayLease } from '$platform/layout.svelte';
-  import { openInternal } from '../../app/actions';
+  import { openInternal } from '$features/browser/target';
 
   const recent = $derived(downloads.items.slice(0, 6));
 </script>

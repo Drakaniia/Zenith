@@ -10,7 +10,7 @@
   import RecoveryKey from '../RecoveryKey.svelte';
   import { browser } from '$features/browser/browser.svelte';
   import { overlayLease } from '$platform/layout.svelte';
-  import { openInternal } from '../../../app/actions';
+  import { openInternal } from '$features/browser/target';
   import { brandName, formatExpiry } from './cards';
   import { ui } from '$shared/ui/ui.svelte';
   import { vault, vaultApi } from '../vault.svelte';

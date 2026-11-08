@@ -15,7 +15,9 @@
   import { shell } from '$platform/shell';
   import { webviewApi } from '$platform/webview-api';
   import { makeDefaultBrowser } from '$features/default-browser/default-browser';
-  import { openInternal, openNotes, shortcutHint } from '../../app/actions';
+  import { openInternal } from '$features/browser/target';
+  import { openNotes } from '$features/notes/actions';
+  import { shortcutHint } from '$features/shortcuts/hints';
   import { bookmarks } from '$features/bookmarks/bookmarks.svelte';
   import { backupBookmarksFile, exportBookmarksFile, importBookmarksFile, restoreBookmarks } from '$features/bookmarks/bookmark-actions';
   import { displayChord } from '$features/shortcuts/shortcuts';

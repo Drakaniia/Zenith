@@ -8,7 +8,7 @@
   import PasswordList from './PasswordList.svelte';
   import CardList from './cards/CardList.svelte';
   import AutofillSettings from './AutofillSettings.svelte';
-  import { openInternal } from '../../app/actions';
+  import { openInternal } from '$features/browser/target';
   import { browser } from '$features/browser/browser.svelte';
   import { vault } from './vault.svelte';
   import type { IconName } from '$shared/ui/icons';

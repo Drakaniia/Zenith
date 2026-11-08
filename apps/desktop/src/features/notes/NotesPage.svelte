@@ -5,7 +5,7 @@
   import { settings } from '$features/settings/settings.svelte';
   import { ui } from '$shared/ui/ui.svelte';
   import { type MenuItem } from '$shared/ui/menu';
-  import { copyText } from '../../app/actions';
+  import { copyText } from '$shared/clipboard';
   import { displayChord } from '$features/shortcuts/shortcuts';
   import {
     copyableText,

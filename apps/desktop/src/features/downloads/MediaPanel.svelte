@@ -8,7 +8,8 @@
   import { settings } from '$features/settings/settings.svelte';
   import { ui } from '$shared/ui/ui.svelte';
   import { overlayLease } from '$platform/layout.svelte';
-  import { copyText, openInternal } from '../../app/actions';
+  import { copyText } from '$shared/clipboard';
+  import { openInternal } from '$features/browser/target';
   import { kindLabel, mediaMeta, mediaTitle } from './media';
   import { displayHost } from '$shared/url';
   import type { MediaItem, MediaReport } from './types';

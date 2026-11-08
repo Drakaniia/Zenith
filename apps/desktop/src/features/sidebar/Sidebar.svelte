@@ -13,7 +13,7 @@
   import { settings, SIDEBAR_COLLAPSE_AT, SIDEBAR_DEFAULT, SIDEBAR_MAX, SIDEBAR_MIN } from '$features/settings/settings.svelte';
   import { ui } from '$shared/ui/ui.svelte';
   import { slideX } from '$shared/ui/motion';
-  import { shortcutHint } from '../../app/actions';
+  import { shortcutHint } from '$features/shortcuts/hints';
   import { sidebarMenu } from '../../app/menus';
 
   // Zen's sidebar (#navigator-toolbox): top buttons, address bar (single toolbar), Essentials,

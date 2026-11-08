@@ -6,7 +6,8 @@
   import { updates } from '$features/updates/updates.svelte';
   import { dnd } from './sidebar-dnd.svelte';
   import { createNewMenu, spaceMenu } from '../../app/menus';
-  import { openNotes, withHint } from '../../app/actions';
+  import { openNotes } from '$features/notes/actions';
+  import { withHint } from '$features/shortcuts/hints';
   import { settings } from '$features/settings/settings.svelte';
   import { internalPage } from '$shared/url';
 

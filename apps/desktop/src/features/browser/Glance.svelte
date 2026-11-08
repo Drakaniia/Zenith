@@ -4,7 +4,7 @@
   import Icon from '$shared/ui/Icon.svelte';
   import { browser } from './browser.svelte';
   import { followLayout, glancePane, overlayLease, scheduleLayout } from '$platform/layout.svelte';
-  import { copyText } from '../../app/actions';
+  import { copyText } from '$shared/clipboard';
   import { ui } from '$shared/ui/ui.svelte';
   import { springEase } from '$shared/ui/motion';
   import type { GlanceState } from './types';

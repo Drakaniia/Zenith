@@ -3,7 +3,7 @@
   import Icon from '$shared/ui/Icon.svelte';
   import { extensions } from './extensions.svelte';
   import { overlayLease } from '$platform/layout.svelte';
-  import { openInternal } from '../../app/actions';
+  import { openInternal } from '$features/browser/target';
 
   // The toolbar's extensions menu (Chrome's puzzle menu): open an extension, pin it next to
   // the button, or go to the extensions page or the Web Store.

@@ -7,7 +7,7 @@
   import { ui } from '$shared/ui/ui.svelte';
   import { tabsApi } from '$features/browser/api';
   import { appMenu } from '../../app/menus';
-  import { withHint } from '../../app/actions';
+  import { withHint } from '$features/shortcuts/hints';
   import { incognito } from '$features/window/window.svelte';
 
   // Zen's #zen-sidebar-top-buttons. In the single-toolbar layout it holds the app menu, the

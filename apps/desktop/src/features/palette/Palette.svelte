@@ -13,7 +13,7 @@
   import { historyApi } from '$features/history/api';
   import { searchApi } from './api';
   import { focusAfterLayout, overlayLease } from '$platform/layout.svelte';
-  import { commands } from '../../app/actions';
+  import { commands } from './commands';
   import { faviconFor, rememberFavicon } from '$shared/favicons';
   import { scoreAny } from './fuzzy';
   import { NEW_TAB_URL, SEARCH_ENGINES, isWebUrl, normalizeInput, prettyUrl, searchUrl, titleFor } from '$shared/url';

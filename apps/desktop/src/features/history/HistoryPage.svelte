@@ -4,7 +4,7 @@
   import { historyApi } from './api';
   import { browser } from '$features/browser/browser.svelte';
   import { ui } from '$shared/ui/ui.svelte';
-  import { openInternal } from '../../app/actions';
+  import { openInternal } from '$features/browser/target';
   import { displayHost, prettyUrl } from '$shared/url';
   import type { HistoryEntry } from './types';
 

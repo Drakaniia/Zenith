@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import Icon from '$shared/ui/Icon.svelte';
-  import { openInternal } from '../../app/actions';
+  import { openInternal } from '$features/browser/target';
 
   let {
     onsubmit,

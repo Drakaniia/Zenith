@@ -7,7 +7,7 @@
   import { type MenuItem, type MenuMods } from '$shared/ui/menu';
   import { overlayLease } from '$platform/layout.svelte';
   import { browser } from '$features/browser/browser.svelte';
-  import { zoomActive } from './actions';
+  import { zoomActive } from '$features/page/actions';
   import { getCurrentWindow } from '@tauri-apps/api/window';
 
   const zoomPct = $derived(browser.activeTab?.live ? Math.round((browser.activeTab.zoom || 1) * 100) : 100);

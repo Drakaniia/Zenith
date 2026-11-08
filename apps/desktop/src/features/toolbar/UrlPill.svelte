@@ -5,7 +5,9 @@
   import { settings } from '$features/settings/settings.svelte';
   import { rectOf } from '$shared/ui/menu';
   import { ui } from '$shared/ui/ui.svelte';
-  import { copyText, toggleSiteBlocking, withHint } from '../../app/actions';
+  import { copyText } from '$shared/clipboard';
+  import { toggleSiteBlocking } from '$features/blocker/site-blocking';
+  import { withHint } from '$features/shortcuts/hints';
   import { bookmarkPage } from '$features/bookmarks/bookmark-actions';
   import { pageMenu } from '../../app/menus';
   import { displayHost, hostOf, isInternal, isNewTab, isSecure, isWebUrl, siteOf, titleFor } from '$shared/url';

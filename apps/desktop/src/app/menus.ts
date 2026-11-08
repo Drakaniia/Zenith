@@ -1,15 +1,13 @@
 // Context menus for chrome UI elements (the page itself uses WebView2's menu).
 import { tabsApi } from "../features/browser/api";
 import { browser, needsWebview } from "../features/browser/browser.svelte";
-import {
-  copyText,
-  openIncognito,
-  openInternal,
-  openNotes,
-  runAction,
-  shortcutHint,
-  toggleSiteBlocking,
-} from "./actions";
+import { copyText } from "../shared/clipboard";
+import { openIncognito } from "../features/window/actions";
+import { openInternal } from "../features/browser/target";
+import { openNotes } from "../features/notes/actions";
+import { runAction } from "../platform/actions";
+import { shortcutHint } from "../features/shortcuts/hints";
+import { toggleSiteBlocking } from "../features/blocker/site-blocking";
 import {
   barPinned,
   bookmarkAllTabs,

@@ -18,7 +18,7 @@
   import { ui } from '$shared/ui/ui.svelte';
   import { on } from '$platform/ipc';
   import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
-  import { runAction } from './actions';
+  import { runAction } from '$platform/actions';
   import { barPinned } from '$features/bookmarks/bookmark-actions';
   import { bmDnd } from '$features/bookmarks/bookmark-dnd.svelte';
   import { followLayout, overlay, overlayHold, overlayLease, scheduleLayout, setLayoutRegistry } from '$platform/layout.svelte';

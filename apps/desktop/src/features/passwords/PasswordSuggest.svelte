@@ -9,7 +9,7 @@
   import { browser } from '$features/browser/browser.svelte';
   import { overlayLease, paneRectOf } from '$platform/layout.svelte';
   import { webviewApi } from '$platform/webview-api';
-  import { openInternal } from '../../app/actions';
+  import { openInternal } from '$features/browser/target';
   import { settings } from '$features/settings/settings.svelte';
   import { ui } from '$shared/ui/ui.svelte';
   import { vault, vaultApi } from './vault.svelte';
