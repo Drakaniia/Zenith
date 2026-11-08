@@ -437,12 +437,12 @@ mod tests {
     #[ignore]
     fn real_store_package_keeps_its_id_and_updates() {
         let id = "ddkjiahejlhfcafbddmgiahcphecmpfh";
-        let bytes = crate::net::get(&download_url(id, "140.0.0.0"), 64 << 20, 60_000).unwrap();
+        let bytes = crate::platform::net::get(&download_url(id, "140.0.0.0"), 64 << 20, 60_000).unwrap();
         let crx = parse(&bytes).unwrap();
         assert_eq!(crx.id.as_deref(), Some(id));
         assert_eq!(id_from_key(crx.public_key.as_deref().expect("developer key")), id);
         assert_eq!(&crx.zip[..2], b"PK");
-        let xml = crate::net::get(&update_check_url(&[(id.into(), "0.1".into())], "140.0.0.0"), 1 << 20, 20_000).unwrap();
+        let xml = crate::platform::net::get(&update_check_url(&[(id.into(), "0.1".into())], "140.0.0.0"), 1 << 20, 20_000).unwrap();
         let r = parse_update_response(&String::from_utf8_lossy(&xml));
         assert_eq!(r.len(), 1, "{}", String::from_utf8_lossy(&xml));
         assert_eq!(r[0].status, "ok");

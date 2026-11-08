@@ -346,7 +346,7 @@ fn stage_crx_in(bytes: &[u8], root: &Path) -> Result<Staged, String> {
 
 /// Downloads an extension from the Chrome Web Store (blocking).
 pub fn download_from_store(store_id: &str) -> Result<Vec<u8>, String> {
-    crate::net::get(&crx::download_url(store_id, &crx::prodversion()), MAX_PACKAGE, 60_000)
+    crate::platform::net::get(&crx::download_url(store_id, &crx::prodversion()), MAX_PACKAGE, 60_000)
         .map_err(|e| format!("could not download the extension from the Chrome Web Store ({e})"))
 }
 
@@ -520,7 +520,7 @@ const MAX_PACKAGE: usize = 512 * 1024 * 1024;
 fn fetch_url(url: &str, referer: String, user_agent: &str, allow_private: bool) -> Result<(Vec<u8>, String), String> {
     use crate::media::http::Client;
     let policy = Box::new(move |u: &str| {
-        allow_private || !crate::urls::host_of(u).is_some_and(crate::media::detect::is_private_host)
+        allow_private || !crate::platform::urls::host_of(u).is_some_and(crate::media::detect::is_private_host)
     });
     let client = Client::with_policy(user_agent, policy).map_err(|e| e.to_string())?;
     let headers = move |_: &str| vec![("Referer".to_string(), referer.clone())];
@@ -668,7 +668,7 @@ pub fn check_updates() -> Result<Vec<ExtensionUpdate>, String> {
         return Ok(Vec::new());
     }
     let query: Vec<(String, String)> = installed.iter().map(|(_, s, _, v)| (s.clone(), v.clone())).collect();
-    let body = crate::net::get(&crx::update_check_url(&query, &crx::prodversion()), 1024 * 1024, 20_000)
+    let body = crate::platform::net::get(&crx::update_check_url(&query, &crx::prodversion()), 1024 * 1024, 20_000)
         .map_err(|e| format!("could not reach the Chrome Web Store ({e})"))?;
     let answers = crx::parse_update_response(&String::from_utf8_lossy(&body));
     Ok(installed

@@ -1,5 +1,7 @@
 //! Windows platform services: default-browser registration, shell integration, memory stats.
 
+pub mod commands;
+
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 

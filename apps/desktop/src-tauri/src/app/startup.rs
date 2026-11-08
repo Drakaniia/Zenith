@@ -7,7 +7,8 @@ use std::sync::Mutex;
 use tauri::{AppHandle, Manager};
 
 use super::window::create_window;
-use crate::{host, incognito, profiles, urls, win};
+use crate::platform::{urls, win};
+use crate::{host, incognito, profiles};
 
 /// Web addresses on a command line (skipping the program itself and `--profile <id>`).
 pub(crate) fn url_args(argv: &[String]) -> Vec<String> {

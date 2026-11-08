@@ -12,7 +12,8 @@ use tauri_plugin_dialog::DialogExt;
 use zeroize::Zeroizing;
 
 use crate::host::{self, autofill};
-use crate::{store, vault, win};
+use crate::platform::win;
+use crate::{store, vault};
 
 pub(crate) type CmdResult<T> = Result<T, String>;
 

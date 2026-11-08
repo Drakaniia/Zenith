@@ -8,7 +8,8 @@ use tauri_plugin_dialog::DialogExt;
 
 use super::command::{blocking, on_main, private, CmdResult};
 use crate::host::{self, paths};
-use crate::{store, win};
+use crate::platform::win;
+use crate::store;
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]

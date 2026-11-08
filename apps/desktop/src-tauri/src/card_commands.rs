@@ -9,7 +9,8 @@ use zeroize::Zeroizing;
 
 use crate::host::{self, autofill};
 use crate::password_commands::{blocking, on_main, on_main_cb, secret, vault_call, CmdResult, CLIPBOARD_CLEAR};
-use crate::{vault, win};
+use crate::platform::win;
+use crate::vault;
 
 /// The master password, typed for this action. The UI answers `NEED_MASTER` by asking for it.
 fn fresh_master(v: &mut vault::Vault, master: Option<&Zeroizing<String>>) -> CmdResult<()> {

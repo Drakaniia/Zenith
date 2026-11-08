@@ -464,7 +464,7 @@ unsafe extern "system" fn subclass_proc(
 
 /// Tells every window to re-apply its material when Windows started or stopped allowing it.
 fn check_translucency() {
-    if crate::win::translucency_changed() {
+    if crate::platform::win::translucency_changed() {
         emit("translucency-changed", ());
     }
 }

@@ -20,7 +20,8 @@ use crate::host::tab::{self, CreateOptions};
 use crate::host::{self, bookmarks_db, db, paths, LayoutSpec, RuntimeConfig, BLOCKER};
 use crate::keys::BindingSpec;
 use crate::store::{self, DownloadRecord, HistoryEntry, Note};
-use crate::{blocker, bookmarks, importer, net, sessions, urls, win};
+use crate::platform::{net, urls, win};
+use crate::{blocker, bookmarks, importer, sessions};
 
 use crate::app::command::{blocking, on_main, on_main_cb, private, refuse_in_incognito, CmdResult};
 
@@ -1027,50 +1028,6 @@ pub async fn ext_set_enabled(app: AppHandle, id: String, enabled: bool) -> CmdRe
 
 // ---------------------------------------------------------------------------------------------
 // Platform
-
-#[tauri::command]
-pub async fn default_browser_status() -> CmdResult<win::DefaultBrowserStatus> {
-    blocking(win::default_browser_status).await
-}
-
-/// Registers Zenith with Windows and (by default) opens the Default apps page so the user can
-/// pick it; Windows does not let apps make themselves the default silently.
-#[tauri::command]
-pub async fn default_browser_register(open_settings: Option<bool>) -> CmdResult<()> {
-    blocking(move || {
-        let exe = std::env::current_exe().map_err(|e| e.to_string())?;
-        win::register_browser(&exe)?;
-        if open_settings.unwrap_or(true) {
-            win::open_default_apps_settings()?;
-        }
-        Ok(())
-    })
-    .await?
-}
-
-#[tauri::command]
-pub async fn default_browser_unregister() -> CmdResult<()> {
-    blocking(win::unregister_browser).await
-}
-
-#[tauri::command]
-pub async fn search_suggest(engine: String, query: String) -> CmdResult<Vec<String>> {
-    let query = query.trim().to_string();
-    if query.is_empty() || query.len() > 200 {
-        return Ok(Vec::new());
-    }
-    blocking(move || net::suggestions(&engine, &query)).await?
-}
-
-#[tauri::command]
-pub async fn memory_stats() -> CmdResult<win::MemoryStats> {
-    blocking(win::memory_stats).await
-}
-
-#[tauri::command]
-pub async fn system_memory_load() -> CmdResult<u32> {
-    Ok(win::system_memory_load())
-}
 
 #[tauri::command]
 pub async fn debug_cdp(app: AppHandle, method: String, params: Option<String>) -> CmdResult<String> {

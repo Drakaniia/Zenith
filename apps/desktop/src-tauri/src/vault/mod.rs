@@ -330,7 +330,7 @@ pub fn display_site(origin: &str) -> String {
 /// The site a "never save" choice applies to.
 pub fn never_key(origin: &str) -> String {
     let host = host_of_origin(origin);
-    crate::urls::site_of(&host).to_ascii_lowercase()
+    crate::platform::urls::site_of(&host).to_ascii_lowercase()
 }
 
 /// Whether a credential saved for `saved` may be used on a page at `page` (both origins).
@@ -353,7 +353,7 @@ pub fn origin_match(saved: &str, page: &str, same_site: bool) -> Option<bool> {
     if simple(&sh) || simple(&ph) {
         return None;
     }
-    let (ss, ps) = (crate::urls::site_of(&sh), crate::urls::site_of(&ph));
+    let (ss, ps) = (crate::platform::urls::site_of(&sh), crate::platform::urls::site_of(&ph));
     if ss != ps {
         return None;
     }

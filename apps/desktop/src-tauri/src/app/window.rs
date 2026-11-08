@@ -11,7 +11,8 @@ use tauri::window::Effect;
 use tauri::{AppHandle, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 
 use super::startup::set_startup_urls;
-use crate::{host, incognito, profile_commands, profiles, sessions, store, win};
+use crate::platform::win;
+use crate::{host, incognito, profile_commands, profiles, sessions, store};
 
 pub(crate) static NEXT_INCOGNITO: AtomicU32 = AtomicU32::new(1);
 static NEXT_WINDOW: AtomicU32 = AtomicU32::new(1);

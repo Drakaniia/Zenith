@@ -1191,8 +1191,8 @@ struct HostEnv {
 /// Which addresses a download from `page_url` may contact: a public page may not point Zenith
 /// into the local network (checked again on every redirect).
 pub fn network_policy(page_url: &str) -> http::Policy {
-    let page_private = crate::urls::host_of(page_url).is_some_and(super::detect::is_private_host);
-    Box::new(move |url: &str| page_private || !crate::urls::host_of(url).is_some_and(super::detect::is_private_host))
+    let page_private = crate::platform::urls::host_of(page_url).is_some_and(super::detect::is_private_host);
+    Box::new(move |url: &str| page_private || !crate::platform::urls::host_of(url).is_some_and(super::detect::is_private_host))
 }
 
 impl Env for HostEnv {
@@ -1300,7 +1300,7 @@ fn save_recording(id: i64, req: &Request, job: &Job, ctx: &Ctx, dir: &Path) {
 fn run(id: i64, req: Request, dir: PathBuf, control: Arc<Control>, progress: Arc<Progress>) {
     let work = work_root().join(id.to_string());
     let _ = fs::create_dir_all(&work);
-    let site = crate::urls::host_of(&req.page_url).map(crate::urls::site_of).unwrap_or("").to_string();
+    let site = crate::platform::urls::host_of(&req.page_url).map(crate::platform::urls::site_of).unwrap_or("").to_string();
     let env = HostEnv { page_site: site };
     let done = Arc::new(AtomicBool::new(false));
     {

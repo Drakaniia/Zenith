@@ -13,16 +13,15 @@ mod importer;
 mod incognito;
 mod keys;
 mod media;
-mod net;
 mod password_commands;
+mod platform;
 mod profile_commands;
 mod profiles;
+mod search;
 mod sessions;
 mod store;
 mod updates;
-mod urls;
 mod vault;
-mod win;
 
 fn main() {
     app::run();

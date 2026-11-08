@@ -7,7 +7,7 @@
 
 use std::collections::HashSet;
 
-use crate::urls::site_of;
+use crate::platform::urls::site_of;
 
 pub const BUILTIN_LIST: &str = include_str!("../resources/blocklist.txt");
 

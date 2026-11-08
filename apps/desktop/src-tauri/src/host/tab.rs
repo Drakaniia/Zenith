@@ -14,7 +14,7 @@ use windows::Win32::System::Com::IStream;
 use wry::{MemoryUsageLevel, WebViewBuilder, WebViewBuilderExtWindows, WebViewExtWindows};
 
 use super::{app, config, db, emit_tab, post, with_host, with_win, Focus, BLOCKER};
-use crate::urls::{host_of, site_of};
+use crate::platform::urls::{host_of, site_of};
 
 /// Injected into every frame of every page. It cannot reach the app (tabs have no IPC bridge):
 /// it only rewrites Alt+click into a Glance request and Ctrl/middle-click into a background-tab
