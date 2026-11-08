@@ -6,6 +6,8 @@
   import SpacePane from './sidebar/SpacePane.svelte';
   import MediaBar from './sidebar/MediaBar.svelte';
   import SidebarFooter from './sidebar/SidebarFooter.svelte';
+  import { slide } from 'svelte/transition';
+  import { onDestroy, untrack } from 'svelte';
   import { browser, tabTitle } from '../lib/browser.svelte';
   import { dnd } from '../lib/sidebar-dnd.svelte';
   import { settings, SIDEBAR_COLLAPSE_AT, SIDEBAR_DEFAULT, SIDEBAR_MAX, SIDEBAR_MIN } from '../lib/settings.svelte';
@@ -21,8 +23,36 @@
   const mode = $derived(settings.layoutMode);
   /** On the right the splitter is on the sidebar's left edge, and dragging left widens it. */
   const right = $derived(settings.value.sidebarPosition === 'right');
-  const collapsed = $derived(mode === 'collapsed' && !floating);
+  const wantCollapsed = $derived(mode === 'collapsed' && !floating);
   const single = $derived(mode === 'single');
+
+  // Collapsing is two steps so the text never blinks away: the labels fade out while the sidebar
+  // narrows (the width follows the layout transition), and only then do the rows switch to their
+  // icon-only form. Expanding does the opposite: the rows get their labels back, which fade in.
+  const SWAP_MS = 230;
+  const initial = untrack(() => wantCollapsed);
+  let collapsed = $state(initial);
+  let fading = $state(false);
+  let lastWant = initial;
+  let phaseTimer: ReturnType<typeof setTimeout> | undefined;
+  $effect.pre(() => {
+    const want = wantCollapsed;
+    if (want === lastWant) return;
+    lastWant = want;
+    clearTimeout(phaseTimer);
+    if (want) {
+      fading = true;
+      phaseTimer = setTimeout(() => {
+        collapsed = true;
+        fading = false;
+      }, SWAP_MS);
+    } else {
+      collapsed = false;
+      fading = true;
+      requestAnimationFrame(() => requestAnimationFrame(() => (fading = false)));
+    }
+  });
+  onDestroy(() => clearTimeout(phaseTimer));
   const space = $derived(browser.activeSpace);
 
   // ---------------------------------------------------------------- space slide
@@ -108,6 +138,7 @@
   class="sidebar"
   class:floating
   class:collapsed
+  class:fading
   class:single
   class:has-top={!collapsed}
   class:right
@@ -120,7 +151,9 @@
   }}
 >
   {#if !collapsed}
-    <SidebarTop {single} />
+    <div class="top-wrap" transition:slide={{ duration: 200 }}>
+      <SidebarTop {single} />
+    </div>
   {/if}
   {#if single && !collapsed}
     <UrlPill />
@@ -174,9 +207,33 @@
     color: var(--text);
   }
   .sidebar.collapsed {
-    width: calc(var(--collapsed-tab-w) + 12px);
     padding-top: 2px;
     padding-bottom: 6px;
+  }
+  /* The collapsed layout narrows the sidebar; the width eases with the page while the layout
+   * animates (App.svelte), like the rest of the layout variables. */
+  :global(.app.collapsed-mode) .sidebar:not(.floating) {
+    width: calc(var(--collapsed-tab-w) + 12px);
+  }
+  :global(.app.animating) .sidebar:not(.floating) {
+    transition: width 300ms var(--zen-spring);
+  }
+  .top-wrap {
+    flex: none;
+    display: flow-root;
+  }
+  /* Labels fade instead of blinking when the sidebar collapses or expands. */
+  .sidebar :global(.labels),
+  .sidebar :global(.space-name),
+  .sidebar :global(.new-tab-label),
+  .sidebar :global(.folder .name) {
+    transition: opacity 150ms ease;
+  }
+  .sidebar.fading :global(.labels),
+  .sidebar.fading :global(.space-name),
+  .sidebar.fading :global(.new-tab-label),
+  .sidebar.fading :global(.folder .name) {
+    opacity: 0;
   }
   .sidebar.floating {
     width: 100%;
