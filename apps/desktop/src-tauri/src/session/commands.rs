@@ -3,7 +3,6 @@
 
 use std::sync::Mutex;
 
-use serde::Serialize;
 use tauri::{AppHandle, Manager, WebviewWindow};
 
 use crate::app::command::{blocking, private, CmdResult};
@@ -66,30 +65,20 @@ pub async fn windows_restore(app: AppHandle, window: WebviewWindow, keep: bool) 
 
 static SESSION_LOCK: Mutex<()> = Mutex::new(());
 
-#[derive(Serialize)]
-pub struct SessionStart {
-    data: Option<String>,
-    /// Whether to restore the regular tabs too; `None`: the user's setting decides.
-    keep: Option<bool>,
-    /// The tabs need new ids (they came from another window or an earlier run).
-    fresh: bool,
-}
-
 /// A window's tabs. The main window's are in `session.json`; another normal window gets what it
 /// was opened with (see `session`). Incognito windows always start empty.
 #[tauri::command]
-pub async fn session_load(window: WebviewWindow) -> CmdResult<SessionStart> {
-    let empty = SessionStart { data: None, keep: None, fresh: false };
+pub async fn session_load(window: WebviewWindow) -> CmdResult<super::Start> {
     if private(&window) {
-        return Ok(empty);
+        return Ok(super::Start::default());
     }
     let label = window.label().to_string();
     let start = super::take_pending(&label);
     if label == host::MAIN {
         let data = blocking(|| storage::read_text(&paths().session())).await?;
-        return Ok(SessionStart { data, keep: start.and_then(|s| s.keep), fresh: false });
+        return Ok(super::Start { data, keep: start.and_then(|s| s.keep), fresh: false });
     }
-    Ok(start.map(|s| SessionStart { data: s.data, keep: s.keep, fresh: s.fresh }).unwrap_or(empty))
+    Ok(start.unwrap_or_default())
 }
 
 /// Incognito windows never write a session.

@@ -27,7 +27,7 @@ pub fn is_extra_window(label: &str) -> bool {
 }
 
 /// What a window's UI gets from `session_load` when it starts.
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize)]
 pub struct Start {
     /// The session to restore (the main window reads its file instead when this is `None`).
     pub data: Option<String>,
@@ -157,6 +157,17 @@ pub fn take_saved(keep: bool) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn start_serializes_the_session_load_contract() {
+        assert_eq!(serde_json::to_value(Start::default()).unwrap(), serde_json::json!({
+            "data": null, "keep": null, "fresh": false,
+        }));
+        let start = Start { data: Some("session".into()), keep: Some(false), fresh: true };
+        assert_eq!(serde_json::to_value(start).unwrap(), serde_json::json!({
+            "data": "session", "keep": false, "fresh": true,
+        }));
+    }
 
     #[test]
     fn extra_window_labels() {
