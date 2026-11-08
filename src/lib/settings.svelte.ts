@@ -1,6 +1,7 @@
 // User settings: owned by the UI, persisted as JSON by the backend, and pushed to the backend
 // wherever Rust needs them (appearance, shortcuts, blocker, downloads).
 import { api } from "./ipc";
+import { fadeChange } from "./fade";
 import { defaultShortcuts, mergeShortcuts } from "./shortcuts";
 import { SEARCH_ENGINES } from "./url";
 import { defaultStartPage, normalizeStartPage, type StartPageSettings } from "./startpage";
@@ -351,9 +352,15 @@ class SettingsStore {
   async push() {
     const s = this.value;
     const root = document.documentElement;
-    root.dataset.theme = this.resolvedTheme;
+    const theme = this.resolvedTheme;
     const material = s.translucentSidebar ? s.material : "solid";
-    root.dataset.material = material;
+    // A change after startup fades; the first application (nothing set yet) is immediate.
+    const apply = () => {
+      root.dataset.theme = theme;
+      root.dataset.material = material;
+    };
+    if (!root.dataset.theme || !root.dataset.material) apply();
+    else if (root.dataset.theme !== theme || root.dataset.material !== material) fadeChange(apply);
     const applied = await api.applySettings(
       {
         downloadDir: s.downloadDir,
@@ -384,7 +391,9 @@ class SettingsStore {
     );
     // Windows 10, transparency effects off or battery saver: the backend reports the solid
     // fallback it applied.
-    root.dataset.material = applied.material;
+    if (root.dataset.material !== applied.material) {
+      fadeChange(() => (root.dataset.material = applied.material));
+    }
     this.materialFallback = applied.fallback ?? null;
   }
 

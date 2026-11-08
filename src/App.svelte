@@ -92,7 +92,7 @@
   let lastLayoutKey = '';
   let animTimer: ReturnType<typeof setTimeout> | undefined;
   $effect.pre(() => {
-    const key = `${compact}|${mode}|${barOn}|${hideToolbar}`;
+    const key = `${compact}|${mode}|${barOn}|${hideToolbar}|${side}`;
     if (key === lastLayoutKey) return;
     const first = !lastLayoutKey;
     lastLayoutKey = key;
@@ -430,7 +430,7 @@
     {#key space?.id}
       <div
         class="space-bg"
-        style:--c={space?.color ?? '#8b7cf6'}
+        style:--space-c={space?.color ?? '#8b7cf6'}
         in:fade={{ duration: 250, easing: springEase }}
         out:fade={{ duration: 250, easing: springEase }}
       ></div>
@@ -455,7 +455,7 @@
         in:slidePx={{ y: side === 'top' ? -16 : 16, duration: motionMs(), easing: springEase }}
         out:slidePx={{ y: side === 'top' ? -16 : 16, duration: motionMs() * 0.6, easing: cubicOut }}
       >
-        <TabStrip edge={side === 'top' ? 'top' : 'bottom'} collapsed={mode === 'collapsed'} controls={stripHasControls} />
+        <TabStrip edge={side === 'top' ? 'top' : 'bottom'} collapsed={mode === 'collapsed'} controls={stripHasControls} merged={stripIsToolbar} />
       </div>
     {:else}
       <div
@@ -863,14 +863,15 @@
   .space-bg {
     position: absolute;
     inset: 0;
+    transition: --space-c 300ms ease;
     background:
-      radial-gradient(120% 90% at 0% 0%, color-mix(in srgb, var(--c) 24%, transparent), transparent 70%),
-      linear-gradient(160deg, color-mix(in srgb, var(--c) 16%, transparent), color-mix(in srgb, var(--c) 7%, transparent));
+      radial-gradient(120% 90% at 0% 0%, color-mix(in srgb, var(--space-c) 24%, transparent), transparent 70%),
+      linear-gradient(160deg, color-mix(in srgb, var(--space-c) 16%, transparent), color-mix(in srgb, var(--space-c) 7%, transparent));
   }
   :global(:root[data-theme='light']) .space-bg {
     background:
-      radial-gradient(120% 90% at 0% 0%, color-mix(in srgb, var(--c) 30%, transparent), transparent 70%),
-      linear-gradient(160deg, color-mix(in srgb, var(--c) 20%, transparent), color-mix(in srgb, var(--c) 9%, transparent));
+      radial-gradient(120% 90% at 0% 0%, color-mix(in srgb, var(--space-c) 30%, transparent), transparent 70%),
+      linear-gradient(160deg, color-mix(in srgb, var(--space-c) 20%, transparent), color-mix(in srgb, var(--space-c) 9%, transparent));
   }
 
   /* Under the toolbar the row spans the page area, not the collapsed layout's icon sidebar. */

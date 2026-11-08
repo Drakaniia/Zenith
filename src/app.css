@@ -503,6 +503,22 @@ textarea {
   initial-value: 0px;
 }
 
+/* The accent and the window tint of the active space are colours that fade to a new value (a
+ * space switch, a new accent) instead of switching. */
+@property --accent {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: #8b7cf6;
+}
+@property --space-c {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: #8b7cf6;
+}
+:root {
+  transition: --accent 300ms ease;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
