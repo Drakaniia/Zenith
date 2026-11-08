@@ -212,7 +212,7 @@ const READ_BACK_SCRIPT: &str = r#"(async (u) => {
 
 /// Hands an extension package download to the extension installer instead of saving it.
 fn take_over_crx(core: &ICoreWebView2, shared: &TabShared, uri: String, name: String) {
-    use super::extensions::{offer, refuse, Fetch};
+    use crate::extensions::{offer, refuse, Fetch};
     let page = shared.url.borrow().clone();
     let source = crate::platform::urls::host_of(&page).filter(|h| !h.is_empty()).unwrap_or("this page").to_string();
     let tab = shared.id.clone();

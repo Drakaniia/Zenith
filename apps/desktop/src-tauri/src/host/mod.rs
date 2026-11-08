@@ -13,9 +13,7 @@
 //! it through `AppHandle::run_on_main_thread`; WebView2 callbacks already run on that thread.
 
 pub mod autofill;
-pub mod crx;
 pub mod downloads;
-pub mod extensions;
 pub mod page_tools;
 pub mod tab;
 

@@ -13,6 +13,9 @@
 //! not installed straight away: they are staged under `extensions/pending` and offered to the
 //! user with their permissions (`ext-install` event), then installed or discarded.
 
+pub mod commands;
+pub mod crx;
+
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -25,8 +28,7 @@ use webview2_com::Microsoft::Web::WebView2::Win32::*;
 use webview2_com::*;
 use windows::core::{Interface, BOOL, HSTRING, PWSTR};
 
-use super::crx;
-use super::{emit_tab, paths, with_host};
+use crate::host::{emit_tab, paths, with_host};
 use crate::storage::{read_text, write_atomic};
 
 #[derive(Serialize, Clone, Debug)]

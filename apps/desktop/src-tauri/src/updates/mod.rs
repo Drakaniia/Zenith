@@ -8,6 +8,8 @@
 //! the user picks "Restart to update" (the installer then relaunches Zenith, and session restore
 //! brings the tabs back). Nothing interrupts browsing.
 
+pub mod commands;
+
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{LazyLock, Mutex, MutexGuard};
 use std::time::Duration;

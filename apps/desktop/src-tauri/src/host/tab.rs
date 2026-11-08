@@ -853,12 +853,12 @@ fn wire(view: &wry::WebView, core: &ICoreWebView2, env: &ICoreWebView2Environmen
                     // "Add to Zenith" on a Chrome Web Store page (STORE_SCRIPT).
                     "_zenith_ext" => {
                         let on_store = sh.page_host.borrow().as_str() == "chromewebstore.google.com";
-                        if let (true, true, Some(id)) = (user.as_bool(), on_store, super::crx::store_id(&uri)) {
+                        if let (true, true, Some(id)) = (user.as_bool(), on_store, crate::extensions::crx::store_id(&uri)) {
                             let source = "Chrome Web Store".to_string();
                             if sh.private {
-                                super::extensions::refuse(&opener, source, "Extensions can't be installed from an incognito window.");
+                                crate::extensions::refuse(&opener, source, "Extensions can't be installed from an incognito window.");
                             } else {
-                                super::extensions::offer(opener, source, super::extensions::Fetch::Store(id));
+                                crate::extensions::offer(opener, source, crate::extensions::Fetch::Store(id));
                             }
                         }
                     }

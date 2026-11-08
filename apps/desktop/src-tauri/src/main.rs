@@ -8,6 +8,7 @@ mod bookmarks;
 mod card_commands;
 mod commands;
 mod downloads;
+mod extensions;
 mod history;
 mod host;
 mod importer;
