@@ -1,7 +1,7 @@
 # Publishes a release when a version tag is pushed (cut one with `pnpm release <version>`).
 # Builds the NSIS installer on Windows, signs the update with the updater key, and creates the
 # GitHub Release with the installer, its signature and `latest.json`, the feed installed copies of
-# Zenith check (see docs/RELEASING.md).
+# Zenith check (see apps/docs/src/content/docs/contributing/releasing.md).
 name: Release
 
 on:
@@ -58,7 +58,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
           if [ -z "$TAURI_SIGNING_PRIVATE_KEY" ] || [ -z "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD" ]; then
-            echo "::error::The TAURI_SIGNING_PRIVATE_KEY and TAURI_SIGNING_PRIVATE_KEY_PASSWORD secrets are required. See docs/RELEASING.md (one-time setup)."
+            echo "::error::The TAURI_SIGNING_PRIVATE_KEY and TAURI_SIGNING_PRIVATE_KEY_PASSWORD secrets are required. See apps/docs/src/content/docs/contributing/releasing.md (one-time setup)."
             exit 1
           fi
 

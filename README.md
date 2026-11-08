@@ -7,13 +7,13 @@ A lightweight, Zen-style web browser for Windows 11, built with Tauri 2 (Rust) a
 - **Spaces**: separate tab sets with their own name, emoji and accent colour.
 - **Command palette address bar** (Ctrl+L, Ctrl+T, Ctrl+K): URL or search (Google or Yandex), open tabs, bookmarks, history, optional search suggestions, and `>` commands. It floats over the live page.
 - **Compact mode** (Ctrl+Alt+C): the page fills the window, and the sidebar and toolbar float in from the edges.
-- **Bookmarks** as in Zen: a toolbar (also at the top edge in the single-toolbar layout), a sidebar, the Library, an Edit bookmark panel with per-workspace bookmarks, tags and keywords, import from other browsers and HTML files, and daily JSON backups. See `docs/ZEN-UI.md`.
+- **Bookmarks** as in Zen: a toolbar (also at the top edge in the single-toolbar layout), a sidebar, the Library, an Edit bookmark panel with per-workspace bookmarks, tags and keywords, import from other browsers and HTML files, and daily JSON backups. See [Zen Browser UI in Zenith](apps/docs/src/content/docs/contributing/zen-ui.md).
 - **Split view**: two tabs side by side with a draggable divider, created from the toolbar, a tab menu, by dragging a tab onto the page, or with Ctrl+Alt+S.
 - **Glance**: Alt+click a link to preview it in a floating card, then open it as a tab, in split view, or close it.
 - **Tab sleeping**: background tabs are suspended, then unloaded after a timeout and woken at their scroll position. Tabs playing audio, downloading or in split view are exempt.
 - **Ad and tracker blocking** built in (EasyList, EasyPrivacy, custom lists), with a per-site toggle and a blocked-request counter.
 - **Video downloader** built in: saves the videos and audio that pages play, whether plain files or HLS and DASH streams, with a choice of quality and audio language and recording of live HLS streams. Start it from the button over a video, the download button in the address pill, the page menu or by right-clicking a video. Separate audio and video tracks are merged into one .mp4. DRM-protected video is never downloaded.
-- **Extensions** from the Chrome Web Store, `.crx` files or unpacked folders, where WebView2 supports them (see [docs/EXTENSIONS.md](docs/EXTENSIONS.md)).
+- **Extensions** from the Chrome Web Store, `.crx` files or unpacked folders, where WebView2 supports them (see [extension support](apps/docs/src/content/docs/contributing/extensions.md)).
 - History, bookmarks (HTML import and export), a downloads manager, session restore, permission prompts, find in page, zoom per site, printing, developer tools.
 - **Customisable keyboard shortcuts** that work while a page has focus, with conflict detection.
 - **Default browser** registration: links from other apps open as new tabs in the running window.
@@ -29,7 +29,7 @@ A lightweight, Zen-style web browser for Windows 11, built with Tauri 2 (Rust) a
 | Everything, 1 tab (including GPU and renderers)                   | 284 MB (Edge, fresh profile: 548 MB) |          |
 | Requests reaching the network on 6 news sites, blocking on        | −75 %                                |          |
 
-Details and method: [apps/desktop/measurements/README.md](apps/desktop/measurements/README.md).
+Details and method: [measurements](apps/docs/src/content/docs/contributing/measurements.md).
 
 ## Requirements
 
@@ -37,9 +37,13 @@ Windows 11, or Windows 10 22H2 with the Solid theme (Mica needs Windows 11), plu
 
 ## Install
 
-Download `Zenith_<version>_x64-setup.exe` from [GitHub Releases](https://github.com/Drakaniia/Zenith/releases/latest). After that, Zenith updates itself: new versions download in the background and install silently when you close it. To publish a release, see [docs/RELEASING.md](docs/RELEASING.md).
+Download `Zenith_<version>_x64-setup.exe` from [GitHub Releases](https://github.com/Drakaniia/Zenith/releases/latest). After that, Zenith updates itself: new versions download in the background and install silently when you close it. To publish a release, see [releasing](apps/docs/src/content/docs/contributing/releasing.md).
 
 Run `apps\desktop\src-tauri\target\release\bundle\nsis\Zenith_0.1.0_x64-setup.exe` (per-user install, no administrator rights). It registers Zenith as a browser in **Settings › Apps › Default apps**. To make it the default, use **Settings › Default browser › Make default** in Zenith, which opens that Windows page (Windows does not let apps change the default silently).
+
+## Documentation
+
+The user guide and contributor docs are a website built with Astro Starlight in `apps/docs` (pages in `apps/docs/src/content/docs`). Run `pnpm docs:dev` to preview it locally, or `pnpm docs:build` to build it.
 
 ## Build from source
 
@@ -95,12 +99,12 @@ No telemetry and no accounts. Zenith itself only goes online to refresh filter l
 
 ## How it works
 
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): one WebView2 process tree shared by all tabs, tab webviews without any app IPC, floating UI by raising a transparent chrome window over the pages, shortcuts through WebView2's accelerator events, and blocking in `WebResourceRequested`.
+See [architecture](apps/docs/src/content/docs/contributing/architecture.md): one WebView2 process tree shared by all tabs, tab webviews without any app IPC, floating UI by raising a transparent chrome window over the pages, shortcuts through WebView2's accelerator events, and blocking in `WebResourceRequested`.
 
 ## Known limitations
 
 - Windows only (the plan targets Windows; Linux/macOS would need a different webview layout).
-- Extension support is limited to what WebView2 implements; there is no extension toolbar ([details](docs/EXTENSIONS.md)).
+- Extension support is limited to what WebView2 implements; there is no extension toolbar ([details](apps/docs/src/content/docs/contributing/extensions.md)).
 - Ad blocking works on domains (no cosmetic element hiding yet).
 - The video downloader saves what a page streams over plain HTTP: files, HLS and DASH. DRM-protected video (Encrypted Media Extensions, encrypted HLS, DASH ContentProtection) is refused by design. Sites that use their own streaming protocols (YouTube, for example) can't be saved. Live DASH can't be recorded. Without FFmpeg, MPEG-TS streams stay .ts, and WebM audio and video that need merging are saved as two files. Download jobs don't survive a restart of the browser.
 - No sync, password manager or autofill (out of scope for v1).

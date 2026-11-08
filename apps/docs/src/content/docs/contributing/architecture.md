@@ -1,4 +1,9 @@
-# Architecture
+---
+title: Architecture
+description: How Zenith is put together - the chrome webview, tab webviews, floating UI, shortcuts, blocking, storage and updates.
+---
+
+Source paths on this page are relative to `apps/desktop`.
 
 Zenith is a Tauri 2 application. Rust owns the window, every page webview and all storage; a Svelte 5 UI (the "chrome") draws the sidebar, palette, menus and internal pages. Pages are rendered by the system WebView2 (Chromium), so there is no bundled engine.
 
@@ -151,4 +156,4 @@ A crashed or hung page shows a "tab crashed / not responding" card with Reload. 
 
 ## Updates
 
-Zenith updates itself through Tauri's updater plugin (`src-tauri/src/updates.rs`). Release CI publishes a signed installer and `latest.json` to GitHub Releases for every version tag. The app checks that feed a minute after startup and then every six hours. A newer version downloads in the background and its signature is verified. The NSIS installer then runs in quiet per-user mode when Zenith quits, or right away from "Restart to update", which relaunches into the restored session. Database writes are flushed first, because the installer ends the process. The rendering engine updates separately through the WebView2 Evergreen runtime. See [RELEASING.md](RELEASING.md).
+Zenith updates itself through Tauri's updater plugin (`src-tauri/src/updates.rs`). Release CI publishes a signed installer and `latest.json` to GitHub Releases for every version tag. The app checks that feed a minute after startup and then every six hours. A newer version downloads in the background and its signature is verified. The NSIS installer then runs in quiet per-user mode when Zenith quits, or right away from "Restart to update", which relaunches into the restored session. Database writes are flushed first, because the installer ends the process. The rendering engine updates separately through the WebView2 Evergreen runtime. See [Releasing and updates](/contributing/releasing/).
