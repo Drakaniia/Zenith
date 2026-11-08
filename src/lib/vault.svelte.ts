@@ -119,6 +119,12 @@ class VaultStore {
    *  open list, and for a moment after the user closed the list of that tab. */
   offerSuggest(s: PasswordSuggest) {
     if (this.unlocking && this.suggest?.tabId === s.tabId) return;
+    // Typing narrowed the list that is already showing: swap its accounts, keeping the list (and
+    // its settle delay) as it is.
+    if (s.refresh && this.suggest && this.suggest.tabId === s.tabId) {
+      this.suggest.accounts = s.accounts;
+      return;
+    }
     const c = this.#closed;
     if (c && c.tabId === s.tabId && Date.now() - c.at < 1200) return;
     this.suggest = s;

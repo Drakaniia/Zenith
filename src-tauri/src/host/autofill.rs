@@ -84,18 +84,29 @@ pub const PAGE_SCRIPT: &str = concat!(
     return passes(root).length > 0 || root !== document || /\busername\b/.test(el.autocomplete);
   };
   let lastEl = null, lastAt = 0, suggesting = false;
+  const info = (el) => {
+    const r = el.getBoundingClientRect();
+    return { k: kind(el, scopeOf(el)), f: isPass(el) ? 'pass' : 'user', x: r.left, y: r.top, w: r.width, h: r.height, dpr: window.devicePixelRatio || 1 };
+  };
   const offer = (el) => {
     const now = Date.now();
     if (el === lastEl && now - lastAt < 500) return;
     lastEl = el; lastAt = now; suggesting = true;
-    const r = el.getBoundingClientRect();
-    send('_zenith_pw_field', { k: kind(el, scopeOf(el)), f: isPass(el) ? 'pass' : 'user', x: r.left, y: r.top, w: r.width, h: r.height, dpr: window.devicePixelRatio || 1 });
+    send('_zenith_pw_field', info(el));
   };
   const target = (e) => e.composedPath()[0];
   addEventListener('focusin', (e) => { if (loginField(target(e))) offer(target(e)); }, true);
   addEventListener('click', (e) => { if (e.isTrusted && loginField(target(e))) offer(target(e)); }, true);
   const dismiss = () => { if (suggesting) { suggesting = false; send('_zenith_pw_dismiss', {}); } };
-  addEventListener('input', (e) => { if (e.isTrusted && loginField(target(e))) dismiss(); }, true);
+  // Typing in a username field keeps the list open and narrows it to the matching accounts (the
+  // typed text goes to the browser only, which compares it with the saved usernames). Typing a
+  // password closes it.
+  addEventListener('input', (e) => {
+    const el = target(e);
+    if (!e.isTrusted || !loginField(el)) return;
+    if (isPass(el)) return dismiss();
+    if (suggesting) send('_zenith_pw_type', { ...info(el), u: el.value.slice(0, 256) });
+  }, true);
 
   let lastCap = '';
   const capture = (root) => {
@@ -187,6 +198,8 @@ struct TabState {
     /// Fill-on-load already ran for this document.
     form_handled: bool,
     suggesting: bool,
+    /// The user closed the list: typing in the field does not bring it back until the next click.
+    muted: bool,
 }
 
 thread_local! {
@@ -249,6 +262,8 @@ struct Suggest {
     dpr: f64,
     accounts: Vec<Account>,
     generated: Option<String>,
+    /// The same list as already shown, narrowed by what was typed: it is updated in place.
+    refresh: bool,
 }
 
 #[derive(Serialize, Clone)]
@@ -314,6 +329,7 @@ pub fn on_message(sh: &Rc<TabShared>, name: &str, uri: &str, user: bool, main_fr
     let Some(msg) = parse_message(uri) else { return };
     match name {
         "_zenith_pw_field" if user => on_field(sh, &origin, &msg),
+        "_zenith_pw_type" if user => on_type(sh, &origin, &msg),
         "_zenith_pw_dismiss" => close_suggestions(&sh.id),
         "_zenith_pw_capture" if user => on_capture(sh, &origin, &msg),
         "_zenith_pw_form" => on_form(sh, &origin),
@@ -321,16 +337,50 @@ pub fn on_message(sh: &Rc<TabShared>, name: &str, uri: &str, user: bool, main_fr
     }
 }
 
+/// The accounts whose username (or label) contains what was typed, ignoring case; all of them when
+/// nothing is typed.
+fn matching_accounts(accounts: Vec<Account>, typed: &str) -> Vec<Account> {
+    let q = typed.trim().to_lowercase();
+    if q.is_empty() {
+        return accounts;
+    }
+    accounts
+        .into_iter()
+        .filter(|a| a.username.to_lowercase().contains(&q) || a.label.to_lowercase().contains(&q))
+        .collect()
+}
+
 fn on_field(sh: &Rc<TabShared>, origin: &str, m: &Msg) {
+    with_tab(&sh.id, |t| t.muted = false);
+    show_list(sh, origin, m, None);
+}
+
+/// A username field changed: the open list narrows to the matching accounts, and comes back when
+/// the text matches again. Nothing when the user closed the list.
+fn on_type(sh: &Rc<TabShared>, origin: &str, m: &Msg) {
+    if m.f != "user" || with_tab(&sh.id, |t| t.muted) {
+        return;
+    }
+    show_list(sh, origin, m, Some(m.u.as_str()));
+}
+
+fn show_list(sh: &Rc<TabShared>, origin: &str, m: &Msg, typed: Option<&str>) {
     let cfg = config();
     let new_password = m.k == "new";
-    let accounts = if cfg.autofill_suggest && (cfg.autofill_usernames || cfg.autofill_passwords) && !(new_password && m.f == "pass") {
+    let mut accounts = if cfg.autofill_suggest && (cfg.autofill_usernames || cfg.autofill_passwords) && !(new_password && m.f == "pass") {
         vault::try_with(|v| v.accounts_for(origin, cfg.autofill_same_site)).unwrap_or_default()
     } else {
         Vec::new()
     };
-    let generated = (new_password && m.f == "pass" && cfg.password_generator).then(|| crypto::generate_password(20));
+    if let Some(typed) = typed {
+        accounts = matching_accounts(accounts, typed);
+    }
+    let generated = (typed.is_none() && new_password && m.f == "pass" && cfg.password_generator).then(|| crypto::generate_password(20));
     if accounts.is_empty() && generated.is_none() {
+        // Typing that matches nothing closes the list; it returns when the text matches again.
+        if typed.is_some() {
+            close_suggestions(&sh.id);
+        }
         return;
     }
     let shown = generated.as_ref().map(|g| g.to_string());
@@ -351,6 +401,7 @@ fn on_field(sh: &Rc<TabShared>, origin: &str, m: &Msg) {
             dpr: if m.dpr.is_finite() && m.dpr > 0.0 { m.dpr } else { 1.0 },
             accounts,
             generated: shown,
+            refresh: typed.is_some(),
         },
     );
 }
@@ -446,6 +497,11 @@ pub fn close_suggestions(tab_id: &str) {
     }
 }
 
+/// The user closed the list: typing in the field leaves it closed until the field is clicked again.
+pub fn mute_suggestions(tab_id: &str) {
+    with_tab(tab_id, |t| t.muted = true);
+}
+
 /// A new document is loading in the tab.
 pub fn on_navigation(tab_id: &str) {
     close_suggestions(tab_id);
@@ -537,6 +593,19 @@ mod tests {
         assert!(parse_message("https://zenith.invalid/#%ZZ").is_none());
         let long = format!("https://zenith.invalid/#{}", "a".repeat(MAX_MESSAGE));
         assert!(parse_message(&long).is_none());
+    }
+
+    #[test]
+    fn typing_narrows_the_accounts() {
+        let acc = |u: &str, l: &str| Account { id: u.into(), username: u.into(), label: l.into(), site: "x.com".into(), exact: true };
+        let all = vec![acc("ann@x.com", ""), acc("Bob@y.org", "work"), acc("cy@x.com", "")];
+        let names = |v: Vec<Account>| v.into_iter().map(|a| a.username).collect::<Vec<_>>();
+        assert_eq!(names(matching_accounts(all.clone(), "")).len(), 3);
+        assert_eq!(names(matching_accounts(all.clone(), "  ")).len(), 3);
+        assert_eq!(names(matching_accounts(all.clone(), "AN")), ["ann@x.com"]);
+        assert_eq!(names(matching_accounts(all.clone(), "x.com")), ["ann@x.com", "cy@x.com"]);
+        assert_eq!(names(matching_accounts(all.clone(), "work")), ["Bob@y.org"]);
+        assert!(matching_accounts(all, "zzz").is_empty());
     }
 
     #[test]

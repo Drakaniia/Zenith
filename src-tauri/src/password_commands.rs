@@ -396,7 +396,12 @@ pub async fn autofill_fill_generated(app: AppHandle, tab_id: String) -> CmdResul
 
 #[tauri::command]
 pub async fn autofill_dismiss(app: AppHandle, tab_id: String) -> CmdResult<()> {
-    on_main(&app, move || autofill::close_suggestions(&tab_id)).await
+    // The user closed the list: typing in the field leaves it closed.
+    on_main(&app, move || {
+        autofill::mute_suggestions(&tab_id);
+        autofill::close_suggestions(&tab_id)
+    })
+    .await
 }
 
 /// Answers a "Save password?" prompt: "save", "never" (for this site) or "dismiss". Saving

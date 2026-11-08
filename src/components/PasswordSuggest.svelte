@@ -47,6 +47,8 @@
   });
 
   $effect(() => {
+    // Also when typing changes how many accounts match.
+    void s?.accounts.length;
     if (el) height = el.offsetHeight;
   });
 

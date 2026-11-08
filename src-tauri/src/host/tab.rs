@@ -839,7 +839,7 @@ fn wire(view: &wry::WebView, core: &ICoreWebView2, env: &ICoreWebView2Environmen
                 let opener = sh.id.clone();
                 match name.as_str() {
                     // Login forms (see host::autofill).
-                    "_zenith_pw_field" | "_zenith_pw_dismiss" | "_zenith_pw_capture" | "_zenith_pw_form" => {
+                    "_zenith_pw_field" | "_zenith_pw_type" | "_zenith_pw_dismiss" | "_zenith_pw_capture" | "_zenith_pw_form" => {
                         let main_frame = super::autofill::from_main_frame(&args);
                         super::autofill::on_message(&sh, &name, &uri, user.as_bool(), main_frame);
                     }

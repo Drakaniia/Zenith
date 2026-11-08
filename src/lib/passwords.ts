@@ -57,6 +57,8 @@ export interface PasswordSuggest {
   dpr: number;
   accounts: SavedAccount[];
   generated: string | null;
+  /** The list already on screen, narrowed by what was typed in the field: update it in place. */
+  refresh?: boolean;
 }
 
 export interface PasswordSaveOffer {
