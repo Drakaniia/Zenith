@@ -25,8 +25,6 @@ Passwords, payment cards and the start page have their own settings, described i
 | --- | --- | --- |
 | Theme | Windows (follows the system), Light or Dark. | Windows |
 | Accent colour | Tints the window and highlights for the current space. Each space can have its own. | |
-| Translucent sidebar | Your desktop shows through the sidebar. Off uses the least GPU and memory. Needs Windows 11. The sidebar is also solid while transparency effects are off in Windows or battery saver is on. | On |
-| Sidebar material | Mica (tints with your wallpaper), Mica Alt, or Acrylic (blurs what's behind the window). Shown when the sidebar is translucent. | Mica |
 | Website appearance | The colour scheme websites are asked to use: Windows, Light or Dark. | Windows |
 | Sidebar position | Left, Right, Top or Bottom. Top and bottom turn the sidebar into a horizontal tab strip. You can also right-click the sidebar to move it. | Left |
 | Layout | **Single toolbar** puts the address bar in the sidebar. **Multiple toolbars** adds a toolbar above the page. **Collapsed** is an icon-only sidebar with a toolbar above the page. | Single toolbar |

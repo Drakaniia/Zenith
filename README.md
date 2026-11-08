@@ -23,7 +23,7 @@ Documentation: https://drakaniia.github.io/Zenith/
 - History, bookmarks (HTML import and export), a downloads manager, session restore, permission prompts, find in page, zoom per site, printing, developer tools.
 - **Customisable keyboard shortcuts** that work while a page has focus, with conflict detection.
 - **Default browser** registration: links from other apps open as new tabs in the running window.
-- Mica, Mica Alt, Acrylic or Solid window material; light, dark or follow-Windows theme.
+- Light, dark or follow-Windows theme.
 
 ## Numbers
 
@@ -39,7 +39,7 @@ Details and method: [measurements](apps/docs/src/content/docs/contributing/measu
 
 ## Requirements
 
-Windows 11, or Windows 10 22H2 with the Solid theme (Mica needs Windows 11), plus the Microsoft Edge WebView2 runtime. It ships with Windows 11; the installer downloads it if it is missing.
+Windows 11, or Windows 10 22H2, plus the Microsoft Edge WebView2 runtime. It ships with Windows 11; the installer downloads it if it is missing.
 
 ## Install
 

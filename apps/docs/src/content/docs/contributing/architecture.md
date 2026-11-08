@@ -8,7 +8,7 @@ Source paths on this page are relative to `apps/desktop`.
 Zenith is a Tauri 2 application. Rust owns the window, every page webview and all storage; a Svelte 5 UI (the "chrome") draws the sidebar, palette, menus and internal pages. Pages are rendered by the system WebView2 (Chromium), so there is no bundled engine.
 
 ```
-Native window (Mica/Acrylic, no title bar)
+Native window (no title bar)
 ├─ chrome webview  — Tauri webview "main", Svelte UI, transparent, the only view with IPC
 └─ tab webviews    — raw wry child webviews (one per live tab / split pane / Glance), no IPC
           all share one WebView2 environment → one browser process, per-site renderers

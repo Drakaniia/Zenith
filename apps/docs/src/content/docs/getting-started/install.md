@@ -7,7 +7,7 @@ sidebar:
 
 ## Requirements
 
-- Windows 11, or Windows 10 22H2. On Windows 10 the sidebar is solid: the translucent Mica and Acrylic materials need Windows 11.
+- Windows 11, or Windows 10 22H2.
 - The Microsoft Edge WebView2 runtime. It ships with Windows 11. If it's missing, the installer downloads it for you.
 
 Zenith runs on 64-bit Windows only. There are no macOS or Linux versions.
