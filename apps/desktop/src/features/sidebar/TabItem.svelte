@@ -3,7 +3,7 @@
   import Icon from '$shared/ui/Icon.svelte';
   import Favicon from '$shared/ui/Favicon.svelte';
   import { browser, needsWebview, tabTitle } from '$features/browser/browser.svelte';
-  import { tabMenu } from '../../app/menus';
+  import { tabMenu } from './menus';
   import { titleFor } from '$shared/url';
   import { ui } from '$shared/ui/ui.svelte';
 

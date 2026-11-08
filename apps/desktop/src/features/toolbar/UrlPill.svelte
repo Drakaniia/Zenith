@@ -9,7 +9,7 @@
   import { toggleSiteBlocking } from '$features/blocker/site-blocking';
   import { withHint } from '$features/shortcuts/hints';
   import { bookmarkPage } from '$features/bookmarks/bookmark-actions';
-  import { pageMenu } from '../../app/menus';
+  import { pageMenu } from './menus';
   import { displayHost, hostOf, isInternal, isNewTab, isSecure, isWebUrl, siteOf, titleFor } from '$shared/url';
 
   // Zen's address bar. In the sidebar (single toolbar) its page actions fade in while the

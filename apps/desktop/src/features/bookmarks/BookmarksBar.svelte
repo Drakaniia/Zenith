@@ -9,7 +9,7 @@
   import { dnd } from '$features/sidebar/sidebar-dnd.svelte';
   import { ROOT_OTHER, ROOT_TITLES, ROOT_TOOLBAR, nodeLabel } from './bookmarks';
   import { faviconFor } from '$shared/favicons';
-  import { bookmarkFolderItems, bookmarkItem, bookmarkNodeMenu, bookmarksBarMenu, rootIcon } from '../../app/menus';
+  import { bookmarkFolderItems, bookmarkItem, bookmarkNodeMenu, bookmarksBarMenu, rootIcon } from './menus';
   import { mouseHow, openBookmark } from './bookmark-actions';
   import type { BookmarkNode } from './types';
 

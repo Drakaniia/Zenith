@@ -14,7 +14,7 @@
   import { ui } from '$shared/ui/ui.svelte';
   import { slideX } from '$shared/ui/motion';
   import { shortcutHint } from '$features/shortcuts/hints';
-  import { sidebarMenu } from '../../app/menus';
+  import { sidebarMenu } from './menus';
 
   // Zen's sidebar (#navigator-toolbox): top buttons, address bar (single toolbar), Essentials,
   // the active space (sliding between spaces), media controls and the footer.

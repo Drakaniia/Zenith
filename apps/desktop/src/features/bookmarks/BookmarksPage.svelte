@@ -24,7 +24,7 @@
     searchBookmarks,
   } from './bookmarks';
   import { faviconFor } from '$shared/favicons';
-  import { bookmarkNodeMenu, rootIcon } from '../../app/menus';
+  import { bookmarkNodeMenu, rootIcon } from './menus';
   import {
     backupBookmarksFile,
     copyNodes,

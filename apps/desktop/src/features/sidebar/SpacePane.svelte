@@ -9,7 +9,7 @@
   import { browser } from '$features/browser/browser.svelte';
   import { dnd } from './sidebar-dnd.svelte';
   import { settings } from '$features/settings/settings.svelte';
-  import { spaceMenu } from '../../app/menus';
+  import { spaceMenu } from './menus';
   import { ui } from '$shared/ui/ui.svelte';
   import type { Space, Tab, TabId } from '$features/browser/types';
 

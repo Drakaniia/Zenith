@@ -9,7 +9,7 @@
   import { ui } from '$shared/ui/ui.svelte';
   import { type MenuItem } from '$shared/ui/menu';
   import { tabsApi } from '$features/browser/api';
-  import { appMenu } from '../../app/menus';
+  import { appMenu } from './menus';
   import { openInternal } from '$features/browser/target';
   import { runAction } from '$platform/actions';
   import { shortcutHint, withHint } from '$features/shortcuts/hints';

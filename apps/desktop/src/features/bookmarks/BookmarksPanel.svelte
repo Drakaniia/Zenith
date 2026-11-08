@@ -10,7 +10,7 @@
   import { bmDnd } from './bookmark-dnd.svelte';
   import { ROOTS, ROOT_TITLES, ancestors, kids, nodeLabel, searchBookmarks } from './bookmarks';
   import { faviconFor } from '$shared/favicons';
-  import { bookmarkNodeMenu, rootIcon } from '../../app/menus';
+  import { bookmarkNodeMenu, rootIcon } from './menus';
   import { copyNodes, deleteNodes, mouseHow, openBookmark, openHow, pasteNodes } from './bookmark-actions';
   import { displayHost, prettyUrl } from '$shared/url';
   import type { BookmarkNode } from './types';

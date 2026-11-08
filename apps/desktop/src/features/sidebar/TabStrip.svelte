@@ -9,12 +9,12 @@
   import UrlPill from '$features/toolbar/UrlPill.svelte';
   import ExtensionButtons from '$features/extensions/ExtensionButtons.svelte';
   import { tabsApi } from '$features/browser/api';
-  import { appMenu } from '../../app/menus';
+  import { appMenu } from '$features/toolbar/menus';
   import { browser, needsWebview, tabTitle } from '$features/browser/browser.svelte';
   import { dnd } from './sidebar-dnd.svelte';
   import { ui } from '$shared/ui/ui.svelte';
   import { type MenuItem } from '$shared/ui/menu';
-  import { sidebarMenu, spaceMenu, tabMenu } from '../../app/menus';
+  import { sidebarMenu, spaceMenu, tabMenu } from './menus';
   import { runAction } from '$platform/actions';
   import { withHint } from '$features/shortcuts/hints';
   import { settings } from '$features/settings/settings.svelte';

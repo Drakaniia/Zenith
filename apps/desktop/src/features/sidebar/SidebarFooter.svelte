@@ -5,7 +5,7 @@
   import { ui } from '$shared/ui/ui.svelte';
   import { updates } from '$features/updates/updates.svelte';
   import { dnd } from './sidebar-dnd.svelte';
-  import { createNewMenu, spaceMenu } from '../../app/menus';
+  import { createNewMenu, spaceMenu } from './menus';
   import { openNotes } from '$features/notes/actions';
   import { withHint } from '$features/shortcuts/hints';
   import { settings } from '$features/settings/settings.svelte';

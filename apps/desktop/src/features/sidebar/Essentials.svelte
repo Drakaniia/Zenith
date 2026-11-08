@@ -4,7 +4,7 @@
   import Favicon from '$shared/ui/Favicon.svelte';
   import { browser, needsWebview, tabTitle } from '$features/browser/browser.svelte';
   import { dnd } from './sidebar-dnd.svelte';
-  import { tabMenu } from '../../app/menus';
+  import { tabMenu } from './menus';
   import { ui } from '$shared/ui/ui.svelte';
 
   // Zen's Essentials: a grid of favicon tiles above the spaces, shared by every space.

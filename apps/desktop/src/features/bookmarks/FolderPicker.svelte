@@ -3,7 +3,7 @@
   import Icon from '$shared/ui/Icon.svelte';
   import { bookmarks } from './bookmarks.svelte';
   import { ROOTS, ROOT_TITLES, ancestors, isInside, kids, recentFolders } from './bookmarks';
-  import { rootIcon } from '../../app/menus';
+  import { rootIcon } from './menus';
   import { ui } from '$shared/ui/ui.svelte';
 
   // Where a bookmark goes (Zen's "Location"): a menu of the built-in folders and the folders used

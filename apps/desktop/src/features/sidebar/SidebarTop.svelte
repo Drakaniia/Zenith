@@ -6,7 +6,7 @@
   import { settings } from '$features/settings/settings.svelte';
   import { ui } from '$shared/ui/ui.svelte';
   import { tabsApi } from '$features/browser/api';
-  import { appMenu } from '../../app/menus';
+  import { appMenu } from '$features/toolbar/menus';
   import { withHint } from '$features/shortcuts/hints';
   import { incognito } from '$features/window/window.svelte';
 
