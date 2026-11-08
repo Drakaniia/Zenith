@@ -76,7 +76,7 @@ pub struct SessionStart {
 }
 
 /// A window's tabs. The main window's are in `session.json`; another normal window gets what it
-/// was opened with (see sessions.rs). Incognito windows always start empty.
+/// was opened with (see `session`). Incognito windows always start empty.
 #[tauri::command]
 pub async fn session_load(window: WebviewWindow) -> CmdResult<SessionStart> {
     let empty = SessionStart { data: None, keep: None, fresh: false };

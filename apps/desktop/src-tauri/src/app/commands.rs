@@ -16,7 +16,7 @@ use crate::storage;
 pub struct StartupInfo {
     /// Running on a separate profile (ZENITH_PROFILE_DIR), e.g. an automated test instance.
     test_profile: bool,
-    /// The browser profile this process runs (see profiles.rs).
+    /// The browser profile this process runs (see `profiles`).
     profile: crate::profiles::commands::ProfileInfo,
     /// An incognito window (InPrivate pages, nothing saved).
     incognito: bool,

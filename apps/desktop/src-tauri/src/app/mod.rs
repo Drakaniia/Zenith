@@ -77,7 +77,7 @@ pub fn run() {
     let startup = startup::url_args(&args);
 
     // Pick the profile before anything touches the disk. Each non-default profile runs under its
-    // own app identifier, which keys the single-instance lock below (see profiles.rs).
+    // own app identifier, which keys the single-instance lock below (see `profiles`).
     let mut context = tauri::generate_context!();
     let base_identifier = context.config().identifier.clone();
     let profile = profiles::init(&base_identifier, &args, host::profile_override());

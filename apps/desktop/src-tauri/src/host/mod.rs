@@ -80,7 +80,7 @@ pub fn is_private_window(label: &str) -> bool {
     label.starts_with(crate::incognito::LABEL_PREFIX)
 }
 
-/// The main window or one of the other normal windows (`window-N`, see sessions.rs).
+/// The main window or one of the other normal windows (`window-N`, see `session`).
 pub fn is_normal_window(label: &str) -> bool {
     label == MAIN || crate::session::is_extra_window(label)
 }
@@ -546,7 +546,7 @@ pub fn profile_override() -> Option<PathBuf> {
 }
 
 pub fn init_services(app: &AppHandle) -> tauri::Result<()> {
-    // The profile this process runs (chosen in `main`, see profiles.rs) owns every data folder.
+    // The profile this process runs (chosen in `app::run`, see `profiles`) owns every data folder.
     let paths: Paths = crate::profiles::active().paths();
     let _ = std::fs::create_dir_all(&paths.roaming);
     let _ = std::fs::create_dir_all(&paths.local);
