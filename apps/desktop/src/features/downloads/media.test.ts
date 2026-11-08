@@ -7,7 +7,7 @@ import {
   mediaMeta,
   mediaTitle,
 } from "./media.ts";
-import type { DownloadItem, MediaItem } from "../../shared/types.ts";
+import type { DownloadItem, MediaItem } from "./types.ts";
 
 const item = (over: Partial<MediaItem> = {}): MediaItem => ({
   id: 1,

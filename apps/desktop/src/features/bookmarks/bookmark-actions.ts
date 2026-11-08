@@ -9,7 +9,8 @@ import { ui } from "../../shared/ui/ui.svelte";
 import { type AnchorRect, type MenuMods } from "../../shared/ui/menu";
 import { bookmarksIn, nodeLabel } from "./bookmarks";
 import { isNewTab, isWebUrl } from "../../shared/url";
-import type { BookmarkNode, Tab } from "../../shared/types";
+import type { BookmarkNode } from "./types";
+import type { Tab } from "../browser/types";
 
 // ---------------------------------------------------------------------------------------------
 // Opening

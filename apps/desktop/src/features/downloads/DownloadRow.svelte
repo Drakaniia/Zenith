@@ -5,7 +5,7 @@
   import { timeAgo } from '$shared/format';
   import { ui } from '$shared/ui/ui.svelte';
   import { downloadStatus } from './media';
-  import type { DownloadItem } from '$shared/types';
+  import type { DownloadItem } from './types';
   import type { IconName } from '$shared/ui/icons';
 
   let { d, compact = false }: { d: DownloadItem; compact?: boolean } = $props();

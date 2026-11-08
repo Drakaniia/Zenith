@@ -8,7 +8,7 @@
   import { api } from '$platform/ipc';
   import { appMenu } from '../../app/menus';
   import { withHint } from '../../app/actions';
-  import { incognito } from '$platform/app.svelte';
+  import { incognito } from '$features/window/window.svelte';
 
   // Zen's #zen-sidebar-top-buttons. In the single-toolbar layout it holds the app menu, the
   // extensions button and the compact-mode toggle, then (after a spacer) back/forward/reload.

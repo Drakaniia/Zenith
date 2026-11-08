@@ -1,6 +1,6 @@
 // Browser profiles: pure helpers for the avatar button and the profile dialog. The profiles
 // themselves live in the backend (profiles.rs); each one runs in its own Zenith process.
-import type { ProfileEntry } from "../../shared/types";
+import type { ProfileEntry } from "./types";
 
 export const MAX_PROFILE_NAME = 40;
 /** Size (both sides) of a rendered profile picture; the backend accepts only this size. */

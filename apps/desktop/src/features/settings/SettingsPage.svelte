@@ -15,13 +15,14 @@
   import { displayChord } from '$features/shortcuts/shortcuts';
   import { SEARCH_ENGINES } from '$shared/url';
   import { SIDEBAR_POSITIONS, isStrip, positionHint } from '$features/sidebar/sidebar-position';
-  import { appInfo, incognito } from '$platform/app.svelte';
+  import { appInfo, incognito } from '$features/window/window.svelte';
   import { onboarding } from '$features/onboarding/onboarding.svelte';
   import { ACCENT_NAMES, normalizeHomepage } from '$features/onboarding/onboarding-flow';
   import { browser, SPACE_COLORS } from '$features/browser/browser.svelte';
   import { updates, updateLine } from '$features/updates/updates.svelte';
   import { timeAgo } from '$shared/format';
-  import type { BlockerStats, MemoryStats } from '$shared/types';
+  import type { BlockerStats } from '$features/blocker/types';
+  import type { MemoryStats } from './types';
   import type { IconName } from '$shared/ui/icons';
 
   let { section = '' }: { section?: string } = $props();

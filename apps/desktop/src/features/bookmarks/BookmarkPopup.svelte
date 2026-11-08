@@ -12,7 +12,7 @@
   import { focusAfterLayout, overlayLease } from '$platform/layout.svelte';
   import { deleteNodes } from './bookmark-actions';
   import { faviconFor } from '$shared/favicons';
-  import type { BookmarkPatch } from '$shared/types';
+  import type { BookmarkPatch } from './types';
 
   // Zen's "Edit bookmark" panel under the address bar's bookmark button: name, location and
   // workspaces, "Remove bookmark" and "Save". The star and Ctrl+D have already bookmarked the page

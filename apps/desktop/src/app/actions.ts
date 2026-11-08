@@ -15,7 +15,7 @@ import {
 } from "../features/bookmarks/bookmark-actions";
 import { settings } from "../features/settings/settings.svelte";
 import { ui } from "../shared/ui/ui.svelte";
-import type { SplitLayout, Tab } from "../shared/types";
+import type { SplitLayout, Tab } from "../features/browser/types";
 import {
   NEW_TAB_URL,
   displayHost,
@@ -28,7 +28,7 @@ import {
 } from "../shared/url";
 import type { IconName } from "../shared/ui/icons";
 import { ACTIONS, chordLabel } from "../features/shortcuts/shortcuts";
-import { incognito } from "../platform/app.svelte";
+import { incognito } from "../features/window/window.svelte";
 import { onboarding } from "../features/onboarding/onboarding.svelte";
 import { notes } from "../features/notes/notes.svelte";
 import { makeDefaultBrowser } from "../features/default-browser/default-browser";

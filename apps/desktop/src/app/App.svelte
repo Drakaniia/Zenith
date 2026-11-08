@@ -17,7 +17,7 @@
   import { bmDnd } from '$features/bookmarks/bookmark-dnd.svelte';
   import { followLayout, overlay, overlayHold, overlayLease, scheduleLayout, setLayoutRegistry } from '$platform/layout.svelte';
   import { startSleepScheduler } from '$features/browser/sleep';
-  import { appInfo, incognito } from '$platform/app.svelte';
+  import { appInfo, incognito } from '$features/window/window.svelte';
   import { updates } from '$features/updates/updates.svelte';
   import { promptDefaultBrowser } from '$features/default-browser/default-browser';
   import { isStrip } from '$features/sidebar/sidebar-position';

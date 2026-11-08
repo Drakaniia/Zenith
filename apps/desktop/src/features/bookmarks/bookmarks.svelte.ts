@@ -20,7 +20,7 @@ import {
   tagCounts,
   toTree,
 } from "./bookmarks";
-import type { BookmarkNode, BookmarkPatch, NewBookmarkNode } from "$shared/types";
+import type { BookmarkNode, BookmarkPatch, NewBookmarkNode } from "./types";
 
 /** What deleting a node took away, so that "Undo" can put it back where it was. */
 export interface RemovedNode {

@@ -3,13 +3,8 @@ import { api } from "$platform/ipc";
 import { browser } from "$features/browser/browser.svelte";
 import { settings } from "$features/settings/settings.svelte";
 import { ui } from "$shared/ui/ui.svelte";
-import type {
-  ExtensionInfo,
-  ExtensionUpdate,
-  InstallEvent,
-  InstallOffer,
-  PopupAnchor,
-} from "$shared/types";
+import type { ExtensionInfo, ExtensionUpdate, InstallEvent, InstallOffer } from "./types";
+import type { PopupAnchor } from "$features/browser/types";
 
 export const WEB_STORE_URL = "https://chromewebstore.google.com/category/extensions";
 

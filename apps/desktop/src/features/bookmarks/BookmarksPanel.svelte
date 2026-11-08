@@ -12,7 +12,8 @@
   import { bookmarkNodeMenu, rootIcon } from '../../app/menus';
   import { copyNodes, deleteNodes, mouseHow, openBookmark, openHow, pasteNodes } from './bookmark-actions';
   import { displayHost, prettyUrl } from '$shared/url';
-  import type { BookmarkNode, HistoryEntry } from '$shared/types';
+  import type { BookmarkNode } from './types';
+  import type { HistoryEntry } from '$features/history/types';
 
   // Zen's bookmarks sidebar (Ctrl+B), between the tab sidebar and the page: the whole tree with
   // a search box on top. Its title switches to the history list, as Firefox's sidebar does.

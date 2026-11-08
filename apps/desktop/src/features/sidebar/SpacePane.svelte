@@ -11,7 +11,7 @@
   import { settings } from '$features/settings/settings.svelte';
   import { spaceMenu } from '../../app/menus';
   import { ui } from '$shared/ui/ui.svelte';
-  import type { Space, Tab, TabId } from '$shared/types';
+  import type { Space, Tab, TabId } from '$features/browser/types';
 
   // One Zen workspace column: indicator, pinned section (folders and pinned tabs), separator
   // with "Clear", the New Tab button and the regular tabs.

@@ -1,4 +1,5 @@
-import type { StartupInfo } from "$shared/types";
+// This window: what the backend reported when its UI became ready, and whether it is incognito.
+import type { StartupInfo } from "./types";
 
 class AppInfo {
   info = $state<StartupInfo | null>(null);

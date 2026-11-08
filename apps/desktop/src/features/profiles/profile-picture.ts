@@ -3,7 +3,7 @@
 // the window and desktop-shortcut icons.
 import { PROFILE_EMOJI, type ProfileEmoji } from "./generated/profile-avatars";
 import { MAX_PICTURE_BYTES, PROFILE_ICON_SIZE, centerSquare, emojiName, profileInitial } from "./profiles";
-import type { ProfileInfo } from "../../shared/types";
+import type { ProfileInfo } from "./types";
 
 /** How much of the circle an emoji covers. */
 const EMOJI_SCALE = 0.62;

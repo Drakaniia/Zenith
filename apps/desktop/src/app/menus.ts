@@ -34,7 +34,8 @@ import { faviconFor } from "../shared/favicons";
 import { settings, type BookmarksBarMode } from "../features/settings/settings.svelte";
 import { ui } from "../shared/ui/ui.svelte";
 import { type MenuItem } from "../shared/ui/menu";
-import type { BookmarkNode, Space, Tab } from "../shared/types";
+import type { BookmarkNode } from "../features/bookmarks/types";
+import type { Space, Tab } from "../features/browser/types";
 import { hostOf, isWebUrl, siteOf } from "../shared/url";
 import { SIDEBAR_POSITIONS } from "../features/sidebar/sidebar-position";
 

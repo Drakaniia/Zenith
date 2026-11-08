@@ -4,7 +4,7 @@
   import DownloadRow from './DownloadRow.svelte';
   import { downloads } from './downloads.svelte';
   import { settings } from '$features/settings/settings.svelte';
-  import { appInfo } from '$platform/app.svelte';
+  import { appInfo } from '$features/window/window.svelte';
   import { api } from '$platform/ipc';
 
   let query = $state('');

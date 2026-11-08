@@ -17,7 +17,7 @@
   import { scoreAny } from './fuzzy';
   import { NEW_TAB_URL, SEARCH_ENGINES, isWebUrl, normalizeInput, prettyUrl, searchUrl, titleFor } from '$shared/url';
   import { autofill, popularCandidates, type Autofill, type AutofillCandidate } from './autocomplete';
-  import type { HistoryEntry } from '$shared/types';
+  import type { HistoryEntry } from '$features/history/types';
   import type { IconName } from '$shared/ui/icons';
 
   type How = 'enter' | 'newTab' | 'glance';

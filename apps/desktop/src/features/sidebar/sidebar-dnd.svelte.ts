@@ -5,7 +5,7 @@ import { ui } from "$shared/ui/ui.svelte";
 import { bookmarks } from "$features/bookmarks/bookmarks.svelte";
 import { ROOT_TOOLBAR } from "$features/bookmarks/bookmarks";
 import { isWebUrl } from "$shared/url";
-import type { TabId } from "$shared/types";
+import type { TabId } from "$features/browser/types";
 
 export type Zone = "essentials" | "pinned" | "tabs";
 export type Target =

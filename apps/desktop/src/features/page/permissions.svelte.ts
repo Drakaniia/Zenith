@@ -1,5 +1,5 @@
 // Site permission requests (camera, location, notifications, …) waiting for an answer.
-import type { PermissionRequest } from "$shared/types";
+import type { PermissionRequest } from "./types";
 import { api } from "$platform/ipc";
 
 class PermissionStore {

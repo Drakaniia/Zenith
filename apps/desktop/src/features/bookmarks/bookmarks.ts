@@ -2,7 +2,7 @@
 // logic (lookup, search, keywords, workspace visibility, drag-and-drop planning) can be tested
 // without the UI. The reactive store that holds the nodes is bookmarks.svelte.ts. Like the other
 // pure modules it has no runtime imports, so Node's test runner can load it as it is.
-import type { BookmarkNode, NewBookmarkNode } from "../../shared/types";
+import type { BookmarkNode, NewBookmarkNode } from "./types";
 
 /** Ids of the three built-in folders (fixed by the backend). Zen/Firefox call them the
  *  Bookmarks Toolbar (shown in the window), the Bookmarks Menu (reached from the sidebar,

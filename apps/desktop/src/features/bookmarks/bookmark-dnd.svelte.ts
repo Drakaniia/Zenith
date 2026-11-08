@@ -10,7 +10,7 @@
 import { bookmarks } from "./bookmarks.svelte";
 import { canMoveInto, kids } from "./bookmarks";
 import { ui } from "$shared/ui/ui.svelte";
-import type { BookmarkNode } from "$shared/types";
+import type { BookmarkNode } from "./types";
 
 export interface DropTarget {
   parent: number;

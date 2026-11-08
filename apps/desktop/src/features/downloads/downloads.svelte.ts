@@ -1,5 +1,5 @@
 // The downloads list: WebView2 downloads and media downloader jobs, newest first.
-import type { DownloadItem } from "$shared/types";
+import type { DownloadItem } from "./types";
 import { api } from "$platform/ipc";
 
 class DownloadStore {

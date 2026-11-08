@@ -2,14 +2,14 @@
   import { fade, scale } from 'svelte/transition';
   import { tick } from 'svelte';
   import Icon from '$shared/ui/Icon.svelte';
-  import { appInfo } from '$platform/app.svelte';
+  import { appInfo } from '$features/window/window.svelte';
   import { browser } from '$features/browser/browser.svelte';
   import { api } from '$platform/ipc';
   import { ui } from '$shared/ui/ui.svelte';
   import { focusAfterLayout, overlayLease } from '$platform/layout.svelte';
   import { MAX_PROFILE_NAME, cleanProfileName, deleteBlocker, nextProfileColor, profileInitial, textOn } from './profiles';
   import { EMOJI_CHOICES, avatarEmoji, pictureFromFile, renderEmojiIcon } from './profile-picture';
-  import type { ProfileEntry, ProfilesView } from '$shared/types';
+  import type { ProfileEntry, ProfilesView } from './types';
   import ProfileAvatar from './ProfileAvatar.svelte';
 
   // Profiles: the list (open, edit, new) and the form for one profile (name, picture, colour,

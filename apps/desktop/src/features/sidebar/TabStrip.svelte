@@ -17,8 +17,8 @@
   import { sidebarMenu, spaceMenu, tabMenu } from '../../app/menus';
   import { runAction, withHint } from '../../app/actions';
   import { settings } from '$features/settings/settings.svelte';
-  import { incognito } from '$platform/app.svelte';
-  import type { Folder, Tab } from '$shared/types';
+  import { incognito } from '$features/window/window.svelte';
+  import type { Folder, Tab } from '$features/browser/types';
 
   // The sidebar as a horizontal tab strip (sidebar position top or bottom): Essentials and pinned
   // tabs as icons, pinned folders, the space's tabs and the New Tab button, then the sidebar's

@@ -1,11 +1,11 @@
 <script lang="ts">
-  import { appInfo } from '$platform/app.svelte';
+  import { appInfo } from '$features/window/window.svelte';
   import { api } from '$platform/ipc';
   import { ui } from '$shared/ui/ui.svelte';
   import { type MenuItem } from '$shared/ui/menu';
   import { textOn } from './profiles';
   import { avatarFace } from './profile-picture';
-  import type { ProfileInfo } from '$shared/types';
+  import type { ProfileInfo } from './types';
   import ProfileAvatar from './ProfileAvatar.svelte';
 
   /** A menu row's badge for a profile: its picture, emoji or initial. */

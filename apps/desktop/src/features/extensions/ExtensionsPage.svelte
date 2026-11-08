@@ -7,8 +7,8 @@
   import { ui } from '$shared/ui/ui.svelte';
   import { settings } from '$features/settings/settings.svelte';
   import { extensions, storeUrl } from './extensions.svelte';
-  import type { ExtensionInfo } from '$shared/types';
-  import { incognito } from '$platform/app.svelte';
+  import type { ExtensionInfo } from './types';
+  import { incognito } from '$features/window/window.svelte';
 
   const userItems = $derived(extensions.user);
   const builtinItems = $derived(extensions.builtin);

@@ -7,7 +7,7 @@
   import { copyText } from '../../app/actions';
   import { ui } from '$shared/ui/ui.svelte';
   import { springEase } from '$shared/ui/motion';
-  import type { GlanceState } from '$shared/types';
+  import type { GlanceState } from './types';
   import { api } from '$platform/ipc';
 
   // Zen's Glance (src/zen/glance): a page previewed in a card over the current tab, 80 % of the

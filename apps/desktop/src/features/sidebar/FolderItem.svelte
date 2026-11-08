@@ -6,7 +6,7 @@
   import { dnd } from './sidebar-dnd.svelte';
   import { ui } from '$shared/ui/ui.svelte';
   import { type MenuItem } from '$shared/ui/menu';
-  import type { Folder, Space } from '$shared/types';
+  import type { Folder, Space } from '$features/browser/types';
 
   // A Zen tab folder (src/zen/folders): header with a two-layer folder icon that opens when the
   // folder is expanded, and its tabs indented below. A collapsed folder keeps its active tab.

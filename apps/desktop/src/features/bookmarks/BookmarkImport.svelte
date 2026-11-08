@@ -9,7 +9,7 @@
   import { focusAfterLayout, overlayLease } from '$platform/layout.svelte';
   import { plural } from '$features/onboarding/onboarding-flow';
   import { importBookmarksFile } from './bookmark-actions';
-  import type { ImportSource } from '$shared/types';
+  import type { ImportSource } from './types';
 
   // "Import bookmarks…": from a browser found on this PC, or from an exported HTML file.
   const TILES: Record<string, [string, string]> = {

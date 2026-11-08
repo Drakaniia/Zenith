@@ -5,7 +5,7 @@
   import { bookmarks as bookmarkStore } from '$features/bookmarks/bookmarks.svelte';
   import { api } from '$platform/ipc';
   import { plural } from '../onboarding-flow';
-  import type { ImportSource } from '$shared/types';
+  import type { ImportSource } from '$features/bookmarks/types';
 
   /** Brand-ish colours for the letter tiles (no logos are bundled). */
   const TILES: Record<string, [string, string]> = {

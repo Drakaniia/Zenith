@@ -9,7 +9,7 @@ import {
   profileInitial,
   textOn,
 } from "./profiles.ts";
-import type { ProfileEntry } from "../../shared/types.ts";
+import type { ProfileEntry } from "./types.ts";
 
 const entry = (id: string, extra: Partial<ProfileEntry> = {}): ProfileEntry => ({
   id,

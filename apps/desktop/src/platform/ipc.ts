@@ -2,30 +2,17 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
-import type {
-  BlockerStats,
-  BookmarkBackup,
-  BookmarkNode,
-  BookmarkPatch,
-  DownloadItem,
-  ExtensionInfo,
-  ExtensionUpdate,
-  HistoryEntry,
-  InstallEvent,
-  ImportResult,
-  ImportSource,
-  MediaReport,
-  MemoryStats,
-  NewBookmarkNode,
-  OpenRequest,
-  PermissionRequest,
-  ProfileInfo,
-  ProfilesView,
-  StartupInfo,
-  TabCreated,
-  TabPatch,
-  UpdateStatus,
-} from "../shared/types";
+import type { BlockerStats } from "../features/blocker/types";
+import type { BookmarkBackup, BookmarkNode, BookmarkPatch, ImportResult, ImportSource, NewBookmarkNode } from "../features/bookmarks/types";
+import type { DownloadItem, MediaReport } from "../features/downloads/types";
+import type { ExtensionInfo, ExtensionUpdate, InstallEvent } from "../features/extensions/types";
+import type { HistoryEntry } from "../features/history/types";
+import type { MemoryStats } from "../features/settings/types";
+import type { OpenRequest, TabCreated, TabPatch } from "../features/browser/types";
+import type { PermissionRequest } from "../features/page/types";
+import type { ProfileInfo, ProfilesView } from "../features/profiles/types";
+import type { StartupInfo } from "../features/window/types";
+import type { UpdateStatus } from "../features/updates/types";
 import type { Note } from "../features/notes/notes";
 import type { CardSaveOffer } from "../features/passwords/cards/cards";
 import type { PasswordSaveOffer, PasswordSuggest, VaultStatus } from "../features/passwords/passwords";

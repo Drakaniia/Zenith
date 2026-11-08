@@ -12,7 +12,7 @@
   import { browser } from './browser.svelte';
   import { pane } from '$platform/layout.svelte';
   import { displayHost, internalPage, isNewTab, titleFor } from '$shared/url';
-  import type { Tab } from '$shared/types';
+  import type { Tab } from './types';
 
   let { tab }: { tab: Tab } = $props();
   const page = $derived(internalPage(tab.url));

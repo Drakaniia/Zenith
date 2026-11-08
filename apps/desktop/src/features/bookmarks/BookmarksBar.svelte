@@ -11,7 +11,7 @@
   import { faviconFor } from '$shared/favicons';
   import { bookmarkFolderItems, bookmarkItem, bookmarkNodeMenu, bookmarksBarMenu, rootIcon } from '../../app/menus';
   import { mouseHow, openBookmark } from './bookmark-actions';
-  import type { BookmarkNode } from '$shared/types';
+  import type { BookmarkNode } from './types';
 
   // Zen's bookmarks toolbar: the Bookmarks Toolbar folder as a row of buttons (a bookmark opens
   // on click, a folder drops down), a » menu for what doesn't fit, and Other Bookmarks at the end.

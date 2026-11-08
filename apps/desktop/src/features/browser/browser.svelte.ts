@@ -3,18 +3,7 @@
 import { api } from "$platform/ipc";
 import { settings } from "$features/settings/settings.svelte";
 import { rememberFavicon } from "$shared/favicons";
-import type {
-  ClosedTab,
-  Folder,
-  GlanceState,
-  PopupAnchor,
-  Space,
-  SpaceId,
-  SplitLayout,
-  Tab,
-  TabId,
-  TabPatch,
-} from "$shared/types";
+import type { ClosedTab, Folder, GlanceState, PopupAnchor, Space, SpaceId, SplitLayout, Tab, TabId, TabPatch } from "./types";
 import {
   NEW_TAB_URL,
   hostOf,

@@ -12,9 +12,10 @@
   import { MAX_SAVED_SITES, TILE_METRICS, composeTiles, greetingFor, textTone, type SavedSite } from './startpage';
   import { ui } from '$shared/ui/ui.svelte';
   import { api } from '$platform/ipc';
-  import { incognito } from '$platform/app.svelte';
+  import { incognito } from '$features/window/window.svelte';
   import { SEARCH_ENGINES, displayHost, hostOf, titleFor } from '$shared/url';
-  import type { HistoryEntry, Tab } from '$shared/types';
+  import type { HistoryEntry } from '$features/history/types';
+  import type { Tab } from '$features/browser/types';
 
   // The new-tab page is drawn by the chrome UI (no webview, no network requests).
   let { tab }: { tab?: Tab } = $props();

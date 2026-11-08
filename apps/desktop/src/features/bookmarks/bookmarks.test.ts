@@ -36,7 +36,7 @@ import {
   toTree,
   type MovePlan,
 } from "./bookmarks.ts";
-import type { BookmarkNode } from "../../shared/types.ts";
+import type { BookmarkNode } from "./types.ts";
 
 type Spec = [id: number, parent: number, kind: BookmarkNode["kind"], title: string, extra?: Partial<BookmarkNode>];
 

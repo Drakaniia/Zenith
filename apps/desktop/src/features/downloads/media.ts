@@ -1,5 +1,5 @@
 // Display helpers for the media downloader (kept free of Svelte state so they can be unit tested).
-import type { DownloadItem, MediaItem } from "../../shared/types";
+import type { DownloadItem, MediaItem } from "./types";
 
 /** 3:07, 1:02:05 */
 export function formatDuration(seconds: number): string {

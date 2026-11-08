@@ -1,7 +1,7 @@
 // Transient UI state: which overlay is open (palette, menu, find bar, popovers, dialogs), toasts
 // and the compact-mode reveal. Feature stores own their data; this only coordinates what shows.
 import type { IconName } from "./icons";
-import type { TabId } from "../types";
+import type { TabId } from "$features/browser/types";
 import type { AnchorRect, MenuItem } from "./menu";
 import { api } from "$platform/ipc";
 

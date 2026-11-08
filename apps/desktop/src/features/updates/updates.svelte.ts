@@ -2,7 +2,7 @@
 import { api } from "$platform/ipc";
 import { browser } from "$features/browser/browser.svelte";
 import { ui } from "$shared/ui/ui.svelte";
-import type { UpdateStatus } from "$shared/types";
+import type { UpdateStatus } from "./types";
 
 class UpdateStore {
   status = $state<UpdateStatus>({ state: "idle", currentVersion: "" });

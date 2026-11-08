@@ -11,7 +11,7 @@
   import { api } from '$platform/ipc';
   import { appMenu } from '../../app/menus';
   import { openInternal, runAction, shortcutHint, withHint } from '../../app/actions';
-  import { appInfo, incognito } from '$platform/app.svelte';
+  import { appInfo, incognito } from '$features/window/window.svelte';
 
   // Zen's #nav-bar for the multiple-toolbars and collapsed layouts (38px): navigation buttons,
   // a centred address bar, page and app menus, and the window controls at the end.

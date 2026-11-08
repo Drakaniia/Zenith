@@ -4,7 +4,7 @@ import { browser } from "../browser/browser.svelte";
 import { settings } from "../settings/settings.svelte";
 import { ui } from "../../shared/ui/ui.svelte";
 import { hostOf } from "../../shared/url";
-import type { TabId } from "../../shared/types";
+import type { TabId } from "../browser/types";
 
 export interface Chatbot {
   name: string;

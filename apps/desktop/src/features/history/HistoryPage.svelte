@@ -6,7 +6,7 @@
   import { ui } from '$shared/ui/ui.svelte';
   import { openInternal } from '../../app/actions';
   import { displayHost, prettyUrl } from '$shared/url';
-  import type { HistoryEntry } from '$shared/types';
+  import type { HistoryEntry } from './types';
 
   const PAGE = 80;
   let query = $state('');

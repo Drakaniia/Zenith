@@ -10,7 +10,7 @@
   import { copyText, openInternal } from '../../app/actions';
   import { kindLabel, mediaMeta, mediaTitle } from './media';
   import { displayHost } from '$shared/url';
-  import type { MediaItem, MediaReport } from '$shared/types';
+  import type { MediaItem, MediaReport } from './types';
   import type { IconName } from '$shared/ui/icons';
 
   const open = $derived(ui.media);

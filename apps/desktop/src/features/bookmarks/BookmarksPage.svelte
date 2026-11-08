@@ -40,7 +40,7 @@
     restoreBookmarks,
   } from './bookmark-actions';
   import { isWebUrl } from '$shared/url';
-  import type { BookmarkBackup, BookmarkNode, BookmarkPatch } from '$shared/types';
+  import type { BookmarkBackup, BookmarkNode, BookmarkPatch } from './types';
 
   // The Bookmarks Library (Ctrl+Shift+O), laid out like Zen's: a tree of History, Downloads, tags
   // and all bookmarks on the left, the contents of the chosen folder as a table (Name, Tags,

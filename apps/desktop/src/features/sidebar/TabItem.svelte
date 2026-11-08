@@ -7,7 +7,7 @@
   import { titleFor } from '$shared/url';
   import { ui } from '$shared/ui/ui.svelte';
 
-  import type { Tab } from '$shared/types';
+  import type { Tab } from '$features/browser/types';
 
   // A sidebar tab, modelled on Zen's vertical tab (zen-tabs/vertical-tabs.css).
   let {
