@@ -1,6 +1,8 @@
 # Restructure spec: monorepo, feature-first frontend, domain-module backend
 
-Status: **proposed** (decisions confirmed 2026-11-08). Nothing in this document has been applied yet.
+Status: **implemented** (2026-11-08, branch `restructure`). The living description of the result is [contributing/project-structure.md](../apps/docs/src/content/docs/contributing/project-structure.md); this file is kept as the record of the decisions.
+
+Deviations from the plan below: the frontend's `types.ts` and `ipc.ts` were split fully (each feature has its own `types.ts` and `api.ts`, and declares its backend events by merging into `BackendEvents`); the dev preview mock lives in `app/preview/` (only `main.ts` loads it); there are additional features `window`, `blocker` and `toolbar`; the Rust `app/` also has `window.rs` and `startup.rs`; history, notes and download records were split out of `storage`; tests are colocated but stay excluded from `svelte-check` (adding `@types/node` and type-checking them is a follow-up); the import-cycle rule turned out to have no existing cycles to grandfather.
 
 This spec turns the single-app repository into a pnpm monorepo that can hold the Zenith browser and its documentation website, and reorganizes the app's code so it can keep growing without flat folders and 1,000-line files. It is a plan for moves and splits only: **no behavior changes**.
 

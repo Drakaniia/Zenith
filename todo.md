@@ -25,3 +25,5 @@ there is no color theme selection in the settings page
 /folder  i want to completely restructure, organize, split codebase into clean, because this project will grow,  soon there is a zenith website for docs.. propose ask_user_question for new clean folder structure and splitting and reorganizing codebase, into .md spec file
 
 the essentials tab did not survie on update restart
+
+can delete history in the list right from the search modal

@@ -26,6 +26,8 @@ jobs:
           workspaces: apps/desktop/src-tauri -> target
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+      - name: Check project structure
+        run: pnpm check:structure
       - name: Check frontend
         run: pnpm check
       - name: Test frontend
