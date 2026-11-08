@@ -60,8 +60,6 @@ export function kids(ix: BookmarkIndex, id: number): readonly BookmarkNode[] {
   return ix.children.get(id) ?? NONE;
 }
 
-export const isRoot = (n: Pick<BookmarkNode, "parent">) => n.parent === null;
-export const isFolder = (n: Pick<BookmarkNode, "kind"> | undefined) => n?.kind === "folder";
 
 /** An address without scheme, "www." and trailing slash (url.ts's `prettyUrl`, kept here so this
  *  module stays free of runtime imports). */
@@ -120,28 +118,12 @@ export function isInside(ix: BookmarkIndex, id: number, folderId: number): boole
   return false;
 }
 
-/** Everything below a folder, parents before their children, in display order. */
-export function descendants(ix: BookmarkIndex, id: number): BookmarkNode[] {
-  const out: BookmarkNode[] = [];
-  const walk = (folder: number) => {
-    for (const c of kids(ix, folder)) {
-      out.push(c);
-      if (c.kind === "folder") walk(c.id);
-    }
-  };
-  walk(id);
-  return out;
-}
 
 /** The bookmarks directly in a folder (what "Open all in tabs" opens). */
 export function bookmarksIn(ix: BookmarkIndex, id: number): BookmarkNode[] {
   return kids(ix, id).filter((n) => n.kind === "bookmark");
 }
 
-/** Bookmarks in a folder and all its subfolders. */
-export function countBookmarks(ix: BookmarkIndex, id: number): number {
-  return descendants(ix, id).filter((n) => n.kind === "bookmark").length;
-}
 
 // ---------------------------------------------------------------------------------------------
 // Workspaces
@@ -334,25 +316,6 @@ export function recentFolders(ix: BookmarkIndex, count: number): BookmarkNode[] 
   return out;
 }
 
-export interface FolderOption {
-  id: number;
-  title: string;
-  depth: number;
-}
-
-/** Every folder, indented as a tree (roots first), for the location pickers. `exclude` leaves out
- *  a folder and everything below it (a folder can't be moved into itself). */
-export function folderOptions(ix: BookmarkIndex, opts: { exclude?: number } = {}): FolderOption[] {
-  const out: FolderOption[] = [];
-  const walk = (id: number, depth: number) => {
-    const n = ix.byId.get(id);
-    if (!n || n.kind !== "folder" || id === opts.exclude) return;
-    out.push({ id, title: n.title || ROOT_TITLES[id] || "Untitled folder", depth });
-    for (const c of kids(ix, id)) if (c.kind === "folder") walk(c.id, depth + 1);
-  };
-  for (const root of ROOTS) walk(root, 0);
-  return out;
-}
 
 export function compareText(a: string, b: string): number {
   return a.localeCompare(b, undefined, { sensitivity: "base", numeric: true });

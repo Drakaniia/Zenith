@@ -1,5 +1,6 @@
 // Display helpers for the media downloader (kept free of Svelte state so they can be unit tested).
 import type { DownloadItem, MediaItem } from "./types";
+import { formatBytes as formatSize } from "../../shared/format.ts";
 
 /** 3:07, 1:02:05 */
 export function formatDuration(seconds: number): string {
@@ -11,16 +12,6 @@ export function formatDuration(seconds: number): string {
   return h > 0 ? `${h}:${String(m).padStart(2, "0")}:${sec}` : `${m}:${sec}`;
 }
 
-export function formatSize(n: number): string {
-  if (!n || n < 0) return "0 B";
-  const units = ["B", "KB", "MB", "GB", "TB"];
-  const i = Math.min(
-    units.length - 1,
-    Math.floor(Math.log(n) / Math.log(1024)),
-  );
-  const v = n / 1024 ** i;
-  return `${v >= 100 || i === 0 ? Math.round(v) : v.toFixed(1)} ${units[i]}`;
-}
 
 /** "HLS stream", "Live stream", "MP4 video", "MP3 audio". */
 export function kindLabel(

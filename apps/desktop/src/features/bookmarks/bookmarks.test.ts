@@ -11,9 +11,7 @@ import {
   bookmarksIn,
   buildIndex,
   canMoveInto,
-  countBookmarks,
-  descendants,
-  folderOptions,
+
   folderPath,
   formatTags,
   inSpace,
@@ -123,9 +121,9 @@ test("ancestors, paths and containment", () => {
   assert.ok(isInside(ix, 11, 11), "a folder is inside itself");
   assert.ok(!isInside(ix, 11, 14));
   assert.ok(!isInside(ix, 10, 11));
-  assert.deepEqual(ids(descendants(ix, 11)), [12, 13, 14]);
+
   assert.deepEqual(ids(bookmarksIn(ix, ROOT_TOOLBAR)), [10, 16], "only direct bookmarks");
-  assert.equal(countBookmarks(ix, ROOT_TOOLBAR), 4);
+
 });
 
 test("workspace bookmarks show only in their workspaces", () => {
@@ -254,20 +252,6 @@ test("recent bookmarks and folders are newest first; the built-in folders aren't
   assert.deepEqual(ids(recentFolders(ix, 1)), [21]);
 });
 
-test("folder options list the tree, optionally without one folder's subtree", () => {
-  const ix = buildIndex(sample());
-  assert.deepEqual(
-    folderOptions(ix).map((f) => [f.id, f.depth]),
-    [
-      [ROOT_TOOLBAR, 0],
-      [11, 1],
-      [13, 2],
-      [ROOT_MENU, 0],
-      [ROOT_OTHER, 0],
-    ],
-  );
-  assert.deepEqual(ids(folderOptions(ix, { exclude: 11 })), [ROOT_TOOLBAR, ROOT_MENU, ROOT_OTHER]);
-});
 
 test("sorting by name puts folders first and sorts each stretch between separators on its own", () => {
   const ix = buildIndex(
