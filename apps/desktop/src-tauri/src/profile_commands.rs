@@ -122,7 +122,7 @@ fn view() -> ProfilesView {
 /// Retitles this process's windows after its profile was renamed.
 fn retitle(app: &AppHandle) {
     for (label, w) in app.webview_windows() {
-        let _ = w.set_title(&crate::window_title(host::is_private_window(&label)));
+        let _ = w.set_title(&crate::app::window::window_title(host::is_private_window(&label)));
     }
 }
 

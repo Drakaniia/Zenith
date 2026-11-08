@@ -8,8 +8,6 @@
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-use std::collections::HashMap;
-
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, WebviewWindow};
 use tauri_plugin_dialog::DialogExt;
@@ -24,133 +22,10 @@ use crate::keys::BindingSpec;
 use crate::store::{self, DownloadRecord, HistoryEntry, Note};
 use crate::{blocker, bookmarks, importer, net, sessions, urls, win};
 
-type CmdResult<T> = Result<T, String>;
-
-async fn on_main<T: Send + 'static>(app: &AppHandle, f: impl FnOnce() -> T + Send + 'static) -> CmdResult<T> {
-    let (tx, rx) = tokio::sync::oneshot::channel();
-    app.run_on_main_thread(move || {
-        let _ = tx.send(f());
-    })
-    .map_err(|e| e.to_string())?;
-    rx.await.map_err(|_| "the UI thread did not respond".to_string())
-}
-
-/// Like `on_main`, for WebView2 calls that complete through a callback.
-async fn on_main_cb<T: Send + 'static>(
-    app: &AppHandle,
-    f: impl FnOnce(Box<dyn FnOnce(T)>) + Send + 'static,
-) -> CmdResult<T> {
-    let (tx, rx) = tokio::sync::oneshot::channel();
-    app.run_on_main_thread(move || {
-        f(Box::new(move |v| {
-            let _ = tx.send(v);
-        }))
-    })
-    .map_err(|e| e.to_string())?;
-    rx.await.map_err(|_| "the operation was dropped".to_string())
-}
-
-async fn blocking<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> CmdResult<T> {
-    tauri::async_runtime::spawn_blocking(f).await.map_err(|e| e.to_string())
-}
+use crate::app::command::{blocking, on_main, on_main_cb, private, refuse_in_incognito, CmdResult};
 
 // ---------------------------------------------------------------------------------------------
 // Startup and window
-
-/// Addresses each window opens once its UI is ready, by window label.
-static STARTUP_URLS: Mutex<Option<HashMap<String, Vec<String>>>> = Mutex::new(None);
-
-pub fn set_startup_urls(label: &str, urls: Vec<String>) {
-    if let Ok(mut s) = STARTUP_URLS.lock() {
-        s.get_or_insert_with(HashMap::new).insert(label.to_string(), urls);
-    }
-}
-
-fn take_startup_urls(label: &str) -> Vec<String> {
-    STARTUP_URLS
-        .lock()
-        .ok()
-        .and_then(|mut s| s.as_mut().and_then(|m| m.remove(label)))
-        .unwrap_or_default()
-}
-
-fn private(window: &WebviewWindow) -> bool {
-    host::is_private_window(window.label())
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct StartupInfo {
-    /// Running on a separate profile (ZENITH_PROFILE_DIR), e.g. an automated test instance.
-    test_profile: bool,
-    /// The browser profile this process runs (see profiles.rs).
-    profile: crate::profile_commands::ProfileInfo,
-    /// An incognito window (InPrivate pages, nothing saved).
-    incognito: bool,
-    startup_urls: Vec<String>,
-    windows11: bool,
-    webview_version: String,
-    version: String,
-    data_dir: String,
-    default_download_dir: String,
-}
-
-#[tauri::command]
-pub async fn ui_ready(app: AppHandle, window: WebviewWindow) -> CmdResult<StartupInfo> {
-    let incognito = private(&window);
-    let label = window.label().to_string();
-    let test_profile = host::profile_override().is_some() && !incognito;
-    let shown = window.clone();
-    on_main(&app, move || {
-        // Shown outside the host borrow: showing the window sends WM_SIZE, which relayouts tabs.
-        let _ = shown.show();
-        if shown.label() == host::MAIN && crate::RESTORE_MAXIMIZED.swap(false, std::sync::atomic::Ordering::SeqCst) {
-            let _ = shown.maximize();
-        }
-        // A separate-profile (test) instance must not steal focus from the user's window.
-        if !test_profile {
-            let _ = shown.set_focus();
-        }
-    })
-    .await?;
-    // Time from process start until the chrome UI is shown (read by scripts/measure.ps1).
-    if std::env::var_os("ZENITH_PERF").is_some() {
-        if let Some(started) = host::STARTED.get() {
-            let json = format!("{{\"startupMs\":{}}}", started.elapsed().as_millis());
-            let _ = store::write_atomic(&paths().local.join("perf.json"), json.as_bytes());
-        }
-    }
-    let startup_urls = take_startup_urls(&label);
-    let profile = blocking(crate::profile_commands::current_info).await?;
-    Ok(StartupInfo {
-        test_profile,
-        profile,
-        incognito,
-        startup_urls,
-        windows11: win::is_windows_11(),
-        webview_version: wry::webview_version().unwrap_or_default(),
-        version: env!("CARGO_PKG_VERSION").into(),
-        data_dir: paths().roaming.display().to_string(),
-        default_download_dir: app
-            .path()
-            .download_dir()
-            .map(|p| p.display().to_string())
-            .unwrap_or_default(),
-    })
-}
-
-#[tauri::command]
-pub async fn app_quit(app: AppHandle) -> CmdResult<()> {
-    crate::request_quit(&app);
-    Ok(())
-}
-
-/// Closes the calling window (after its UI saved what it keeps). Closing the last window quits.
-#[tauri::command]
-pub async fn window_close(app: AppHandle, window: WebviewWindow) -> CmdResult<()> {
-    crate::close_window(&app, window.label());
-    Ok(())
-}
 
 /// Opens another normal window (Ctrl+N). `session` is the calling window's snapshot: the new
 /// window gets its spaces, essentials and pinned tabs, but not its regular tabs.
@@ -158,7 +33,7 @@ pub async fn window_close(app: AppHandle, window: WebviewWindow) -> CmdResult<()
 pub async fn window_open(app: AppHandle, session: Option<String>) -> CmdResult<()> {
     let start = sessions::Start { data: session, keep: Some(false), fresh: true };
     std::thread::spawn(move || {
-        if let Err(e) = crate::open_normal_window(&app, start) {
+        if let Err(e) = crate::app::window::open_normal_window(&app, start) {
             eprintln!("[zenith] could not open a window: {e}");
         }
     });
@@ -172,9 +47,9 @@ pub async fn window_undo_close(app: AppHandle) -> CmdResult<bool> {
     let Some(closed) = sessions::pop_closed(main_open) else { return Ok(false) };
     std::thread::spawn(move || {
         let opened = match closed {
-            sessions::Closed::Main => crate::reopen_main_window(&app),
+            sessions::Closed::Main => crate::app::window::reopen_main_window(&app),
             sessions::Closed::Extra(data) => {
-                crate::open_normal_window(&app, sessions::Start { data: Some(data), keep: Some(true), fresh: true })
+                crate::app::window::open_normal_window(&app, sessions::Start { data: Some(data), keep: Some(true), fresh: true })
             }
         };
         if let Err(e) = opened {
@@ -198,48 +73,12 @@ pub async fn windows_restore(app: AppHandle, window: WebviewWindow, keep: bool) 
     std::thread::spawn(move || {
         for data in saved {
             let start = sessions::Start { data: Some(data), keep: Some(true), fresh: true };
-            if let Err(e) = crate::open_normal_window(&app, start) {
+            if let Err(e) = crate::app::window::open_normal_window(&app, start) {
                 eprintln!("[zenith] could not restore a window: {e}");
             }
         }
     });
     Ok(())
-}
-
-/// Firefox's Browser Toolbox and Browser Console: DevTools for this window's own UI. Release
-/// builds turn the UI's DevTools off; asking for them explicitly turns them on for the window.
-#[tauri::command]
-pub async fn chrome_devtools(app: AppHandle, window: WebviewWindow) -> CmdResult<()> {
-    on_main(&app, move || {
-        window
-            .with_webview(|pw| unsafe {
-                use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Settings;
-                let Ok(core) = pw.controller().CoreWebView2() else { return };
-                if let Ok(settings) = core.Settings() {
-                    let settings: ICoreWebView2Settings = settings;
-                    let _ = settings.SetAreDevToolsEnabled(true);
-                }
-                let _ = core.OpenDevToolsWindow();
-            })
-            .map_err(|e| e.to_string())
-    })
-    .await?
-}
-
-/// Ctrl+O: a file to open in a tab.
-#[tauri::command]
-pub async fn pick_file(app: AppHandle) -> CmdResult<Option<String>> {
-    blocking(move || {
-        app.dialog()
-            .file()
-            .set_title("Open file")
-            .add_filter("Web pages and documents", &["html", "htm", "xhtml", "shtml", "svg", "pdf", "txt", "xml", "json", "png", "jpg", "jpeg", "gif", "webp", "avif", "mp4", "webm", "mp3"])
-            .add_filter("All files", &["*"])
-            .blocking_pick_file()
-            .and_then(|p| p.into_path().ok())
-            .map(|p| p.display().to_string())
-    })
-    .await
 }
 
 /// Opens a new incognito window in this process, optionally with web addresses to load.
@@ -252,13 +91,6 @@ pub async fn incognito_open(urls: Option<Vec<String>>) -> CmdResult<()> {
         .filter(|u| u.starts_with("https://") || u.starts_with("http://"))
         .collect();
     crate::incognito::open_window(urls);
-    Ok(())
-}
-
-fn refuse_in_incognito(window: &WebviewWindow, what: &str) -> CmdResult<()> {
-    if private(window) {
-        return Err(format!("{what} is not available in an incognito window"));
-    }
     Ok(())
 }
 
@@ -986,34 +818,6 @@ pub async fn media_pick_ffmpeg(app: AppHandle) -> CmdResult<Option<String>> {
     .await
 }
 
-#[tauri::command]
-pub async fn open_path(path: String) -> CmdResult<()> {
-    if !std::path::Path::new(&path).exists() {
-        return Err("the file no longer exists".into());
-    }
-    blocking(move || win::shell_open(&path)).await?
-}
-
-#[tauri::command]
-pub async fn show_in_folder(path: String) -> CmdResult<()> {
-    blocking(move || win::show_in_folder(&path)).await?
-}
-
-#[tauri::command]
-pub async fn pick_folder(app: AppHandle, title: Option<String>) -> CmdResult<Option<String>> {
-    blocking(move || {
-        let mut dialog = app.dialog().file();
-        if let Some(t) = title {
-            dialog = dialog.set_title(t);
-        }
-        dialog
-            .blocking_pick_folder()
-            .and_then(|p| p.into_path().ok())
-            .map(|p| p.display().to_string())
-    })
-    .await
-}
-
 // ---------------------------------------------------------------------------------------------
 // Ad and tracker blocking
 
@@ -1311,11 +1115,6 @@ pub async fn update_restart(app: AppHandle, window: WebviewWindow) -> CmdResult<
         return Err("close your other Zenith profiles first: the update restarts all of them".into());
     }
     crate::updates::restart_after_quit();
-    crate::request_quit(&app);
+    crate::app::request_quit(&app);
     Ok(())
-}
-
-#[tauri::command]
-pub async fn clipboard_write(text: String) -> CmdResult<()> {
-    blocking(move || win::set_clipboard_text(&text)).await?
 }

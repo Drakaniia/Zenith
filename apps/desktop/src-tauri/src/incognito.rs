@@ -45,7 +45,7 @@ pub fn open_window(urls: Vec<String>) {
         .collect();
     let app = crate::host::app().clone();
     std::thread::spawn(move || {
-        if let Err(e) = crate::open_incognito_window(&app, urls) {
+        if let Err(e) = crate::app::window::open_incognito_window(&app, urls) {
             eprintln!("[zenith] could not open an incognito window: {e}");
         }
     });
