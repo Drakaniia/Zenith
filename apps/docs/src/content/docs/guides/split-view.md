@@ -15,7 +15,7 @@ Any of these work:
 - Drag a tab from the sidebar onto the page.
 - Right-click a tab and choose **Split with current tab**.
 - Choose **Split view** in the page menu, or **New split view** in the **+** menu at the bottom of the sidebar.
-- From [Glance](/guides/glance/), choose **Open in split view**.
+- From [Glance](../glance/), choose **Open in split view**.
 
 The split shows up as one row in the sidebar. The pane you're working in has a highlighted outline.
 

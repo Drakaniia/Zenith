@@ -64,6 +64,6 @@ Pages are Markdown files under `apps/docs/src/content/docs`. The sidebar is gene
 
 ## Next steps
 
-- [Architecture](/contributing/architecture/) explains how the pieces fit together.
-- [Releasing and updates](/contributing/releasing/) covers cutting a release.
-- [Measurements](/contributing/measurements/) lists size, startup and memory numbers and how to re-run them.
+- [Architecture](../architecture/) explains how the pieces fit together.
+- [Releasing and updates](../releasing/) covers cutting a release.
+- [Measurements](../measurements/) lists size, startup and memory numbers and how to re-run them.

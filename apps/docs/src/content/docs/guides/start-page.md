@@ -30,4 +30,4 @@ Click the **Customize start page** button on the start page. The panel has two t
 - **Your images**: add up to 12 of your own pictures.
 - **New background every day** moves through the gallery and your images on the first new tab of each day.
 
-Start-page settings and backgrounds belong to the [profile](/guides/profiles/) you're using.
+Start-page settings and backgrounds belong to the [profile](../profiles/) you're using.

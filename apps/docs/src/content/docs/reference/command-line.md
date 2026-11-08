@@ -22,7 +22,7 @@ If Zenith is already running with the same profile, the addresses open as new ta
 
 ## `--profile <id>`
 
-Opens a [profile](/guides/profiles/). `--profile=<id>` works too. The id is the short name Zenith gave the profile when you created it (for example `work`, or `work-2` if that was taken), not the display name. The desktop shortcut Zenith creates for a profile uses this flag.
+Opens a [profile](../../guides/profiles/). `--profile=<id>` works too. The id is the short name Zenith gave the profile when you created it (for example `work`, or `work-2` if that was taken), not the display name. The desktop shortcut Zenith creates for a profile uses this flag.
 
 - Without the flag, the profile you used last opens. That includes links opened from other apps.
 - If no profile with that id exists any more (an old shortcut, for example), the Default profile opens.
@@ -30,7 +30,7 @@ Opens a [profile](/guides/profiles/). `--profile=<id>` works too. The id is the 
 
 ## `--incognito`
 
-Opens an [incognito window](/guides/incognito/). Combine it with addresses to open them in that window; only `http://` and `https://` addresses are used. If Zenith is already running, the incognito window opens in that process next to your normal window.
+Opens an [incognito window](../../guides/incognito/). Combine it with addresses to open them in that window; only `http://` and `https://` addresses are used. If Zenith is already running, the incognito window opens in that process next to your normal window.
 
 ## Maintenance flags
 
@@ -49,6 +49,6 @@ These are for development and testing, not everyday use.
 | Variable | Effect |
 | --- | --- |
 | `ZENITH_PROFILE_DIR` | An absolute path. Zenith keeps all of its data inside that folder instead of `%APPDATA%` and `%LOCALAPPDATA%`, and the instance doesn't hand off to an already running Zenith. The test scripts use this. |
-| `ZENITH_PERF` | Writes `perf.json` with the startup time. Used by the [measurement scripts](/contributing/measurements/). |
+| `ZENITH_PERF` | Writes `perf.json` with the startup time. Used by the [measurement scripts](../../contributing/measurements/). |
 | `ZENITH_REMOTE_DEBUG_PORT` | Debug builds only: opens a DevTools remote-debugging port, used by the end-to-end tests. |
-| `ZENITH_UPDATE_ENDPOINT` | Debug builds only: reads update information from this address instead of GitHub. See [Releasing](/contributing/releasing/). |
+| `ZENITH_UPDATE_ENDPOINT` | Debug builds only: reads update information from this address instead of GitHub. See [Releasing](../../contributing/releasing/). |

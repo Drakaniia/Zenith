@@ -10,7 +10,7 @@ Zenith's bookmarks work like Firefox's and Zen's: a toolbar, a sidebar, a librar
 Press `Ctrl+D` or click the star in the address bar. The page is saved right away and the **Edit bookmark** panel opens, where you can change:
 
 - **Name** and **Location** (the folder; the expander shows the folder tree and **New folder**).
-- **Workspaces**: limit the bookmark to some of your [spaces](/guides/spaces-and-tabs/). It then shows on the toolbar and in menus only in those spaces. The sidebar and library always show everything.
+- **Workspaces**: limit the bookmark to some of your [spaces](../spaces-and-tabs/). It then shows on the toolbar and in menus only in those spaces. The sidebar and library always show everything.
 - **Remove bookmark**, or **Save**.
 
 `Esc` closes the panel and drops your edits, but keeps the bookmark.
@@ -30,7 +30,7 @@ Press `Ctrl+D` or click the star in the address bar. The page is saved right awa
 - Click: opens in the current tab.
 - `Ctrl`+click or middle-click: opens in a background tab.
 - `Shift`+click: opens in a new tab.
-- `Alt`+click: opens in [Glance](/guides/glance/).
+- `Alt`+click: opens in [Glance](../glance/).
 
 Right-click a bookmark for **Open in new tab**, **Open in Glance**, **Open in incognito window**, **Edit bookmark…** and **Copy link**. Right-click a folder for **Open all in tabs**, **Rename…**, **Sort by name**, **New folder…** and **New separator**. Cut, copy and paste move bookmarks between folders, and you can drag them.
 
@@ -51,7 +51,7 @@ A bookmark's **keyword** opens it directly when you type the keyword. If the boo
 
 All of these are in **Settings › Bookmarks › Manage**:
 
-- **Import**: from another browser on this PC or from an exported `.html` file. See [Import from other browsers](/getting-started/import-from-other-browsers/).
+- **Import**: from another browser on this PC or from an exported `.html` file. See [Import from other browsers](../../getting-started/import-from-other-browsers/).
 - **Export…**: an HTML file other browsers can read.
 - **Back up…** and **Restore…**: a backup of everything, including folders, tags, keywords and workspaces. A restore replaces all current bookmarks.
 

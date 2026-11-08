@@ -22,4 +22,4 @@ By default the shortcut works even while another app is in front: it brings Zeni
 
 On wide windows the list of notes is shown next to the editor.
 
-Notes belong to the [profile](/guides/profiles/) you're using.
+Notes belong to the [profile](../profiles/) you're using.

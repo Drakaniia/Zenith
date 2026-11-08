@@ -17,6 +17,11 @@ on:
 permissions:
   contents: read
 
+# One deployment at a time; a newer push replaces a queued one but never cancels a running one.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -32,8 +37,23 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Build the docs site
         run: pnpm docs:build
-      # Uploaded as a Pages artifact so a deploy job can be added later. There is no deploy
-      # job yet: deployment waits on the hosting decision (and `site` in apps/docs/astro.config.mjs).
       - uses: actions/upload-pages-artifact@v3
         with:
           path: apps/docs/dist
+
+  # Publishes https://drakaniia.github.io/Zenith/ (repository Settings › Pages › Source must be
+  # "GitHub Actions"). Pull requests only build.
+  deploy:
+    if: github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

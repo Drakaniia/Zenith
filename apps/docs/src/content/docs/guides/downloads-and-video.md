@@ -50,4 +50,4 @@ Without FFmpeg, `.ts` streams stay `.ts`, and WebM audio and video that need mer
 - Live DASH streams can't be recorded.
 - Video downloads don't survive a restart of Zenith.
 
-The downloader only contacts the site you're on, sending that site's cookies as the page would. See [Privacy](/reference/privacy/).
+The downloader only contacts the site you're on, sending that site's cookies as the page would. See [Privacy](../../reference/privacy/).

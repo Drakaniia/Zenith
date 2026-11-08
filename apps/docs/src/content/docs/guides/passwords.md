@@ -63,4 +63,4 @@ The same section lets you change the master password, make a new recovery key (t
 
 - Passwords, notes and card numbers are encrypted with AES-256-GCM using a random vault key. That key is stored only wrapped with keys derived from your master password (Argon2id) and from your recovery key.
 - Site names, usernames and card summaries (brand, last four digits, expiry) are encrypted with Windows DPAPI, so they're readable only by your Windows account. That's what lets Zenith suggest accounts before you unlock.
-- Each [profile](/guides/profiles/) has its own vault.
+- Each [profile](../profiles/) has its own vault.

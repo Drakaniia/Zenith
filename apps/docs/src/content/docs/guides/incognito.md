@@ -10,7 +10,7 @@ An incognito window doesn't keep a record of what you do in it. Its title bar sa
 - Press `Ctrl+Shift+P`.
 - Choose **New incognito window** in the app menu or the **+** menu at the bottom of the sidebar.
 - Right-click a tab or a bookmark and choose **Open in incognito window**, or right-click a link on a page and choose **Open link in incognito window**.
-- Start Zenith with `zenith.exe --incognito`. See [Command line](/reference/command-line/).
+- Start Zenith with `zenith.exe --incognito`. See [Command line](../../reference/command-line/).
 
 Incognito windows open quickly because they run in the Zenith process that's already running.
 

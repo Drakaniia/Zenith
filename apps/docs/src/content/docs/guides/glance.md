@@ -22,14 +22,14 @@ Next to the card are round buttons:
 | --- | --- |
 | **Close** | Closes the card. `Esc` or a click outside the card does the same. |
 | **Open as tab** | Turns the preview into a normal tab. |
-| **Open in split view** | Opens the preview next to the page you opened it from, in [split view](/guides/split-view/). |
+| **Open in split view** | Opens the preview next to the page you opened it from, in [split view](../split-view/). |
 | **Copy link** | Copies the preview's address. |
 
 A tab in Glance never goes to sleep while the card is open.
 
 ## Extension popups
 
-When you open an extension from the extensions button, its popup appears in a small Glance card next to the button. See [Extensions](/guides/extensions/).
+When you open an extension from the extensions button, its popup appears in a small Glance card next to the button. See [Extensions](../extensions/).
 
 ## Other link clicks
 

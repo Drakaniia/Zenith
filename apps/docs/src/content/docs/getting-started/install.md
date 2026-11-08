@@ -23,7 +23,7 @@ The installer is under 2 MB because it doesn't bundle a browser engine: Zenith u
 The installer isn't code-signed yet, so Windows SmartScreen may show "Windows protected your PC". Choose **More info › Run anyway**. Updates aren't affected; Zenith verifies each update with its own signing key.
 :::
 
-When Zenith opens for the first time, the [setup assistant](/getting-started/first-run/) walks you through a few choices.
+When Zenith opens for the first time, the [setup assistant](../first-run/) walks you through a few choices.
 
 ## Make Zenith your default browser
 

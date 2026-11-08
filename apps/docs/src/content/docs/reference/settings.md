@@ -5,7 +5,7 @@ description: What each section of Zenith's Settings page controls, with the defa
 
 Open Settings with `Ctrl+,`, from the menu, or by typing "settings" in the command palette. The search box at the top filters the page as you type. Settings save as soon as you change them.
 
-Passwords, payment cards and the start page have their own settings, described in [Passwords and payment cards](/guides/passwords/) and [Start page](/guides/start-page/).
+Passwords, payment cards and the start page have their own settings, described in [Passwords and payment cards](../../guides/passwords/) and [Start page](../../guides/start-page/).
 
 ## General
 
@@ -17,7 +17,7 @@ Passwords, payment cards and the start page have their own settings, described i
 | Search engine | Used for searches from the address bar: Google, Bing, DuckDuckGo, Brave Search, Ecosia or Yandex. | Google |
 | Search suggestions | Sends what you type in the address bar to your search engine to get suggestions. | Off |
 | Show most visited sites on new tabs | Taken from your local history only. | On |
-| Setup assistant | **Run setup again** reopens the [setup assistant](/getting-started/first-run/). | |
+| Setup assistant | **Run setup again** reopens the [setup assistant](../../getting-started/first-run/). | |
 
 ## Appearance
 
@@ -31,7 +31,7 @@ Passwords, payment cards and the start page have their own settings, described i
 | Sidebar position | Left, Right, Top or Bottom. Top and bottom turn the sidebar into a horizontal tab strip. You can also right-click the sidebar to move it. | Left |
 | Layout | **Single toolbar** puts the address bar in the sidebar. **Multiple toolbars** adds a toolbar above the page. **Collapsed** is an icon-only sidebar with a toolbar above the page. | Single toolbar |
 | Clear button | Shows "Clear" between pinned and regular tabs. | On |
-| Compact mode | Hides the sidebar and toolbar; they slide in from the window edges. See [Compact mode](/guides/compact-mode/). | Off |
+| Compact mode | Hides the sidebar and toolbar; they slide in from the window edges. See [Compact mode](../../guides/compact-mode/). | Off |
 | Sidebar width | 163–500 px. You can also drag the sidebar edge, and double-click it to reset. Not shown for a tab strip. | 220 px |
 
 ## Privacy & blocking
@@ -47,7 +47,7 @@ Passwords, payment cards and the start page have their own settings, described i
 
 **Clear browsing data** removes any of: browsing history, cookies and site data (this signs you out), cached images and files, download history, and site permissions, for the last hour, 24 hours, 7 days, 4 weeks or all time. `Ctrl+Shift+Del` opens this section.
 
-See [Ad and tracker blocking](/guides/ad-blocking/) and [Privacy](/reference/privacy/).
+See [Ad and tracker blocking](../../guides/ad-blocking/) and [Privacy](../privacy/).
 
 ## Tabs & memory
 
@@ -68,7 +68,7 @@ Unloading a tab discards anything you typed into it that the page hasn't saved. 
 | Show Other Bookmarks | At the end of the toolbar, when something is in it. | On |
 | Bookmarks sidebar | Opens or closes the bookmarks sidebar. | Closed |
 
-Under **Manage** you can open the bookmarks library, import from another browser or an HTML file, export to HTML, and back up or restore everything. See [Bookmarks](/guides/bookmarks/).
+Under **Manage** you can open the bookmarks library, import from another browser or an HTML file, export to HTML, and back up or restore everything. See [Bookmarks](../../guides/bookmarks/).
 
 ## Downloads
 
@@ -79,7 +79,7 @@ Under **Manage** you can open the bookmarks library, import from another browser
 | Use FFmpeg when it is installed | Lets FFmpeg convert `.ts` recordings to `.mp4` and merge audio and video Zenith can't merge itself. | On |
 | FFmpeg location | Found automatically on your `PATH`, or choose `ffmpeg.exe`. | Automatic |
 
-See [Downloads and video](/guides/downloads-and-video/).
+See [Downloads and video](../../guides/downloads-and-video/).
 
 ## Notes
 
@@ -90,7 +90,7 @@ See [Downloads and video](/guides/downloads-and-video/).
 
 ## Keyboard shortcuts
 
-Every action and its keys, with a recorder and conflict detection. See [Keyboard shortcuts](/reference/keyboard-shortcuts/).
+Every action and its keys, with a recorder and conflict detection. See [Keyboard shortcuts](../keyboard-shortcuts/).
 
 ## Default browser
 

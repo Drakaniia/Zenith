@@ -15,7 +15,7 @@ Open the **Extensions** page with `Ctrl+Shift+A`, from the app menu, or with **M
 
 **Extension catalogue** in the extensions menu opens the Chrome Web Store so you can find extensions.
 
-Installing isn't available in an [incognito window](/guides/incognito/).
+Installing isn't available in an [incognito window](../incognito/).
 
 ## Use extensions
 
@@ -37,4 +37,4 @@ Zenith checks the Chrome Web Store for updates to store extensions when it start
 - Extensions that manage tabs (tab managers, session savers) don't see Zenith's tabs, spaces or folders.
 - Which other extension APIs work is decided by WebView2. If an extension misbehaves, open developer tools on its page and check its console.
 
-Technical details and test results are in [Extension support](/contributing/extensions/).
+Technical details and test results are in [Extension support](../../contributing/extensions/).

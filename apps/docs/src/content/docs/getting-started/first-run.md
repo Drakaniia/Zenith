@@ -5,7 +5,7 @@ sidebar:
   order: 2
 ---
 
-The first time you start Zenith, a setup assistant opens over the window. It takes about a minute. Everything you choose can be changed later in [Settings](/reference/settings/).
+The first time you start Zenith, a setup assistant opens over the window. It takes about a minute. Everything you choose can be changed later in [Settings](../../reference/settings/).
 
 The progress arc at the top shows where you are. Click an earlier step on it to go back, or use **Back**. Steps marked optional have a **Skip** button, which leaves that step's settings as they were. If you close Zenith halfway through, the assistant picks up at the same step next time.
 
@@ -22,7 +22,7 @@ Lists what you'll set up: how Zenith looks, where it searches, what opens first,
 The window behind the assistant changes as you choose.
 
 - **Theme**: Match Windows, Light or Dark.
-- **Accent colour**: tints the window and highlights. Each [space](/guides/spaces-and-tabs/) can have its own.
+- **Accent colour**: tints the window and highlights. Each [space](../../guides/spaces-and-tabs/) can have its own.
 - **Layout**: **Single toolbar** (address bar in the sidebar, the most room for pages), **Multiple toolbars** (a toolbar with the address bar above the page) or **Collapsed** (icon-only tabs, toolbar across the top).
 
 ### Search
@@ -38,7 +38,7 @@ Pick the search engine used when you type something into the address bar that is
 
 ### Import (optional)
 
-Copies bookmarks and history from another browser on your PC. See [Import from other browsers](/getting-started/import-from-other-browsers/).
+Copies bookmarks and history from another browser on your PC. See [Import from other browsers](../import-from-other-browsers/).
 
 ### Privacy (optional)
 

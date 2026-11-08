@@ -19,7 +19,7 @@ If a browser has more than one profile, each profile is listed separately.
 
 ## Import
 
-You can import during the [setup assistant](/getting-started/first-run/), or at any time from **Settings › Bookmarks › Manage › Import › From a browser…**.
+You can import during the [setup assistant](../first-run/), or at any time from **Settings › Bookmarks › Manage › Import › From a browser…**.
 
 1. Choose the browser (and profile) to import from.
 2. Choose what to bring:
@@ -33,8 +33,8 @@ You can import from several browsers, one after another.
 
 Most browsers can export bookmarks as an HTML file. To import one, use **Choose an .html file…** in the setup assistant, or **Settings › Bookmarks › Manage › Import › From a file…**.
 
-To restore a Zenith bookmarks backup instead (which also keeps tags, keywords and workspaces), see [Bookmarks](/guides/bookmarks/).
+To restore a Zenith bookmarks backup instead (which also keeps tags, keywords and workspaces), see [Bookmarks](../../guides/bookmarks/).
 
 ## What isn't imported
 
-Passwords, cookies and open tabs aren't copied from other browsers. To bring passwords over, export them from the other browser as a CSV file and import that in Zenith's password manager. See [Passwords and payment cards](/guides/passwords/).
+Passwords, cookies and open tabs aren't copied from other browsers. To bring passwords over, export them from the other browser as a CSV file and import that in Zenith's password manager. See [Passwords and payment cards](../../guides/passwords/).

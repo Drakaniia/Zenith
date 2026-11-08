@@ -11,7 +11,7 @@ Zenith checks every request a page makes against filter lists. A request to a bl
 
 Blocking works on domains. Zenith doesn't hide page elements with cosmetic filters, so you may see empty spaces where ads would have been.
 
-On six news and media sites, blocking cut the requests that reached the network by about 75 % (see [Measurements](/contributing/measurements/)).
+On six news and media sites, blocking cut the requests that reached the network by about 75 % (see [Measurements](../../contributing/measurements/)).
 
 ## Per-site control
 

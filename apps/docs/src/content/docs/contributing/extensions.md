@@ -3,7 +3,7 @@ title: Extension support
 description: How Zenith runs Chromium extensions through WebView2, which extensions were tested, and what is known not to work.
 ---
 
-This page is for contributors. For installing and managing extensions as a user, see [Extensions](/guides/extensions/). Paths are relative to `apps/desktop`.
+This page is for contributors. For installing and managing extensions as a user, see [Extensions](../../guides/extensions/). Paths are relative to `apps/desktop`.
 
 Zenith runs Chromium extensions through WebView2's browser-extension support (`AreBrowserExtensionsEnabled`). WebView2 implements a subset of the Chrome extension platform, so many extensions work and some do not. This page records what was tested and what is known not to work.
 

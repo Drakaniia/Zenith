@@ -20,7 +20,7 @@ Click the profile button and pick a profile from the list. Each profile runs in 
 
 When you start Zenith without choosing a profile, the one you used last opens. Links from other apps also open there.
 
-You can also start a profile from the command line: `zenith.exe --profile <id>`. See [Command line](/reference/command-line/).
+You can also start a profile from the command line: `zenith.exe --profile <id>`. See [Command line](../../reference/command-line/).
 
 ## Edit or delete a profile
 

@@ -11,7 +11,7 @@ A few rules apply to every binding:
 - A shortcut needs `Ctrl` or `Alt`, unless it is a function key (`F1`–`F24`). `Shift+Esc` (task manager) is the one exception.
 - "Not set" means the action exists but has no default key. You can give it one in Settings, or run it from the command palette.
 
-Some things aren't bindable actions: `Esc` stops a page that is still loading, and `Alt`+click on a link opens it in [Glance](/guides/glance/).
+Some things aren't bindable actions: `Esc` stops a page that is still loading, and `Alt`+click on a link opens it in [Glance](../../guides/glance/).
 
 ## Tabs
 
@@ -167,7 +167,7 @@ Some things aren't bindable actions: `Esc` stops a page that is still loading, a
 | Clear browsing data | `Ctrl+Shift+Del` |
 | Run setup again | Not set |
 
-The notes shortcut can also work while another app is in front. See [Notes](/guides/notes/).
+The notes shortcut can also work while another app is in front. See [Notes](../../guides/notes/).
 
 ## After an update
 
