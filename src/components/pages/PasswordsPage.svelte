@@ -6,6 +6,7 @@
   import VaultGate from '../passwords/VaultGate.svelte';
   import ForgotMaster from '../passwords/ForgotMaster.svelte';
   import PasswordList from '../passwords/PasswordList.svelte';
+  import CardList from '../passwords/CardList.svelte';
   import AutofillSettings from '../passwords/AutofillSettings.svelte';
   import { openInternal } from '../../lib/actions';
   import { browser } from '../../lib/browser.svelte';
@@ -44,6 +45,7 @@
         <Icon name={n.icon} size={16} />
         {n.label}
         {#if n.id === 'passwords' && st.exists && st.count}<span class="count">{st.count}</span>{/if}
+        {#if n.id === 'wallet' && st.exists && st.cardCount}<span class="count">{st.cardCount}</span>{/if}
       </button>
     {/each}
     <div class="grow"></div>
@@ -64,15 +66,11 @@
   <div class="main">
     {#if current === 'settings'}
       <AutofillSettings onreset={() => go('forgot')} />
-    {:else if current === 'wallet' || current === 'personal'}
+    {:else if current === 'personal'}
       <div class="soon">
-        <div class="badge"><Icon name={current === 'wallet' ? 'card' : 'idCard'} size={26} /></div>
-        <h2>{current === 'wallet' ? 'Wallet & cards' : 'Personal data'}</h2>
-        <p>
-          {current === 'wallet'
-            ? 'Saving payment cards and filling them in at checkout is coming to Zenith. Cards will be encrypted with your master password, like your passwords.'
-            : 'Saving names, addresses and phone numbers for forms is coming to Zenith. They will be kept in the same encrypted vault as your passwords.'}
-        </p>
+        <div class="badge"><Icon name="idCard" size={26} /></div>
+        <h2>Personal data</h2>
+        <p>Saving names, addresses and phone numbers for forms is coming to Zenith. They will be kept in the same encrypted vault as your passwords.</p>
         <button class="btn" onclick={() => go('passwords')}><Icon name="key" size={15} /> Go to passwords</button>
       </div>
     {:else if current === 'forgot'}
@@ -81,6 +79,8 @@
       <div class="soon"><p>Loading…</p></div>
     {:else if !st.unlocked || st.damaged}
       <VaultGate onforgot={() => go('forgot')} />
+    {:else if current === 'wallet'}
+      <CardList />
     {:else}
       <PasswordList />
     {/if}

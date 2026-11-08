@@ -1,12 +1,16 @@
 // Password manager: types shared with the backend (vault/, password_commands.rs) and pure
 // helpers for the UI. Kept free of Svelte and Tauri imports so it can be unit tested.
 
+import type { SavedCard } from "./cards";
+
 export interface VaultStatus {
   /** A master password has been set up. */
   exists: boolean;
   unlocked: boolean;
   hasRecovery: boolean;
   count: number;
+  /** Saved payment cards. */
+  cardCount: number;
   /** The password file exists but can't be used. */
   damaged: string | null;
   /** Seconds until another master password attempt is accepted. */
@@ -49,13 +53,15 @@ export interface SavedAccount {
 export interface PasswordSuggest {
   tabId: string;
   site: string;
-  field: "user" | "pass";
+  /** "card": a payment form, listing `cards` instead of `accounts`. */
+  field: "user" | "pass" | "card";
   newPassword: boolean;
   /** The field in the page's CSS pixels. */
   rect: { x: number; y: number; w: number; h: number };
   /** The page's devicePixelRatio (includes its zoom). */
   dpr: number;
   accounts: SavedAccount[];
+  cards: SavedCard[];
   generated: string | null;
   /** The list already on screen, narrowed by what was typed in the field: update it in place. */
   refresh?: boolean;

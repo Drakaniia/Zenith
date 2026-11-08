@@ -94,6 +94,10 @@ export interface Settings {
   passwordsEnabled: boolean;
   /** Offer to save logins submitted on pages. */
   passwordsOfferSave: boolean;
+  /** Offer to save cards submitted on payment forms. */
+  cardsOfferSave: boolean;
+  /** Show saved cards when a card field is clicked (filling always asks for the master password). */
+  autofillCards: boolean;
   /** Show saved accounts when a login field is clicked. */
   autofillSuggest: boolean;
   /** Fill usernames and emails. */
@@ -218,6 +222,8 @@ export function defaultSettings(): Settings {
     notesWide: false,
     passwordsEnabled: true,
     passwordsOfferSave: true,
+    cardsOfferSave: true,
+    autofillCards: true,
     autofillSuggest: true,
     autofillUsernames: true,
     autofillPasswords: true,
@@ -373,6 +379,8 @@ class SettingsStore {
         autoUpdate: s.autoUpdate,
         passwordsEnabled: s.passwordsEnabled,
         passwordsOfferSave: s.passwordsOfferSave,
+        cardsOfferSave: s.cardsOfferSave,
+        autofillCards: s.autofillCards,
         autofillSuggest: s.autofillSuggest,
         autofillUsernames: s.autofillUsernames,
         autofillPasswords: s.autofillPasswords,

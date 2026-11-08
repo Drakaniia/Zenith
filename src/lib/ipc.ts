@@ -27,6 +27,7 @@ import type {
   UpdateStatus,
 } from "./types";
 import type { Note } from "./notes";
+import type { CardSaveOffer } from "./cards";
 import type { PasswordSaveOffer, PasswordSuggest, VaultStatus } from "./passwords";
 
 export interface PaneSpec {
@@ -61,6 +62,8 @@ export interface RuntimeConfig {
   /** Password manager and autofill (see settings.svelte.ts). */
   passwordsEnabled: boolean;
   passwordsOfferSave: boolean;
+  cardsOfferSave: boolean;
+  autofillCards: boolean;
   autofillSuggest: boolean;
   autofillUsernames: boolean;
   autofillPasswords: boolean;
@@ -328,6 +331,7 @@ export interface BackendEvents {
   "password-suggest": PasswordSuggest;
   "password-suggest-close": { tabId: string };
   "password-save-offer": PasswordSaveOffer;
+  "card-save-offer": CardSaveOffer;
   "notes-changed": { origin: string; id: string; deleted: boolean };
   /** Another window changed the bookmarks. */
   "bookmarks-changed": { origin: string };

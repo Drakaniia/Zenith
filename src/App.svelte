@@ -35,6 +35,7 @@
   import Toasts from './components/Toasts.svelte';
   import PermissionPrompt from './components/PermissionPrompt.svelte';
   import PasswordSavePrompt from './components/PasswordSavePrompt.svelte';
+  import CardSavePrompt from './components/CardSavePrompt.svelte';
   import PasswordSuggest from './components/PasswordSuggest.svelte';
   import { vault } from './lib/vault.svelte';
   import ExtensionInstallPrompt from './components/ExtensionInstallPrompt.svelte';
@@ -285,6 +286,7 @@
         if (vault.suggest?.tabId === tabId) vault.closeSuggest(false);
       }),
       on('password-save-offer', (o) => vault.pushOffer(o)),
+      on('card-save-offer', (o) => vault.pushCardOffer(o)),
       on('ext-install', (e) => extensions.handleEvent(e)),
       on('download', (d) => {
         const known = downloads.items.some((x) => x.id === d.id);
@@ -617,6 +619,7 @@
   <Glance />
   <PermissionPrompt />
   <PasswordSavePrompt />
+  <CardSavePrompt />
   <PasswordSuggest />
   <ExtensionInstallPrompt />
   <DownloadsPopover />

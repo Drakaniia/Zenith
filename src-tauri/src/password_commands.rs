@@ -14,16 +14,16 @@ use zeroize::Zeroizing;
 use crate::host::{self, autofill};
 use crate::{store, vault, win};
 
-type CmdResult<T> = Result<T, String>;
+pub(crate) type CmdResult<T> = Result<T, String>;
 
 /// How long a copied password stays on the clipboard.
-const CLIPBOARD_CLEAR: std::time::Duration = std::time::Duration::from_secs(30);
+pub(crate) const CLIPBOARD_CLEAR: std::time::Duration = std::time::Duration::from_secs(30);
 
-async fn blocking<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> CmdResult<T> {
+pub(crate) async fn blocking<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> CmdResult<T> {
     tauri::async_runtime::spawn_blocking(f).await.map_err(|e| e.to_string())
 }
 
-async fn on_main<T: Send + 'static>(app: &AppHandle, f: impl FnOnce() -> T + Send + 'static) -> CmdResult<T> {
+pub(crate) async fn on_main<T: Send + 'static>(app: &AppHandle, f: impl FnOnce() -> T + Send + 'static) -> CmdResult<T> {
     let (tx, rx) = tokio::sync::oneshot::channel();
     app.run_on_main_thread(move || {
         let _ = tx.send(f());
@@ -32,7 +32,7 @@ async fn on_main<T: Send + 'static>(app: &AppHandle, f: impl FnOnce() -> T + Sen
     rx.await.map_err(|_| "the UI thread did not respond".to_string())
 }
 
-async fn on_main_cb<T: Send + 'static>(app: &AppHandle, f: impl FnOnce(Box<dyn FnOnce(T)>) + Send + 'static) -> CmdResult<T> {
+pub(crate) async fn on_main_cb<T: Send + 'static>(app: &AppHandle, f: impl FnOnce(Box<dyn FnOnce(T)>) + Send + 'static) -> CmdResult<T> {
     let (tx, rx) = tokio::sync::oneshot::channel();
     app.run_on_main_thread(move || {
         f(Box::new(move |v| {
@@ -43,7 +43,7 @@ async fn on_main_cb<T: Send + 'static>(app: &AppHandle, f: impl FnOnce(Box<dyn F
     rx.await.map_err(|_| "the operation was dropped".to_string())
 }
 
-async fn vault_call<T: Send + 'static>(f: impl FnOnce(&mut vault::Vault) -> CmdResult<T> + Send + 'static) -> CmdResult<T> {
+pub(crate) async fn vault_call<T: Send + 'static>(f: impl FnOnce(&mut vault::Vault) -> CmdResult<T> + Send + 'static) -> CmdResult<T> {
     blocking(move || vault::with(f)).await?
 }
 
@@ -57,7 +57,7 @@ fn authorize(v: &mut vault::Vault, master: Option<&Zeroizing<String>>) -> CmdRes
     }
 }
 
-fn secret(s: Option<String>) -> Option<Zeroizing<String>> {
+pub(crate) fn secret(s: Option<String>) -> Option<Zeroizing<String>> {
     s.map(Zeroizing::new)
 }
 

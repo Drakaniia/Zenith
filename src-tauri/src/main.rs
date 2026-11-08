@@ -4,6 +4,7 @@
 
 mod blocker;
 mod bookmarks;
+mod card_commands;
 mod commands;
 mod host;
 mod hotkey;
@@ -489,6 +490,14 @@ fn main() {
             password_commands::autofill_fill_generated,
             password_commands::autofill_dismiss,
             password_commands::password_offer_respond,
+            card_commands::cards_list,
+            card_commands::card_reveal,
+            card_commands::card_copy,
+            card_commands::card_add,
+            card_commands::card_update,
+            card_commands::cards_delete,
+            card_commands::card_offer_respond,
+            card_commands::autofill_fill_card,
             profile_commands::profiles_list,
             profile_commands::profile_create,
             profile_commands::profile_update,

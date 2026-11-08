@@ -12,6 +12,7 @@
 //!
 //! Unlocking keeps the vault key in memory (wiped on lock). Restarting Zenith always locks.
 
+pub mod cards;
 pub mod crypto;
 pub mod csv;
 
@@ -28,7 +29,10 @@ use zeroize::{Zeroize, Zeroizing};
 use crypto::{Key, KdfParams, Sealed};
 use csv::ImportRow;
 
-const FILE_VERSION: u32 = 1;
+/// Version 2 files hold saved cards. A vault without cards is still written as version 1, so an
+/// older Zenith can open it; one with cards is refused by older versions, which would otherwise
+/// drop the cards the next time they saved.
+const FILE_VERSION: u32 = 2;
 const AAD_MASTER: &[u8] = b"zenith-vault:key:master";
 const AAD_RECOVERY: &[u8] = b"zenith-vault:key:recovery";
 const AAD_BACKUP: &[u8] = b"zenith-passwords-backup:v1";
@@ -83,11 +87,14 @@ struct VaultFile {
     /// Sealed `Secret`s by entry id.
     #[serde(default)]
     secrets: BTreeMap<String, Sealed>,
+    /// Sealed card numbers (and security codes) by card id.
+    #[serde(default)]
+    card_secrets: BTreeMap<String, Sealed>,
 }
 
 impl VaultFile {
     fn empty() -> Self {
-        Self { version: FILE_VERSION, master: None, recovery: None, index: Vec::new(), secrets: BTreeMap::new() }
+        Self { version: 1, master: None, recovery: None, index: Vec::new(), secrets: BTreeMap::new(), card_secrets: BTreeMap::new() }
     }
 }
 
@@ -96,6 +103,9 @@ impl VaultFile {
 struct Index {
     #[serde(default)]
     entries: Vec<Meta>,
+    /// Saved payment cards (see `cards`).
+    #[serde(default)]
+    cards: Vec<cards::CardMeta>,
     /// Sites the user chose "Never save" for.
     #[serde(default)]
     never: Vec<String>,
@@ -180,6 +190,8 @@ pub struct Status {
     pub unlocked: bool,
     pub has_recovery: bool,
     pub count: usize,
+    /// Saved payment cards.
+    pub card_count: usize,
     /// The file exists but can't be used (damaged, or from another Windows account).
     pub damaged: Option<String>,
     /// Seconds until another master password attempt is accepted.
@@ -459,6 +471,7 @@ impl Vault {
         }
         let plain = Zeroizing::new(serde_json::to_vec(&self.index).map_err(|e| e.to_string())?);
         self.file.index = crypto::protect(&plain)?;
+        self.file.version = if self.index.cards.is_empty() && self.file.card_secrets.is_empty() { 1 } else { FILE_VERSION };
         let json = serde_json::to_vec_pretty(&self.file).map_err(|e| e.to_string())?;
         crate::store::write_atomic(&self.path, &json).map_err(|e| format!("Could not save passwords: {e}"))
     }
@@ -477,6 +490,7 @@ impl Vault {
             unlocked: self.unlocked(),
             has_recovery: self.file.recovery.is_some(),
             count: if self.exists() { self.index.entries.len() } else { 0 },
+            card_count: if self.exists() { self.index.cards.len() } else { 0 },
             damaged: self.damaged.clone(),
             retry_after: self.retry_after(),
         }
@@ -546,6 +560,8 @@ impl Vault {
         // Entries can only exist with a key; drop leftovers of an interrupted reset.
         self.index.entries.clear();
         self.file.secrets.clear();
+        self.index.cards.clear();
+        self.file.card_secrets.clear();
         if let Err(e) = self.save() {
             self.file.master = None;
             self.file.recovery = None;
@@ -1215,6 +1231,7 @@ pub fn start_timer() {
             if let Ok(mut o) = OFFERS.lock() {
                 o.retain(|_, x| x.at.elapsed() < OFFER_TTL);
             }
+            cards::prune_card_offers();
             let minutes = crate::host::config().vault_lock_minutes;
             if try_with(|v| v.lock_if_idle(minutes)).unwrap_or(false) {
                 clear_imports();

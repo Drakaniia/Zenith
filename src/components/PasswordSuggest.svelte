@@ -14,11 +14,14 @@
   import { ui } from '../lib/ui.svelte';
   import { vault, vaultApi } from '../lib/vault.svelte';
   import { needsMaster, placeSuggestions, type SavedAccount } from '../lib/passwords';
+  import { brandName, formatExpiry, isExpired, type SavedCard } from '../lib/cards';
 
   const s = $derived(vault.suggest);
   const visible = $derived(!!s && browser.isVisible(s.tabId));
   /** The account waiting for the master password. */
   let pending = $state<SavedAccount | null>(null);
+  /** The card waiting for the master password (typed again for every card fill). */
+  let pendingCard = $state<SavedCard | null>(null);
   /** Clicks are ignored for a moment after the list appears, so a page can't make the user
    *  pick an account by opening the list under a click that was already on its way. */
   let armed = $state(false);
@@ -32,13 +35,14 @@
     if (!s) return;
     void s.rect;
     pending = null;
+    pendingCard = null;
     armed = false;
     const t = setTimeout(() => (armed = true), 350);
     return () => clearTimeout(t);
   });
 
   $effect(() => {
-    vault.unlocking = pending !== null;
+    vault.unlocking = pending !== null || pendingCard !== null;
   });
 
   // The tab went away or another tab is showing.
@@ -49,6 +53,7 @@
   $effect(() => {
     // Also when typing changes how many accounts match.
     void s?.accounts.length;
+    void s?.cards.length;
     if (el) height = el.offsetHeight;
   });
 
@@ -110,6 +115,26 @@
     await choose(pending, master);
   }
 
+  function chooseCard(c: SavedCard) {
+    if (!s || busy || !armed) return;
+    // Cards always need the master password, even when the vault is unlocked.
+    pendingCard = c;
+    void api.focusView(null);
+  }
+
+  async function unlockAndFillCard(master: string) {
+    if (!s || !pendingCard) return;
+    const tab = s.tabId;
+    busy = true;
+    try {
+      await vaultApi.fillCard(tab, pendingCard.id, master);
+      vault.closeSuggest(false);
+      void api.focusView(tab).catch(() => {});
+    } finally {
+      busy = false;
+    }
+  }
+
   async function useGenerated() {
     if (!s || !armed) return;
     const tab = s.tabId;
@@ -124,8 +149,10 @@
   }
 
   function manage() {
+    const wallet = s?.field === 'card';
     close(false);
-    openInternal('passwords');
+    if (wallet) openInternal('passwords', 'wallet');
+    else openInternal('passwords');
   }
 
   function onKey(e: KeyboardEvent) {
@@ -147,10 +174,43 @@
     style:top="{pos.y}px"
     style:width="{pos.w}px"
     role="dialog"
-    aria-label="Saved passwords for {s.site}"
+    aria-label={s.field === 'card' ? `Saved cards for ${s.site}` : `Saved passwords for ${s.site}`}
     transition:fly={{ y: above ? 6 : -6, duration: 140 }}
   >
-    {#if pending}
+    {#if pendingCard}
+      <div class="unlock">
+        <p>
+          <Icon name="lock" size={14} />
+          Enter your master password to fill <b>{brandName(pendingCard.brand)} •••• {pendingCard.last4}</b> on {s.site}
+        </p>
+        <MasterPasswordForm onsubmit={unlockAndFillCard} submitLabel="Unlock and fill" compact />
+        <button class="back" onclick={() => (pendingCard = null)}>‹ Back to cards</button>
+      </div>
+    {:else if s.field === 'card'}
+      <div class="head">
+        <Icon name="card" size={13} />
+        <span class="ellipsis">Saved cards</span>
+        {#if vault.status.exists}
+          <Icon name={vault.status.unlocked ? 'unlock' : 'lock'} size={13} class="state" />
+        {/if}
+      </div>
+      <div class="list" role="listbox">
+        {#each s.cards as c (c.id)}
+          <button class="item" role="option" aria-selected="false" disabled={busy} onclick={() => chooseCard(c)}>
+            <span class="avatar"><Icon name="card" size={15} /></span>
+            <span class="who">
+              <b class="ellipsis">{brandName(c.brand)} •••• {c.last4}</b>
+              <small class="ellipsis">
+                {c.label ? c.label + ' · ' : ''}{c.holder ? c.holder + ' · ' : ''}{isExpired(c.expMonth, c.expYear) ? 'Expired ' : 'Expires '}{formatExpiry(c.expMonth, c.expYear)}
+              </small>
+            </span>
+          </button>
+        {/each}
+      </div>
+      <div class="foot">
+        <button onclick={manage}><Icon name="settings" size={13} /> Manage payment methods</button>
+      </div>
+    {:else if pending}
       <div class="unlock">
         <p>
           <Icon name="lock" size={14} />

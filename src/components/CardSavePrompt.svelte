@@ -1,0 +1,197 @@
+<script lang="ts">
+  // "Save card?" after a card was submitted on the visible tab. The card number stays in the
+  // backend; this prompt only knows the brand, last four digits and expiry. Saving the first
+  // card sets up the master password (and shows the recovery key); saving into a locked vault
+  // asks for it. The security code is saved only when the box is ticked.
+  import { fly } from 'svelte/transition';
+  import Icon from './Icon.svelte';
+  import MasterPasswordForm from './passwords/MasterPasswordForm.svelte';
+  import NewMasterForm from './passwords/NewMasterForm.svelte';
+  import RecoveryKey from './passwords/RecoveryKey.svelte';
+  import { browser } from '../lib/browser.svelte';
+  import { overlayLease } from '../lib/layout.svelte';
+  import { openInternal } from '../lib/actions';
+  import { brandName, formatExpiry } from '../lib/cards';
+  import { ui } from '../lib/ui.svelte';
+  import { vault, vaultApi } from '../lib/vault.svelte';
+  import { needsMaster } from '../lib/passwords';
+
+  const offer = $derived([...vault.cardOffers].reverse().find((o) => browser.isVisible(o.tabId)) ?? null);
+  /** ask: the question; unlock: master password; setup: new master password; recovery: show key. */
+  let step = $state<'ask' | 'unlock' | 'setup' | 'recovery'>('ask');
+  let recoveryKey = $state('');
+  let busy = $state(false);
+  let saveCvc = $state(false);
+  let shownFor = 0;
+
+  $effect(() => {
+    const id = offer?.offerId ?? 0;
+    if (id !== shownFor) {
+      shownFor = id;
+      saveCvc = false;
+      if (step !== 'recovery') step = 'ask';
+    }
+  });
+
+  async function respond(action: 'save' | 'never' | 'dismiss', master: string | null = null) {
+    if (!offer) return;
+    const o = offer;
+    if (action === 'save' && !master) {
+      if (!vault.status.exists) return void (step = 'setup');
+      if (!vault.status.unlocked) return void (step = 'unlock');
+    }
+    busy = true;
+    try {
+      await vaultApi.respondCardOffer(o.offerId, action, saveCvc && o.hasCvc, master);
+      vault.dropCardOffer(o.offerId);
+      if (action === 'save') {
+        vault.revision++;
+        void vault.refresh();
+        ui.toast(o.update ? `Card updated: ${brandName(o.brand)} •••• ${o.last4}` : `Card saved: ${brandName(o.brand)} •••• ${o.last4}`, {
+          icon: 'card',
+          action: { label: 'View', run: () => openInternal('passwords', 'wallet') },
+        });
+      } else if (action === 'never') {
+        ui.toast(`Zenith won't offer to save cards on ${o.site}`, { icon: 'card' });
+      }
+      step = 'ask';
+    } catch (e) {
+      if (needsMaster(e)) step = 'unlock';
+      else if (master) throw e;
+      else ui.toast(String(e), { icon: 'alert' });
+    } finally {
+      busy = false;
+    }
+  }
+
+  async function setup(master: string) {
+    recoveryKey = await vaultApi.setup(master);
+    await vault.refresh();
+    step = 'recovery';
+  }
+
+  async function finishSetup() {
+    recoveryKey = '';
+    step = 'ask';
+    await respond('save');
+  }
+</script>
+
+{#if step === 'recovery' && recoveryKey}
+  <div class="prompt glass wide" use:overlayLease transition:fly={{ y: -10, duration: 160 }} role="dialog" aria-label="Recovery key">
+    <RecoveryKey value={recoveryKey} ondone={finishSetup} doneLabel="Save card" />
+  </div>
+{:else if offer}
+  <div class="prompt glass" class:wide={step === 'setup'} use:overlayLease transition:fly={{ y: -10, duration: 160 }} role="dialog" aria-label="Save card">
+    <div class="top">
+      <div class="icon"><Icon name="card" size={20} /></div>
+      <div class="body">
+        <p class="title">{offer.update ? 'Update card' : 'Save card'} for <strong>{offer.site}</strong>?</p>
+        <div class="cred">
+          <span class="user ellipsis"><b>{brandName(offer.brand)}</b> •••• {offer.last4}</span>
+          <span class="dots">Expires {formatExpiry(offer.expMonth, offer.expYear)}</span>
+        </div>
+        {#if offer.hasCvc}
+          <label class="cvc">
+            <input type="checkbox" bind:checked={saveCvc} />
+            Also save the security code (encrypted)
+          </label>
+        {/if}
+      </div>
+      <button class="icon-btn sm close" title="Not now" onclick={() => respond('dismiss')}><Icon name="close" size={14} /></button>
+    </div>
+
+    {#if step === 'unlock'}
+      <p class="note">Enter your master password to save it.</p>
+      <MasterPasswordForm onsubmit={(m) => respond('save', m)} submitLabel="Unlock and save" compact />
+    {:else if step === 'setup'}
+      <p class="note">
+        Create a master password. It encrypts every password and card Zenith saves and is asked for before they are filled in or shown.
+      </p>
+      <NewMasterForm onsubmit={setup} submitLabel="Create and continue" />
+    {:else}
+      <div class="actions">
+        {#if !offer.update}
+          <button class="btn ghost" disabled={busy} onclick={() => respond('never')}>Never for this site</button>
+        {/if}
+        <button class="btn" disabled={busy} onclick={() => respond('dismiss')}>Not now</button>
+        <button class="btn primary" disabled={busy} onclick={() => respond('save')}>{offer.update ? 'Update' : 'Save'}</button>
+      </div>
+    {/if}
+  </div>
+{/if}
+
+<style>
+  .prompt {
+    position: fixed;
+    top: calc(var(--topbar) + 14px);
+    right: 20px;
+    z-index: 76;
+    width: 360px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 16px;
+    border-radius: var(--radius-xl);
+  }
+  .prompt.wide {
+    width: 400px;
+  }
+  .top {
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+  }
+  .icon {
+    flex: none;
+    width: 40px;
+    height: 40px;
+    border-radius: 12px;
+    display: grid;
+    place-items: center;
+    background: color-mix(in srgb, var(--accent) 18%, transparent);
+    color: var(--accent);
+  }
+  .body {
+    flex: 1;
+    min-width: 0;
+  }
+  .title {
+    margin: 1px 0 8px;
+    line-height: 1.4;
+  }
+  .cred {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 8px 10px;
+    border-radius: var(--radius);
+    background: var(--field);
+    font-size: 12.5px;
+  }
+  .dots {
+    color: var(--text-3);
+  }
+  .cvc {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 10px;
+    font-size: 12.5px;
+    color: var(--text-2);
+  }
+  .close {
+    margin: -4px -4px 0 0;
+  }
+  .note {
+    margin: 0;
+    font-size: 12.5px;
+    line-height: 1.45;
+    color: var(--text-2);
+  }
+  .actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+  }
+</style>

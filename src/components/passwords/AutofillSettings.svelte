@@ -73,6 +73,18 @@
     </div>
   </div>
 
+  <h3>Payment cards</h3>
+  <div class="group">
+    <div class="row" class:dim={off}>
+      <div class="text"><b>Offer to save cards</b><span>Ask after you pay on a site. Never asked in incognito windows. The security code is only saved if you tick the box.</span></div>
+      <Toggle checked={s.cardsOfferSave} disabled={off} onchange={(v) => set('cardsOfferSave', v)} label="Offer to save cards" />
+    </div>
+    <div class="row" class:dim={off}>
+      <div class="text"><b>Show saved cards on payment forms</b><span>Click a card number field to pick a card. Your master password is asked for every time a card is filled in, and cards are only filled on secure (https) pages.</span></div>
+      <Toggle checked={s.autofillCards} disabled={off} onchange={(v) => set('autofillCards', v)} label="Show saved cards" />
+    </div>
+  </div>
+
   <h3>Autofill</h3>
   <div class="group">
     <div class="row" class:dim={off}>

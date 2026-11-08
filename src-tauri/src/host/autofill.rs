@@ -28,6 +28,7 @@ use zeroize::{Zeroize, Zeroizing};
 
 use super::tab::TabShared;
 use super::{config, emit_tab, post, with_host};
+use crate::vault::cards::{self, CardInfo, FillCard};
 use crate::vault::{self, crypto, Account, Capture};
 
 /// Field helpers shared by the page script and the fill script.
@@ -46,7 +47,37 @@ macro_rules! helpers {
   const isPass = (el) => el instanceof HTMLInputElement && el.type === 'password';
   const isUser = (el) => textual(el) && (/\b(username|email)\b/.test(el.autocomplete) || el.type === 'email' || (USER.test(hint(el)) && !SKIP.test(hint(el))));
   const scopeOf = (el) => el.form || (el.closest && el.closest('form')) || document;
-  const passes = (root) => [...root.querySelectorAll('input[type=password]')].filter(shown);
+  const CVC = /cvc|cvv|cvn|csc|security.?code|card.?(verification|code)/i;
+  const CNUM = /card.?(number|num|no)\b|cardnumber|cc.?(num|number)|\bpan\b/i;
+  const CMON = /(exp|expiry|expiration).?(month|mm)\b|exp.?mo\b|card.?month/i;
+  const CYEAR = /(exp|expiry|expiration).?(year|yy|yyyy)\b|exp.?yr|card.?year/i;
+  const CEXP = /(exp|expiry|expiration)(.?date)?\b|valid.?(thru|until)/i;
+  const CNAME = /card.?holder|name.?on.?card|cc.?name|card.?name/i;
+  // What a payment form field is: num, exp, mm, yy, cvc or name ('' for anything else).
+  const ccKind = (el) => {
+    const sel = el instanceof HTMLSelectElement;
+    if (!sel && !(el instanceof HTMLInputElement)) return '';
+    if (!sel && !['text', 'tel', 'number', 'password', 'email', ''].includes(el.type)) return '';
+    const a = (el.autocomplete || '').toLowerCase();
+    let k = /\bcc-number\b/.test(a) ? 'num' : /\bcc-csc\b/.test(a) ? 'cvc' : /\bcc-exp-month\b/.test(a) ? 'mm' : /\bcc-exp-year\b/.test(a) ? 'yy' : /\bcc-exp\b/.test(a) ? 'exp' : /\bcc-name\b/.test(a) ? 'name' : '';
+    if (!k) {
+      const h = [el.name, el.id, el.placeholder, el.getAttribute('aria-label')].join(' ');
+      k = CVC.test(h) ? 'cvc' : CNUM.test(h) ? 'num' : CMON.test(h) ? 'mm' : CYEAR.test(h) ? 'yy' : CEXP.test(h) ? 'exp' : CNAME.test(h) ? 'name' : '';
+    }
+    if (sel && k !== 'mm' && k !== 'yy') return '';
+    if (el.type === 'password' && k !== 'cvc') return '';
+    return k;
+  };
+  const cardFields = (root) => {
+    const f = {};
+    for (const i of root.querySelectorAll('input, select')) {
+      const k = ccKind(i);
+      if (k && !f[k] && shown(i)) f[k] = i;
+    }
+    return f;
+  };
+  // A security code field of type password is not a login password.
+  const passes = (root) => [...root.querySelectorAll('input[type=password]')].filter((p) => shown(p) && ccKind(p) !== 'cvc');
   const userFor = (root, pw) => {
     const inputs = [...root.querySelectorAll('input')].filter(textual);
     let best = null;
@@ -108,6 +139,41 @@ pub const PAGE_SCRIPT: &str = concat!(
     if (suggesting) send('_zenith_pw_type', { ...info(el), u: el.value.slice(0, 256) });
   }, true);
 
+  // Payment forms: clicking the card number, name or expiry shows the saved cards; a submitted
+  // card is offered for saving.
+  const cardField = (el) => el instanceof HTMLInputElement && !el.readOnly && shown(el) && ['num', 'name', 'exp'].includes(ccKind(el));
+  const offerCard = (el) => {
+    const now = Date.now();
+    if (el === lastEl && now - lastAt < 500) return;
+    lastEl = el; lastAt = now; suggesting = true;
+    const r = el.getBoundingClientRect();
+    send('_zenith_card_field', { f: 'card', x: r.left, y: r.top, w: r.width, h: r.height, dpr: window.devicePixelRatio || 1 });
+  };
+  addEventListener('focusin', (e) => { if (cardField(target(e))) offerCard(target(e)); }, true);
+  addEventListener('click', (e) => { if (e.isTrusted && cardField(target(e))) offerCard(target(e)); }, true);
+  addEventListener('input', (e) => { if (e.isTrusted && cardField(target(e))) dismiss(); }, true);
+  let lastCard = '';
+  const optText = (el) => el instanceof HTMLSelectElement && el.selectedOptions[0] ? el.value + ' ' + el.selectedOptions[0].text : el.value;
+  const captureCard = (root) => {
+    const f = cardFields(root);
+    if (!f.num) return;
+    const n = f.num.value.replace(/[\s-]/g, '');
+    if (!/^\d{12,19}$/.test(n)) return;
+    let m = '', y = '';
+    if (f.mm && f.yy) { m = optText(f.mm).trim(); y = optText(f.yy).trim(); }
+    else if (f.exp) {
+      const x = f.exp.value.match(/(\d{1,2})\s*[\/\-. ]?\s*(\d{4}|\d{2})\s*$/);
+      if (x) { m = x[1]; y = x[2]; }
+    }
+    if (!m || !y) return;
+    const c = f.cvc ? f.cvc.value.trim().slice(0, 4) : '';
+    const key = n + '\n' + m + '\n' + y;
+    if (key === lastCard) return;
+    lastCard = key;
+    setTimeout(() => { if (lastCard === key) lastCard = ''; }, 4000);
+    send('_zenith_card_capture', { cn: n, cm: m.slice(0, 40), cy: y.slice(0, 40), cc: c, ch: f.name ? f.name.value.trim().slice(0, 200) : '' });
+  };
+
   let lastCap = '';
   const capture = (root) => {
     const ps = passes(root).filter((p) => p.value);
@@ -125,19 +191,21 @@ pub const PAGE_SCRIPT: &str = concat!(
     setTimeout(() => { if (lastCap === key) lastCap = ''; }, 4000);
     send('_zenith_pw_capture', { u: user, p: pass });
   };
-  addEventListener('submit', (e) => { if (e.target instanceof HTMLFormElement) capture(e.target); }, true);
+  addEventListener('submit', (e) => { if (e.target instanceof HTMLFormElement) { capture(e.target); captureCard(e.target); } }, true);
   addEventListener('click', (e) => {
     if (!e.isTrusted) return;
     const b = e.composedPath().find((n) => n instanceof Element && n.matches('button, input[type=submit], input[type=button], [role=button]'));
     if (!b) return;
     const root = scopeOf(b);
     if (root !== document || passes(root).some((p) => p.value)) capture(root);
+    captureCard(root);
   }, true);
   addEventListener('keydown', (e) => {
     if (e.key === 'Escape') return dismiss();
     if (e.key !== 'Enter' || !e.isTrusted) return;
     const el = target(e);
     if (el instanceof HTMLInputElement && (isPass(el) || isUser(el))) capture(scopeOf(el));
+    if (ccKind(el)) captureCard(scopeOf(el));
   }, true);
 
   let told = false;
@@ -182,6 +250,45 @@ const FILL_SCRIPT: &str = concat!(
   if (d.u && u && shown(u)) { set(u, d.u); did = true; }
   if (d.p && pw) { set(pw, d.p); did = true; }
   return did ? 'ok' : 'nofield';
+})"#
+);
+
+/// Called as `(CARD_FILL_SCRIPT)(payload)` in the top-level document. Same results as `FILL_SCRIPT`.
+const CARD_FILL_SCRIPT: &str = concat!(
+    "((d) => {\n  if (location.origin !== d.origin) return 'origin';\n",
+    helpers!(),
+    r#"
+  const desc = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
+  const fire = (el) => {
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+  };
+  const setText = (el, v) => { el.focus(); desc.set.call(el, v); fire(el); };
+  // A month or year drop-down: the option whose value or text starts with the number.
+  const setSelect = (el, v) => {
+    const want = (s) => { const m = String(s).match(/\d+/); return m ? parseInt(m[0], 10) : NaN; };
+    const o = [...el.options].find((x) => want(x.value) === v || want(x.text) === v);
+    if (!o) return false;
+    el.value = o.value;
+    fire(el);
+    return true;
+  };
+  const a = document.activeElement;
+  let f = a instanceof Element ? cardFields(scopeOf(a)) : {};
+  if (!f.num) f = cardFields(document);
+  if (!f.num) return 'nofield';
+  const two = (n) => String(n).padStart(2, '0');
+  const long = (el) => /yyyy/i.test(el.placeholder || '') || (el.maxLength > 0 && el.maxLength >= 7);
+  setText(f.num, d.n);
+  if (f.exp) setText(f.exp, two(d.m) + '/' + (long(f.exp) ? d.y : two(d.y % 100)));
+  if (f.mm) { if (f.mm instanceof HTMLSelectElement) setSelect(f.mm, d.m); else setText(f.mm, two(d.m)); }
+  if (f.yy) {
+    if (f.yy instanceof HTMLSelectElement) { if (!setSelect(f.yy, d.y)) setSelect(f.yy, d.y % 100); }
+    else setText(f.yy, f.yy.maxLength === 2 || /yy$/i.test(f.yy.placeholder || '') && !/yyyy/i.test(f.yy.placeholder || '') ? two(d.y % 100) : String(d.y));
+  }
+  if (f.name && d.h && !f.name.value) setText(f.name, d.h);
+  if (f.cvc && d.c) setText(f.cvc, d.c);
+  return 'ok';
 })"#
 );
 
@@ -232,11 +339,25 @@ struct Msg {
     u: String,
     #[serde(default)]
     p: String,
+    // A card captured on a payment form: number, expiry month and year (as the page shows
+    // them), security code and cardholder name.
+    #[serde(default)]
+    cn: String,
+    #[serde(default)]
+    cm: String,
+    #[serde(default)]
+    cy: String,
+    #[serde(default)]
+    cc: String,
+    #[serde(default)]
+    ch: String,
 }
 
 impl Drop for Msg {
     fn drop(&mut self) {
         self.p.zeroize();
+        self.cn.zeroize();
+        self.cc.zeroize();
     }
 }
 
@@ -261,9 +382,27 @@ struct Suggest {
     rect: FieldRect,
     dpr: f64,
     accounts: Vec<Account>,
+    /// Saved cards, when `field` is "card" (a payment form).
+    cards: Vec<CardInfo>,
     generated: Option<String>,
     /// The same list as already shown, narrowed by what was typed: it is updated in place.
     refresh: bool,
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct CardSaveOffer {
+    offer_id: u64,
+    tab_id: String,
+    site: String,
+    brand: String,
+    last4: String,
+    exp_month: u8,
+    exp_year: u16,
+    /// The page also sent a security code, which is only saved when the user ticks the box.
+    has_cvc: bool,
+    /// A saved card would get the new expiry.
+    update: bool,
 }
 
 #[derive(Serialize, Clone)]
@@ -333,6 +472,8 @@ pub fn on_message(sh: &Rc<TabShared>, name: &str, uri: &str, user: bool, main_fr
         "_zenith_pw_dismiss" => close_suggestions(&sh.id),
         "_zenith_pw_capture" if user => on_capture(sh, &origin, &msg),
         "_zenith_pw_form" => on_form(sh, &origin),
+        "_zenith_card_field" if user => on_card_field(sh, &origin, &msg),
+        "_zenith_card_capture" if user => on_card_capture(sh, &origin, &msg),
         _ => {}
     }
 }
@@ -400,10 +541,98 @@ fn show_list(sh: &Rc<TabShared>, origin: &str, m: &Msg, typed: Option<&str>) {
             rect: FieldRect { x: finite(m.x), y: finite(m.y), w: finite(m.w).max(0.0), h: finite(m.h).max(0.0) },
             dpr: if m.dpr.is_finite() && m.dpr > 0.0 { m.dpr } else { 1.0 },
             accounts,
+            cards: Vec::new(),
             generated: shown,
             refresh: typed.is_some(),
         },
     );
+}
+
+/// A card number, name or expiry field was clicked: the saved cards are listed under it. Cards
+/// are only offered on HTTPS pages.
+fn on_card_field(sh: &Rc<TabShared>, origin: &str, m: &Msg) {
+    with_tab(&sh.id, |t| t.muted = false);
+    let cfg = config();
+    if !cfg.autofill_cards || !origin.starts_with("https://") {
+        return;
+    }
+    let list = vault::try_with(|v| v.cards_for_page()).unwrap_or_default();
+    if list.is_empty() {
+        return;
+    }
+    with_tab(&sh.id, |t| {
+        t.generated = None;
+        t.suggesting = true;
+    });
+    let finite = |v: f64| if v.is_finite() { v } else { 0.0 };
+    emit_tab(
+        &sh.id,
+        "password-suggest",
+        Suggest {
+            tab_id: sh.id.clone(),
+            site: vault::display_site(origin),
+            field: "card".into(),
+            new_password: false,
+            rect: FieldRect { x: finite(m.x), y: finite(m.y), w: finite(m.w).max(0.0), h: finite(m.h).max(0.0) },
+            dpr: if m.dpr.is_finite() && m.dpr > 0.0 { m.dpr } else { 1.0 },
+            accounts: Vec::new(),
+            cards: list,
+            generated: None,
+            refresh: false,
+        },
+    );
+}
+
+/// A card was submitted on a payment form: offer to save it (or its new expiry). The number never
+/// reaches the chrome UI; the offer tells it only the brand, last four digits and expiry.
+fn on_card_capture(sh: &Rc<TabShared>, origin: &str, m: &Msg) {
+    let cfg = config();
+    if !cfg.cards_offer_save || sh.private || !origin.starts_with("https://") {
+        return;
+    }
+    let Some(number) = cards::digits_only(&m.cn) else { return };
+    if !cards::valid_number(&number) {
+        return;
+    }
+    let Some((month, year)) = cards::parse_expiry(&m.cm, &m.cy) else { return };
+    let has_cvc = (3..=4).contains(&m.cc.len()) && m.cc.bytes().all(|b| b.is_ascii_digit());
+    let cvc = Zeroizing::new(if has_cvc { m.cc.clone() } else { String::new() });
+    let holder: String = m.ch.trim().chars().take(200).collect();
+    let Some(decision) = vault::try_with(|v| {
+        if v.status().damaged.is_some() || v.is_never(origin) {
+            None
+        } else {
+            Some(v.classify_card(&number, month, year))
+        }
+    })
+    .flatten() else {
+        return;
+    };
+    let update = match decision {
+        cards::CardCapture::Saved => return,
+        cards::CardCapture::Update(id) => Some(id),
+        cards::CardCapture::New => None,
+    };
+    let payload = CardSaveOffer {
+        offer_id: 0,
+        tab_id: sh.id.clone(),
+        site: vault::display_site(origin),
+        brand: cards::brand_of(&number).to_string(),
+        last4: number[number.len() - 4..].to_string(),
+        exp_month: month,
+        exp_year: year,
+        has_cvc,
+        update: update.is_some(),
+    };
+    let offer = cards::CardOffer::new(&sh.id, origin, number, cvc, &holder, month, year, update);
+    let payload = CardSaveOffer { offer_id: cards::add_card_offer(offer), ..payload };
+    // Let the page react first (a declined payment re-renders; a good one navigates).
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(700));
+        if cards::has_card_offer(payload.offer_id) {
+            emit_tab(&payload.tab_id.clone(), "card-save-offer", payload);
+        }
+    });
 }
 
 fn on_capture(sh: &Rc<TabShared>, origin: &str, m: &Msg) {
@@ -512,6 +741,7 @@ pub fn on_navigation(tab_id: &str) {
 pub fn forget(tab_id: &str) {
     TABS.with(|t| t.borrow_mut().remove(tab_id));
     vault::drop_tab_offers(tab_id);
+    cards::drop_tab_card_offers(tab_id);
 }
 
 /// The origin of the page in a tab, if it can receive credentials.
@@ -523,6 +753,28 @@ pub fn tab_origin(tab_id: &str) -> Option<String> {
 /// Fills a login (or, with mode "new", a new password) into the tab's top-level document,
 /// provided it is still at `origin`.
 pub fn fill(tab_id: &str, origin: &str, username: Option<&str>, password: Option<&str>, mode: &str, done: impl FnOnce(Result<(), String>) + 'static) {
+    let payload = Zeroizing::new(serde_json::json!({ "origin": origin, "u": username, "p": password, "mode": mode }).to_string());
+    run_fill(tab_id, origin, FILL_SCRIPT, payload, "No login form was found on this page.", done);
+}
+
+/// Fills a saved card into the payment form of the tab's top-level document, provided it is
+/// still at `origin`.
+pub fn fill_card(tab_id: &str, origin: &str, card: &FillCard, done: impl FnOnce(Result<(), String>) + 'static) {
+    let payload = Zeroizing::new(
+        serde_json::json!({
+            "origin": origin,
+            "n": card.number.as_str(),
+            "m": card.exp_month,
+            "y": card.exp_year,
+            "c": card.cvc.as_str(),
+            "h": card.holder,
+        })
+        .to_string(),
+    );
+    run_fill(tab_id, origin, CARD_FILL_SCRIPT, payload, "No payment form was found on this page.", done);
+}
+
+fn run_fill(tab_id: &str, origin: &str, script: &str, payload: Zeroizing<String>, nofield: &'static str, done: impl FnOnce(Result<(), String>) + 'static) {
     let core = with_host(|h| h.tabs.get(tab_id).map(|t| t.core())).flatten();
     let Some(core) = core else {
         return done(Err("The tab is no longer open.".into()));
@@ -530,14 +782,13 @@ pub fn fill(tab_id: &str, origin: &str, username: Option<&str>, password: Option
     if tab_origin(tab_id).as_deref() != Some(origin) {
         return done(Err("The page changed before it could be filled.".into()));
     }
-    let payload = Zeroizing::new(serde_json::json!({ "origin": origin, "u": username, "p": password, "mode": mode }).to_string());
-    let script = Zeroizing::new(format!("{FILL_SCRIPT}({})", payload.as_str()));
+    let script = Zeroizing::new(format!("{script}({})", payload.as_str()));
     let done = RefCell::new(Some(done));
     let handler = ExecuteScriptCompletedHandler::create(Box::new(move |result, json| {
         let outcome = match (result, json.trim_matches('"')) {
             (Ok(()), "ok") => Ok(()),
             (Ok(()), "origin") => Err("The page changed before it could be filled.".to_string()),
-            (Ok(()), _) => Err("No login form was found on this page.".to_string()),
+            (Ok(()), _) => Err(nofield.to_string()),
             (Err(e), _) => Err(e.message().to_string()),
         };
         if let Some(done) = done.borrow_mut().take() {
@@ -621,5 +872,7 @@ mod tests {
         assert!(PAGE_SCRIPT.starts_with("(() => {") && PAGE_SCRIPT.ends_with("})();"));
         assert!(FILL_SCRIPT.starts_with("((d) => {") && FILL_SCRIPT.ends_with("})"));
         assert!(PAGE_SCRIPT.contains("const userFor") && FILL_SCRIPT.contains("const userFor"));
+        assert!(CARD_FILL_SCRIPT.starts_with("((d) => {") && CARD_FILL_SCRIPT.ends_with("})"));
+        assert!(PAGE_SCRIPT.contains("const cardFields") && CARD_FILL_SCRIPT.contains("const cardFields"));
     }
 }

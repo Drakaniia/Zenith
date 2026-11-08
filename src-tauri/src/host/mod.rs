@@ -162,6 +162,10 @@ pub struct RuntimeConfig {
     pub passwords_enabled: bool,
     /// Offer to save logins submitted on pages.
     pub passwords_offer_save: bool,
+    /// Offer to save cards submitted on payment forms.
+    pub cards_offer_save: bool,
+    /// Show saved cards when a card field is clicked (filling always asks for the master password).
+    pub autofill_cards: bool,
     /// Show saved accounts when a login field is clicked.
     pub autofill_suggest: bool,
     pub autofill_usernames: bool,
@@ -191,6 +195,8 @@ impl Default for RuntimeConfig {
             auto_update: true,
             passwords_enabled: true,
             passwords_offer_save: true,
+            cards_offer_save: true,
+            autofill_cards: true,
             autofill_suggest: true,
             autofill_usernames: true,
             autofill_passwords: true,

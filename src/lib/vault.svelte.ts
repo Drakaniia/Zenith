@@ -2,6 +2,7 @@
 // "Save password?" prompt. The backend owns every secret; the UI sees a password only when the
 // user reveals one in the manager.
 import { invoke } from "@tauri-apps/api/core";
+import type { CardInput, CardSaveOffer, SavedCard } from "./cards";
 import type {
   EntryInput,
   ImportOpened,
@@ -54,6 +55,24 @@ export const vaultApi = {
   dismiss: (tabId: string) => invoke<void>("autofill_dismiss", { tabId }),
   respondOffer: (offerId: number, action: "save" | "never" | "dismiss", master: string | null = null) =>
     invoke<string | null>("password_offer_respond", { offerId, action, master }),
+
+  // Wallet. Revealing, copying and filling a card always needs the master password.
+  cards: () => invoke<SavedCard[]>("cards_list"),
+  cardReveal: (id: string, master: string | null = null) =>
+    invoke<{ number: string; cvc: string }>("card_reveal", { id, master }),
+  cardCopy: (id: string, field: "number" | "cvc" | "holder", master: string | null = null) =>
+    invoke<void>("card_copy", { id, field, master }),
+  cardAdd: (card: CardInput) => invoke<string>("card_add", { card }),
+  cardUpdate: (id: string, card: CardInput) => invoke<void>("card_update", { id, card }),
+  cardsRemove: (ids: string[]) => invoke<number>("cards_delete", { ids }),
+  fillCard: (tabId: string, cardId: string, master: string) =>
+    invoke<void>("autofill_fill_card", { tabId, cardId, master }),
+  respondCardOffer: (
+    offerId: number,
+    action: "save" | "never" | "dismiss",
+    saveCvc = false,
+    master: string | null = null,
+  ) => invoke<string | null>("card_offer_respond", { offerId, action, saveCvc, master }),
 };
 
 const EMPTY: VaultStatus = {
@@ -61,6 +80,7 @@ const EMPTY: VaultStatus = {
   unlocked: false,
   hasRecovery: false,
   count: 0,
+  cardCount: 0,
   damaged: null,
   retryAfter: 0,
 };
@@ -78,6 +98,8 @@ class VaultStore {
   #closed: { tabId: string; at: number } | null = null;
   /** "Save password?" prompts, newest last (one per tab). */
   offers = $state<PasswordSaveOffer[]>([]);
+  /** "Save card?" prompts, newest last (one per tab). */
+  cardOffers = $state<CardSaveOffer[]>([]);
   /** Bumped when entries change, so open lists reload. */
   revision = $state(0);
 
@@ -91,7 +113,8 @@ class VaultStore {
   }
 
   apply(s: VaultStatus) {
-    const changed = s.count !== this.status.count || s.unlocked !== this.status.unlocked;
+    const changed =
+      s.count !== this.status.count || s.cardCount !== this.status.cardCount || s.unlocked !== this.status.unlocked;
     this.status = s;
     this.loaded = true;
     if (changed) this.revision++;
@@ -110,8 +133,17 @@ class VaultStore {
     this.offers = this.offers.filter((x) => x.offerId !== offerId);
   }
 
+  pushCardOffer(o: CardSaveOffer) {
+    this.cardOffers = [...this.cardOffers.filter((x) => x.tabId !== o.tabId), o];
+  }
+
+  dropCardOffer(offerId: number) {
+    this.cardOffers = this.cardOffers.filter((x) => x.offerId !== offerId);
+  }
+
   dropTab(tabId: string) {
     this.offers = this.offers.filter((x) => x.tabId !== tabId);
+    this.cardOffers = this.cardOffers.filter((x) => x.tabId !== tabId);
     if (this.suggest?.tabId === tabId) this.suggest = null;
   }
 
