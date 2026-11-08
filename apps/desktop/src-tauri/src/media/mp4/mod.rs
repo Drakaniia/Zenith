@@ -185,31 +185,10 @@ fn skip_body(r: &mut impl Read, header: usize, total: Option<u64>) -> io::Result
 
 /// Reads the next top-level box (header included). `None` at a clean end of file.
 fn read_box(r: &mut impl Read) -> io::Result<Option<Vec<u8>>> {
-    let mut head = [0u8; 8];
-    let mut got = 0;
-    while got < 8 {
-        let n = r.read(&mut head[got..])?;
-        if n == 0 {
-            break;
-        }
-        got += n;
-    }
-    if got == 0 {
-        return Ok(None);
-    }
-    if got < 8 {
-        return Err(invalid("truncated box header"));
-    }
-    let size32 = u32::from_be_bytes([head[0], head[1], head[2], head[3]]);
-    let mut buf = head.to_vec();
-    let total = match size32 {
-        1 => {
-            let mut ext = [0u8; 8];
-            r.read_exact(&mut ext)?;
-            buf.extend_from_slice(&ext);
-            u64::from_be_bytes(ext)
-        }
-        0 => {
+    let Some((_, mut buf, total)) = read_header(r)? else { return Ok(None) };
+    let total = match total {
+        Some(total) => total,
+        None => {
             // "Extends to the end of the file": read the rest and give it a real size.
             r.read_to_end(&mut buf)?;
             if buf.len() as u64 > u32::MAX as u64 {
@@ -219,10 +198,9 @@ fn read_box(r: &mut impl Read) -> io::Result<Option<Vec<u8>>> {
             put32(&mut buf, 0, len);
             return Ok(Some(buf));
         }
-        n => n as u64,
     };
     let header = buf.len() as u64;
-    if total < header || total > MAX_BOX {
+    if total > MAX_BOX {
         return Err(invalid("corrupt box size"));
     }
     (&mut *r).take(total - header).read_to_end(&mut buf)?;

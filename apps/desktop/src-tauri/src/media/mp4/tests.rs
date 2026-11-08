@@ -9,6 +9,38 @@ fn temp(test: &str, name: &str) -> std::path::PathBuf {
 }
 
 #[test]
+fn reads_normal_extended_and_open_ended_boxes() {
+    let normal = make_box(b"mdat", b"body");
+    let mut extended = 1u32.to_be_bytes().to_vec();
+    extended.extend(b"mdat");
+    extended.extend(20u64.to_be_bytes());
+    extended.extend(b"body");
+    let mut open = 0u32.to_be_bytes().to_vec();
+    open.extend(b"mdatbody");
+    for (input, expected) in [(&normal, &normal), (&extended, &extended), (&open, &normal)] {
+        let mut reader = input.as_slice();
+        assert_eq!(read_box(&mut reader).unwrap(), Some(expected.clone()));
+        assert_eq!(read_box(&mut reader).unwrap(), None);
+    }
+    // Headers may arrive in partial reads (for example, from a stream).
+    let mut reader = std::io::BufReader::with_capacity(1, normal.as_slice());
+    assert_eq!(read_box(&mut reader).unwrap(), Some(normal));
+}
+
+#[test]
+fn rejects_truncated_and_invalid_boxes() {
+    let mut extended = 1u32.to_be_bytes().to_vec();
+    extended.extend(b"mdat");
+    extended.extend(15u64.to_be_bytes());
+    let mut oversized = ((MAX_BOX + 1) as u32).to_be_bytes().to_vec();
+    oversized.extend(b"mdat");
+    for input in [b"short".to_vec(), b"\0\0\0\x07mdat".to_vec(),
+        b"\0\0\0\x01mdat".to_vec(), b"\0\0\0\x0cmdatx".to_vec(), extended, oversized] {
+        assert!(read_box(&mut input.as_slice()).is_err());
+    }
+}
+
+#[test]
 fn detects_encrypted_and_clear_tracks() {
     assert!(!is_protected(&init(1, 90000, b"avc1", &[])));
     assert!(is_protected(&init(1, 90000, b"encv", &[])));
