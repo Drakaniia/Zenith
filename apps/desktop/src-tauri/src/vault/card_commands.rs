@@ -8,7 +8,8 @@ use tauri::AppHandle;
 use zeroize::Zeroizing;
 
 use crate::host::{self, autofill};
-use crate::password_commands::{blocking, on_main, on_main_cb, secret, vault_call, CmdResult, CLIPBOARD_CLEAR};
+use super::commands::{secret, vault_call, CLIPBOARD_CLEAR};
+use crate::app::command::{blocking, on_main, on_main_cb, CmdResult};
 use crate::platform::win;
 use crate::vault;
 

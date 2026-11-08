@@ -11,38 +11,13 @@ use tauri::AppHandle;
 use tauri_plugin_dialog::DialogExt;
 use zeroize::Zeroizing;
 
+use crate::app::command::{blocking, on_main, on_main_cb, CmdResult};
 use crate::host::{self, autofill};
 use crate::platform::win;
 use crate::{storage, vault};
 
-pub(crate) type CmdResult<T> = Result<T, String>;
-
 /// How long a copied password stays on the clipboard.
 pub(crate) const CLIPBOARD_CLEAR: std::time::Duration = std::time::Duration::from_secs(30);
-
-pub(crate) async fn blocking<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> CmdResult<T> {
-    tauri::async_runtime::spawn_blocking(f).await.map_err(|e| e.to_string())
-}
-
-pub(crate) async fn on_main<T: Send + 'static>(app: &AppHandle, f: impl FnOnce() -> T + Send + 'static) -> CmdResult<T> {
-    let (tx, rx) = tokio::sync::oneshot::channel();
-    app.run_on_main_thread(move || {
-        let _ = tx.send(f());
-    })
-    .map_err(|e| e.to_string())?;
-    rx.await.map_err(|_| "the UI thread did not respond".to_string())
-}
-
-pub(crate) async fn on_main_cb<T: Send + 'static>(app: &AppHandle, f: impl FnOnce(Box<dyn FnOnce(T)>) + Send + 'static) -> CmdResult<T> {
-    let (tx, rx) = tokio::sync::oneshot::channel();
-    app.run_on_main_thread(move || {
-        f(Box::new(move |v| {
-            let _ = tx.send(v);
-        }))
-    })
-    .map_err(|e| e.to_string())?;
-    rx.await.map_err(|_| "the operation was dropped".to_string())
-}
 
 pub(crate) async fn vault_call<T: Send + 'static>(f: impl FnOnce(&mut vault::Vault) -> CmdResult<T> + Send + 'static) -> CmdResult<T> {
     blocking(move || vault::with(f)).await?

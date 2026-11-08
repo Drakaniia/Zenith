@@ -12,7 +12,9 @@
 //!
 //! Unlocking keeps the vault key in memory (wiped on lock). Restarting Zenith always locks.
 
+pub mod card_commands;
 pub mod cards;
+pub mod commands;
 pub mod crypto;
 pub mod csv;
 
