@@ -6,6 +6,8 @@
 //! window deletes its file and remembers its last session in memory for "Reopen closed window"
 //! (Zen's Ctrl+Shift+N). Incognito windows never save anything.
 
+pub mod commands;
+
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};

@@ -12,7 +12,7 @@ use tauri::{AppHandle, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, Webv
 
 use super::startup::set_startup_urls;
 use crate::platform::win;
-use crate::{host, incognito, profile_commands, profiles, sessions, storage};
+use crate::{host, incognito, profile_commands, profiles, session, storage};
 
 pub(crate) static NEXT_INCOGNITO: AtomicU32 = AtomicU32::new(1);
 static NEXT_WINDOW: AtomicU32 = AtomicU32::new(1);
@@ -145,7 +145,7 @@ fn place_cascaded(app: &AppHandle, window: &WebviewWindow) {
 /// passes the same WebView2 options, so all of them share one WebView2 browser process.
 pub(crate) fn create_window(app: &AppHandle, label: &str) -> tauri::Result<()> {
     let private = host::is_private_window(label);
-    let extra = sessions::is_extra_window(label);
+    let extra = session::is_extra_window(label);
     let title = window_title(private);
     let mut builder = WebviewWindowBuilder::new(app, label, WebviewUrl::App("index.html".into()))
         .title(&title)
@@ -213,14 +213,14 @@ pub fn open_incognito_window(app: &AppHandle, urls: Vec<String>) -> tauri::Resul
 }
 
 /// Opens another normal window (`window-N`) that starts with `start`. Call off the UI thread.
-pub fn open_normal_window(app: &AppHandle, start: sessions::Start) -> tauri::Result<()> {
-    let label = format!("{}{}", sessions::LABEL_PREFIX, NEXT_WINDOW.fetch_add(1, Ordering::Relaxed));
-    sessions::set_pending(&label, start);
+pub fn open_normal_window(app: &AppHandle, start: session::Start) -> tauri::Result<()> {
+    let label = format!("{}{}", session::LABEL_PREFIX, NEXT_WINDOW.fetch_add(1, Ordering::Relaxed));
+    session::set_pending(&label, start);
     create_window(app, &label)
 }
 
 /// Reopens the main window (closed while other windows stayed open) with all of its tabs.
 pub fn reopen_main_window(app: &AppHandle) -> tauri::Result<()> {
-    sessions::set_pending(host::MAIN, sessions::Start { data: None, keep: Some(true), fresh: false });
+    session::set_pending(host::MAIN, session::Start { data: None, keep: Some(true), fresh: false });
     create_window(app, host::MAIN)
 }

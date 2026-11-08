@@ -6,93 +6,20 @@
 //! `run_on_main_thread`; disk and network work runs on blocking worker threads.
 
 use std::path::PathBuf;
-use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Manager, WebviewWindow};
+use tauri::{AppHandle, WebviewWindow};
 use tauri_plugin_dialog::DialogExt;
 
-use crate::host::crx;
-use crate::host::page_tools;
-use crate::host::extensions::{self, ExtensionInfo};
-use crate::host::tab::{self, CreateOptions};
-use crate::host::{self, bookmarks_db, db, paths, LayoutSpec, RuntimeConfig, BLOCKER};
-use crate::keys::BindingSpec;
-use crate::storage;
-use crate::platform::{net, urls, win};
-use crate::{blocker, bookmarks, importer, sessions};
-
 use crate::app::command::{blocking, on_main, on_main_cb, private, refuse_in_incognito, CmdResult};
-
-// ---------------------------------------------------------------------------------------------
-// Startup and window
-
-/// Opens another normal window (Ctrl+N). `session` is the calling window's snapshot: the new
-/// window gets its spaces, essentials and pinned tabs, but not its regular tabs.
-#[tauri::command]
-pub async fn window_open(app: AppHandle, session: Option<String>) -> CmdResult<()> {
-    let start = sessions::Start { data: session, keep: Some(false), fresh: true };
-    std::thread::spawn(move || {
-        if let Err(e) = crate::app::window::open_normal_window(&app, start) {
-            eprintln!("[zenith] could not open a window: {e}");
-        }
-    });
-    Ok(())
-}
-
-/// Reopens the most recently closed normal window (Ctrl+Shift+N); false when there is none.
-#[tauri::command]
-pub async fn window_undo_close(app: AppHandle) -> CmdResult<bool> {
-    let main_open = app.get_webview_window(host::MAIN).is_some();
-    let Some(closed) = sessions::pop_closed(main_open) else { return Ok(false) };
-    std::thread::spawn(move || {
-        let opened = match closed {
-            sessions::Closed::Main => crate::app::window::reopen_main_window(&app),
-            sessions::Closed::Extra(data) => {
-                crate::app::window::open_normal_window(&app, sessions::Start { data: Some(data), keep: Some(true), fresh: true })
-            }
-        };
-        if let Err(e) = opened {
-            eprintln!("[zenith] could not reopen a window: {e}");
-        }
-    });
-    Ok(true)
-}
-
-/// The main window's UI calls this once at startup: the other windows that were open when Zenith
-/// quit come back (`keep`, the "restore previous session" setting) or are forgotten.
-#[tauri::command]
-pub async fn windows_restore(app: AppHandle, window: WebviewWindow, keep: bool) -> CmdResult<()> {
-    if window.label() != host::MAIN {
-        return Ok(());
-    }
-    let saved = blocking(move || sessions::take_saved(keep)).await?;
-    if saved.is_empty() {
-        return Ok(());
-    }
-    std::thread::spawn(move || {
-        for data in saved {
-            let start = sessions::Start { data: Some(data), keep: Some(true), fresh: true };
-            if let Err(e) = crate::app::window::open_normal_window(&app, start) {
-                eprintln!("[zenith] could not restore a window: {e}");
-            }
-        }
-    });
-    Ok(())
-}
-
-/// Opens a new incognito window in this process, optionally with web addresses to load.
-#[tauri::command]
-pub async fn incognito_open(urls: Option<Vec<String>>) -> CmdResult<()> {
-    let urls: Vec<String> = urls
-        .unwrap_or_default()
-        .iter()
-        .filter_map(|u| urls::sanitize_navigation(u))
-        .filter(|u| u.starts_with("https://") || u.starts_with("http://"))
-        .collect();
-    crate::incognito::open_window(urls);
-    Ok(())
-}
+use crate::host::crx;
+use crate::host::extensions::{self, ExtensionInfo};
+use crate::host::page_tools;
+use crate::host::tab::{self, CreateOptions};
+use crate::host::{self, bookmarks_db, db, paths, LayoutSpec, BLOCKER};
+use crate::platform::{net, urls};
+use crate::storage;
+use crate::{blocker, bookmarks, importer};
 
 // ---------------------------------------------------------------------------------------------
 // Tabs
@@ -223,78 +150,6 @@ pub async fn permission_respond(app: AppHandle, request_id: u32, allow: bool, re
     on_main(&app, move || tab::respond_permission(request_id, allow, remember)).await
 }
 
-// ---------------------------------------------------------------------------------------------
-// Settings pushed to the backend
-
-/// Returns the system-wide shortcuts that could not be registered (another app owns them).
-#[tauri::command]
-pub async fn set_shortcuts(app: AppHandle, bindings: Vec<BindingSpec>) -> CmdResult<Vec<String>> {
-    on_main(&app, move || host::set_bindings(bindings)).await
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Appearance {
-    /// "system" | "light" | "dark"
-    theme: String,
-    /// "mica" | "mica-alt" | "acrylic" | "solid"
-    material: String,
-    page_background: [u8; 3],
-    /// prefers-color-scheme for web content: "system" | "light" | "dark"
-    content_scheme: String,
-}
-
-#[derive(Serialize)]
-pub struct AppliedSettings {
-    /// The material actually in use ("solid" whenever Windows cannot show one).
-    material: String,
-    /// Why a requested material fell back to solid: "windows10", "transparency-off" or
-    /// "battery-saver".
-    fallback: Option<&'static str>,
-}
-
-#[tauri::command]
-pub async fn apply_settings(
-    app: AppHandle,
-    window: WebviewWindow,
-    config: RuntimeConfig,
-    appearance: Appearance,
-) -> CmdResult<AppliedSettings> {
-    // App-wide settings come from the normal window; an incognito window only styles itself
-    // (its settings changes last only as long as it is open).
-    if !private(&window) {
-        host::apply_config(config);
-    }
-    let blocker = win::current_translucency_blocker();
-    let material = if blocker.is_some() { "solid".to_string() } else { appearance.material.clone() };
-    let fallback = blocker.filter(|_| appearance.material != "solid");
-    let theme = match appearance.theme.as_str() {
-        "light" => Some(tauri::Theme::Light),
-        "dark" => Some(tauri::Theme::Dark),
-        _ => None,
-    };
-    let _ = window.set_theme(theme);
-    let effect = match material.as_str() {
-        "mica" => Some(tauri::window::Effect::Mica),
-        "mica-alt" => Some(tauri::window::Effect::Tabbed),
-        "acrylic" => Some(tauri::window::Effect::Acrylic),
-        _ => None,
-    };
-    let effects = effect.map(|e| tauri::utils::config::WindowEffectsConfig {
-        effects: vec![e],
-        ..Default::default()
-    });
-    let _ = window.set_effects(effects);
-    let bg = appearance.page_background;
-    let scheme = appearance.content_scheme;
-    on_main(&app, move || {
-        host::set_page_background((bg[0], bg[1], bg[2]));
-        host::set_content_color_scheme(&scheme);
-    })
-    .await?;
-    Ok(AppliedSettings { material, fallback })
-}
-
 #[tauri::command]
 pub async fn clear_browsing_data(
     app: AppHandle,
@@ -311,115 +166,6 @@ pub async fn clear_browsing_data(
         return Ok(());
     }
     on_main_cb(&app, move |done| host::clear_browsing_data(private, &kinds, since_ms, move |r| done(r))).await?
-}
-
-// ---------------------------------------------------------------------------------------------
-// Persistence
-
-static SESSION_LOCK: Mutex<()> = Mutex::new(());
-
-#[derive(Serialize)]
-pub struct SessionStart {
-    data: Option<String>,
-    /// Whether to restore the regular tabs too; `None`: the user's setting decides.
-    keep: Option<bool>,
-    /// The tabs need new ids (they came from another window or an earlier run).
-    fresh: bool,
-}
-
-/// A window's tabs. The main window's are in `session.json`; another normal window gets what it
-/// was opened with (see sessions.rs). Incognito windows always start empty.
-#[tauri::command]
-pub async fn session_load(window: WebviewWindow) -> CmdResult<SessionStart> {
-    let empty = SessionStart { data: None, keep: None, fresh: false };
-    if private(&window) {
-        return Ok(empty);
-    }
-    let label = window.label().to_string();
-    let start = sessions::take_pending(&label);
-    if label == host::MAIN {
-        let data = blocking(|| storage::read_text(&paths().session())).await?;
-        return Ok(SessionStart { data, keep: start.and_then(|s| s.keep), fresh: false });
-    }
-    Ok(start.map(|s| SessionStart { data: s.data, keep: s.keep, fresh: s.fresh }).unwrap_or(empty))
-}
-
-/// Incognito windows never write a session.
-#[tauri::command]
-pub async fn session_save(window: WebviewWindow, data: String) -> CmdResult<()> {
-    if private(&window) {
-        return Ok(());
-    }
-    let label = window.label().to_string();
-    blocking(move || {
-        let _guard = SESSION_LOCK.lock();
-        if label == host::MAIN {
-            storage::write_atomic(&paths().session(), data.as_bytes()).map_err(|e| e.to_string())
-        } else {
-            sessions::save(&label, data)
-        }
-    })
-    .await?
-}
-
-#[tauri::command]
-pub async fn settings_load() -> CmdResult<Option<String>> {
-    blocking(|| storage::read_text(&paths().settings())).await
-}
-
-#[derive(Serialize, Clone)]
-struct SettingsChanged {
-    /// Window that saved; it already has the new values.
-    origin: String,
-}
-
-/// Incognito windows start from the user's settings; their own changes are not saved. The other
-/// normal windows hear about a change through `settings-changed` and reload.
-#[tauri::command]
-pub async fn settings_save(window: WebviewWindow, data: String) -> CmdResult<()> {
-    if private(&window) {
-        return Ok(());
-    }
-    blocking(move || storage::write_atomic(&paths().settings(), data.as_bytes()).map_err(|e| e.to_string())).await??;
-    host::emit("settings-changed", SettingsChanged { origin: window.label().to_string() });
-    Ok(())
-}
-
-fn wallpaper_file(id: &str) -> CmdResult<PathBuf> {
-    if !storage::valid_wallpaper_id(id) {
-        return Err("invalid background id".into());
-    }
-    Ok(paths().wallpapers().join(format!("{id}.txt")))
-}
-
-/// Stores a start-page background the user uploaded (a downscaled image as a data URL).
-#[tauri::command]
-pub async fn wallpaper_save(window: WebviewWindow, id: String, data: String) -> CmdResult<()> {
-    refuse_in_incognito(&window, "Adding a background")?;
-    if !storage::valid_wallpaper_data(&data) {
-        return Err("This image can't be used as a background. Try a JPEG, PNG or WebP file.".into());
-    }
-    let path = wallpaper_file(&id)?;
-    blocking(move || storage::write_atomic(&path, data.as_bytes()).map_err(|e| e.to_string())).await?
-}
-
-#[tauri::command]
-pub async fn wallpaper_load(id: String) -> CmdResult<Option<String>> {
-    let path = wallpaper_file(&id)?;
-    blocking(move || storage::read_text(&path)).await
-}
-
-#[tauri::command]
-pub async fn wallpaper_delete(window: WebviewWindow, id: String) -> CmdResult<()> {
-    if private(&window) {
-        return Ok(());
-    }
-    let path = wallpaper_file(&id)?;
-    blocking(move || match std::fs::remove_file(&path) {
-        Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e.to_string()),
-        _ => Ok(()),
-    })
-    .await?
 }
 
 // ---------------------------------------------------------------------------------------------

@@ -43,7 +43,7 @@ use wry::dpi::{LogicalPosition, LogicalSize};
 use wry::{Rect, WebViewExtWindows};
 
 use crate::blocker::Engine;
-use crate::keys::{BindingSpec, Bindings, Chord};
+use crate::shortcuts::keys::{BindingSpec, Bindings, Chord};
 use crate::storage::{Db, Paths};
 use tab::{Tab, TabShared};
 
@@ -83,7 +83,7 @@ pub fn is_private_window(label: &str) -> bool {
 
 /// The main window or one of the other normal windows (`window-N`, see sessions.rs).
 pub fn is_normal_window(label: &str) -> bool {
-    label == MAIN || crate::sessions::is_extra_window(label)
+    label == MAIN || crate::session::is_extra_window(label)
 }
 
 /// The normal window to send app-wide requests to (links from other apps, extension pages):
@@ -93,7 +93,7 @@ pub fn primary_window() -> String {
     if windows.contains_key(MAIN) {
         return MAIN.to_string();
     }
-    let mut extra: Vec<&String> = windows.keys().filter(|l| crate::sessions::is_extra_window(l)).collect();
+    let mut extra: Vec<&String> = windows.keys().filter(|l| crate::session::is_extra_window(l)).collect();
     extra.sort();
     extra.first().map(|l| l.to_string()).unwrap_or_else(|| MAIN.to_string())
 }
@@ -1258,7 +1258,7 @@ thread_local! {
 pub fn set_bindings(specs: Vec<BindingSpec>) -> Vec<String> {
     let bindings = Bindings::from_specs(&specs);
     BINDINGS.with(|b| *b.borrow_mut() = bindings);
-    crate::hotkey::set(&specs)
+    crate::shortcuts::hotkey::set(&specs)
 }
 
 /// Runs a browser action in window `label`'s chrome UI, as if its shortcut was pressed there.

@@ -12,6 +12,8 @@
 //! `%TEMP%\zenith-incognito`. Folders left behind by those are still swept at startup, and the
 //! `--purge-incognito` maintenance flag still works.
 
+pub mod commands;
+
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};

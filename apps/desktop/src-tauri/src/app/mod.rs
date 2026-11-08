@@ -13,7 +13,7 @@ use std::sync::Mutex;
 
 use tauri::{AppHandle, Manager, WindowEvent};
 
-use crate::{host, incognito, profiles, sessions, updates, vault};
+use crate::{host, incognito, profiles, session, updates, vault};
 use window::{create_window, remember_window_state, save_window_state, NEXT_INCOGNITO};
 
 static QUITTING: AtomicBool = AtomicBool::new(false);
@@ -34,7 +34,7 @@ pub fn close_window(app: &AppHandle, label: &str) {
         save_window_state();
     }
     // Ctrl+Shift+N can bring it back.
-    sessions::window_closed(label);
+    session::window_closed(label);
     let app2 = app.clone();
     let label = label.to_string();
     let _ = app.run_on_main_thread(move || {

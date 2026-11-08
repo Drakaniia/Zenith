@@ -21,7 +21,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
     GetMessageW, PeekMessageW, PostThreadMessageW, MSG, PM_NOREMOVE, WM_APP, WM_HOTKEY, WM_USER,
 };
 
-use crate::keys::{is_reserved, parse_chord, BindingSpec, Chord};
+use super::keys::{is_reserved, parse_chord, BindingSpec, Chord};
 
 /// Posted to the hotkey thread when `PENDING` holds a new set of hotkeys.
 const WM_APPLY: u32 = WM_APP + 1;
