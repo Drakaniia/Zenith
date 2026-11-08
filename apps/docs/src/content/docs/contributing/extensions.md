@@ -9,15 +9,25 @@ Zenith runs Chromium extensions through WebView2's browser-extension support (`A
 
 ## Installing
 
-Open **Extensions** (menu › Extensions, or the command palette) and use one of:
+Open **Extensions** (menu › Extensions, Ctrl+Shift+A, the command palette, or **Manage** in the toolbar's extensions menu) and use one of:
 
 - **Chrome Web Store**: paste a store link (`https://chromewebstore.google.com/detail/…/<id>`) or the 32-letter extension id. Zenith downloads the `.crx` from Google's update service and installs it.
 - **.crx file**: a packaged extension (CRX2 or CRX3).
 - **Unpacked folder**: a folder with a `manifest.json` (for development).
 
-Packages are unpacked with Windows' built-in `tar.exe` and copied into `%LOCALAPPDATA%\dev.zenith.browser\extensions`, because WebView2 removes an extension when its source folder changes. Installing an extension that is already installed replaces the old copy; this is also how you update an extension (Zenith does not auto-update extensions in v1).
+Packages are unpacked with Windows' built-in `tar.exe` and copied into `%LOCALAPPDATA%\dev.zenith.browser\extensions`, because WebView2 removes an extension when its source folder changes. Installing an extension that is already installed replaces the old copy. Packages keep their Chrome id: the developer key from the `.crx` header is written into the unpacked manifest (`key`), as Chrome derives the id, so extensions that rely on their own id keep working and the Web Store can be asked for updates.
 
-Each extension can be enabled, disabled or removed. Extensions with an options page get an **Options** button, and toolbar popups open in Glance via **Open popup** (Zenith has no toolbar).
+Extensions found in a page (a `.crx` download, or the Web Store's "Add to Chrome" button) are not installed straight away: they are staged under `extensions\pending` and offered with their permissions, then installed or discarded (`src-tauri/src/extensions/install.rs`).
+
+Each extension can be enabled, disabled, removed or pinned to the toolbar. Extensions with an options page get an **Options** button, and **Open popup** opens an extension's popup in Glance.
+
+## Toolbar
+
+The **Extensions** button (puzzle piece, `src/features/extensions/ExtensionButtons.svelte`) sits in the top bar, the tab strip and the sidebar's top row, depending on the layout. It opens the extensions menu (`ExtensionsPopover.svelte`, like Chrome's puzzle menu): clicking an extension opens its popup as a small card anchored where the menu was, or its options page when it has no popup. Pinned extensions (`settings.pinnedExtensions`) show their icon next to the button and open their popup under that icon; the sidebar's top row shows at most two of them.
+
+## Updates
+
+Extensions installed from the Chrome Web Store are checked for updates (`src-tauri/src/extensions/updates.rs`, commands `ext_check_updates` and `ext_update`): the installed ids and versions are sent to Google's update service, and newer versions are listed on the Extensions page with **Update to …** and **Update all**. Zenith checks at startup at most once a day (setting `extensionUpdates`, on by default; never in incognito windows) and shows a toast when updates are found, or on demand with **Check for updates**. Updates install only when the user clicks: `ext_update` downloads the store's current version and reinstalls it, keeping the id, so pins stay. Extensions installed from a `.crx` file or an unpacked folder are not checked; install them again to update.
 
 ## Tested
 
@@ -33,9 +43,9 @@ WebView2's built-in components (Microsoft Edge PDF Viewer, Microsoft Clipboard E
 
 ## Known limitations
 
-- **No toolbar.** Extension action buttons and badges are not shown. Popups can be opened from the Extensions page (in Glance).
+- **No badges.** Pinned extensions show their icon, but action badges are not shown.
 - **Pages an extension opens itself** (`chrome.tabs.create`, `runtime.openOptionsPage`, welcome and uninstall pages) are created by WebView2 outside any Zenith view. Zenith detects them and reopens them as normal tabs (the hidden copy is closed), so they are usable, but the extension cannot keep a reference to the original tab.
-- **Extension ids differ from the Web Store ids.** Unpacked extensions get an id derived from their folder. Extensions that rely on a fixed id (for example websites that talk to an extension through `externally_connectable`, or native messaging hosts) may not work.
+- **Unpacked extensions get their own id.** Web Store and `.crx` installs keep their Chrome id, but an unpacked extension gets an id derived from its folder. Extensions that rely on a fixed id (for example websites that talk to an extension through `externally_connectable`, or native messaging hosts) may not work when loaded unpacked.
 - **Tab APIs are limited.** WebView2 maps `chrome.tabs` to its own WebView2 instances; extensions that manage the browser's tabs (tab managers, session savers) do not see Zenith's tab model.
-- **No automatic updates** for extensions in v1; reinstall to update.
+- **Updates need a click,** and only Web Store extensions are checked; reinstall `.crx` and unpacked extensions to update them.
 - Which other APIs work is decided by WebView2. Microsoft documents the supported set in the WebView2 browser-extension docs; when an extension fails, check its service worker's console (Developer tools on the extension's page).
