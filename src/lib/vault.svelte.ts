@@ -70,6 +70,12 @@ class VaultStore {
   loaded = $state(false);
   /** The account list under a login field. */
   suggest = $state<PasswordSuggest | null>(null);
+  /** The list is showing its master password prompt; a fresh list from the page must not
+   *  replace it (that would reset the prompt under the user's hands). */
+  unlocking = false;
+  /** The tab whose list the user just closed, and when: the page re-offers the list as soon as
+   *  focus returns to its field, which would make the list impossible to dismiss. */
+  #closed: { tabId: string; at: number } | null = null;
   /** "Save password?" prompts, newest last (one per tab). */
   offers = $state<PasswordSaveOffer[]>([]);
   /** Bumped when entries change, so open lists reload. */
@@ -109,10 +115,24 @@ class VaultStore {
     if (this.suggest?.tabId === tabId) this.suggest = null;
   }
 
+  /** A list offered by the page. Ignored while the user is typing the master password for the
+   *  open list, and for a moment after the user closed the list of that tab. */
+  offerSuggest(s: PasswordSuggest) {
+    if (this.unlocking && this.suggest?.tabId === s.tabId) return;
+    const c = this.#closed;
+    if (c && c.tabId === s.tabId && Date.now() - c.at < 1200) return;
+    this.suggest = s;
+  }
+
+  /** `notify`: the user closed it (the page is told, and does not get to reopen it at once). */
   closeSuggest(notify = true) {
     const s = this.suggest;
     this.suggest = null;
-    if (s && notify) void vaultApi.dismiss(s.tabId).catch(() => {});
+    this.unlocking = false;
+    if (s && notify) {
+      this.#closed = { tabId: s.tabId, at: Date.now() };
+      void vaultApi.dismiss(s.tabId).catch(() => {});
+    }
   }
 }
 

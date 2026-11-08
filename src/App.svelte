@@ -276,7 +276,7 @@
       on('permission-request', (p) => permissions.push(p)),
       on('vault-status', (s) => vault.apply(s)),
       on('password-suggest', (s) => {
-        if (browser.isVisible(s.tabId) && !onboarding.open) vault.suggest = s;
+        if (browser.isVisible(s.tabId) && !onboarding.open) vault.offerSuggest(s);
       }),
       on('password-suggest-close', ({ tabId }) => {
         if (vault.suggest?.tabId === tabId) vault.closeSuggest(false);

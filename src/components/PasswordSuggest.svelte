@@ -37,6 +37,10 @@
     return () => clearTimeout(t);
   });
 
+  $effect(() => {
+    vault.unlocking = pending !== null;
+  });
+
   // The tab went away or another tab is showing.
   $effect(() => {
     if (s && !browser.isVisible(s.tabId)) vault.closeSuggest();
@@ -62,7 +66,8 @@
   }
 
   async function choose(a: SavedAccount, master: string | null = null) {
-    if (!s || !armed || busy) return;
+    // The settle delay guards a click on a listed account, not the master password prompt.
+    if (!s || busy || (!armed && !master)) return;
     const tab = s.tabId;
     const needPrompt = !master && (!vault.status.unlocked || settings.value.vaultAskEveryTime);
     if (needPrompt) {
