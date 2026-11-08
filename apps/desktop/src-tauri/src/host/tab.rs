@@ -14,7 +14,7 @@ use windows::Win32::System::Com::IStream;
 use wry::{MemoryUsageLevel, WebViewBuilder, WebViewBuilderExtWindows, WebViewExtWindows};
 
 use super::{app, config, db, emit_tab, post, with_host, with_win, Focus, BLOCKER};
-use crate::urls::{host_of, site_of};
+use crate::platform::urls::{host_of, site_of};
 
 /// Injected into every frame of every page. It cannot reach the app (tabs have no IPC bridge):
 /// it only rewrites Alt+click into a Glance request and Ctrl/middle-click into a background-tab
@@ -691,7 +691,7 @@ fn wire(view: &wry::WebView, core: &ICoreWebView2, env: &ICoreWebView2Environmen
                 .send();
                 if ok.as_bool() && is_web(&url) && config().record_history && !sh.private {
                     db().exec(move |c| {
-                        let _ = crate::store::history_add_visit(c, &url, &title);
+                        let _ = crate::history::history_add_visit(c, &url, &title);
                     });
                 }
                 if ok.as_bool() {
@@ -720,7 +720,7 @@ fn wire(view: &wry::WebView, core: &ICoreWebView2, env: &ICoreWebView2Environmen
                 if is_web(&url) && !title.is_empty() && config().record_history && !sh.private {
                     let t = title.clone();
                     db().exec(move |c| {
-                        let _ = crate::store::history_set_title(c, &url, &t);
+                        let _ = crate::history::history_set_title(c, &url, &t);
                     });
                 }
                 TabPatch { title: Some(title), ..TabPatch::new(&sh.id) }.send();
@@ -853,12 +853,12 @@ fn wire(view: &wry::WebView, core: &ICoreWebView2, env: &ICoreWebView2Environmen
                     // "Add to Zenith" on a Chrome Web Store page (STORE_SCRIPT).
                     "_zenith_ext" => {
                         let on_store = sh.page_host.borrow().as_str() == "chromewebstore.google.com";
-                        if let (true, true, Some(id)) = (user.as_bool(), on_store, super::crx::store_id(&uri)) {
+                        if let (true, true, Some(id)) = (user.as_bool(), on_store, crate::extensions::crx::store_id(&uri)) {
                             let source = "Chrome Web Store".to_string();
                             if sh.private {
-                                super::extensions::refuse(&opener, source, "Extensions can't be installed from an incognito window.");
+                                crate::extensions::refuse(&opener, source, "Extensions can't be installed from an incognito window.");
                             } else {
-                                super::extensions::offer(opener, source, super::extensions::Fetch::Store(id));
+                                crate::extensions::offer(opener, source, crate::extensions::Fetch::Store(id));
                             }
                         }
                     }

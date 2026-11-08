@@ -12,7 +12,9 @@
 //!
 //! Unlocking keeps the vault key in memory (wiped on lock). Restarting Zenith always locks.
 
+pub mod card_commands;
 pub mod cards;
+pub mod commands;
 pub mod crypto;
 pub mod csv;
 
@@ -330,7 +332,7 @@ pub fn display_site(origin: &str) -> String {
 /// The site a "never save" choice applies to.
 pub fn never_key(origin: &str) -> String {
     let host = host_of_origin(origin);
-    crate::urls::site_of(&host).to_ascii_lowercase()
+    crate::platform::urls::site_of(&host).to_ascii_lowercase()
 }
 
 /// Whether a credential saved for `saved` may be used on a page at `page` (both origins).
@@ -353,7 +355,7 @@ pub fn origin_match(saved: &str, page: &str, same_site: bool) -> Option<bool> {
     if simple(&sh) || simple(&ph) {
         return None;
     }
-    let (ss, ps) = (crate::urls::site_of(&sh), crate::urls::site_of(&ph));
+    let (ss, ps) = (crate::platform::urls::site_of(&sh), crate::platform::urls::site_of(&ph));
     if ss != ps {
         return None;
     }
@@ -372,7 +374,7 @@ fn new_id() -> String {
 }
 
 fn now_ms() -> i64 {
-    crate::store::now_ms()
+    crate::storage::now_ms()
 }
 
 fn check_len(value: &str, max: usize, what: &str) -> Result<(), String> {
@@ -473,7 +475,7 @@ impl Vault {
         self.file.index = crypto::protect(&plain)?;
         self.file.version = if self.index.cards.is_empty() && self.file.card_secrets.is_empty() { 1 } else { FILE_VERSION };
         let json = serde_json::to_vec_pretty(&self.file).map_err(|e| e.to_string())?;
-        crate::store::write_atomic(&self.path, &json).map_err(|e| format!("Could not save passwords: {e}"))
+        crate::storage::write_atomic(&self.path, &json).map_err(|e| format!("Could not save passwords: {e}"))
     }
 
     pub fn exists(&self) -> bool {

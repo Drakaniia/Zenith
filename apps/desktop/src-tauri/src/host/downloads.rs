@@ -13,7 +13,8 @@ use windows::core::{Interface, BOOL, HSTRING, PWSTR};
 
 use super::tab::TabShared;
 use super::{config, db, emit, post, with_host};
-use crate::store::{now_ms, DownloadRecord};
+use crate::downloads::DownloadRecord;
+use crate::storage::now_ms;
 
 static NEXT_ID: AtomicI64 = AtomicI64::new(0);
 
@@ -167,7 +168,7 @@ fn publish(id: i64, force: bool) {
         // Downloads from incognito windows are not kept in the download history.
         if (finished || force) && !super::tab_is_private(&ev.tab_id) {
             db().exec(move |c| {
-                let _ = crate::store::download_upsert(c, &record);
+                let _ = crate::downloads::download_upsert(c, &record);
             });
         }
         emit("download", ev);
@@ -211,15 +212,15 @@ const READ_BACK_SCRIPT: &str = r#"(async (u) => {
 
 /// Hands an extension package download to the extension installer instead of saving it.
 fn take_over_crx(core: &ICoreWebView2, shared: &TabShared, uri: String, name: String) {
-    use super::extensions::{offer, refuse, Fetch};
+    use crate::extensions::{offer, refuse, Fetch};
     let page = shared.url.borrow().clone();
-    let source = crate::urls::host_of(&page).filter(|h| !h.is_empty()).unwrap_or("this page").to_string();
+    let source = crate::platform::urls::host_of(&page).filter(|h| !h.is_empty()).unwrap_or("this page").to_string();
     let tab = shared.id.clone();
     if shared.private {
         return refuse(&tab, source, "Extensions can't be installed from an incognito window. Open the page in a normal window.");
     }
     if uri.starts_with("https://") || uri.starts_with("http://") {
-        let allow_private = crate::urls::host_of(&page).is_some_and(crate::media::detect::is_private_host);
+        let allow_private = crate::platform::urls::host_of(&page).is_some_and(crate::media::detect::is_private_host);
         let user_agent = crate::media::sniff::user_agent(core);
         return offer(tab, source, Fetch::Url { url: uri, referer: page, user_agent, allow_private, hint: name });
     }

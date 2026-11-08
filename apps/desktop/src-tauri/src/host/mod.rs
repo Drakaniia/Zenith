@@ -13,9 +13,8 @@
 //! it through `AppHandle::run_on_main_thread`; WebView2 callbacks already run on that thread.
 
 pub mod autofill;
-pub mod crx;
+pub mod commands;
 pub mod downloads;
-pub mod extensions;
 pub mod page_tools;
 pub mod tab;
 
@@ -43,8 +42,8 @@ use wry::dpi::{LogicalPosition, LogicalSize};
 use wry::{Rect, WebViewExtWindows};
 
 use crate::blocker::Engine;
-use crate::keys::{BindingSpec, Bindings, Chord};
-use crate::store::{Db, Paths};
+use crate::shortcuts::keys::{BindingSpec, Bindings, Chord};
+use crate::storage::{Db, Paths};
 use tab::{Tab, TabShared};
 
 // ---------------------------------------------------------------------------------------------
@@ -81,9 +80,9 @@ pub fn is_private_window(label: &str) -> bool {
     label.starts_with(crate::incognito::LABEL_PREFIX)
 }
 
-/// The main window or one of the other normal windows (`window-N`, see sessions.rs).
+/// The main window or one of the other normal windows (`window-N`, see `session`).
 pub fn is_normal_window(label: &str) -> bool {
-    label == MAIN || crate::sessions::is_extra_window(label)
+    label == MAIN || crate::session::is_extra_window(label)
 }
 
 /// The normal window to send app-wide requests to (links from other apps, extension pages):
@@ -93,7 +92,7 @@ pub fn primary_window() -> String {
     if windows.contains_key(MAIN) {
         return MAIN.to_string();
     }
-    let mut extra: Vec<&String> = windows.keys().filter(|l| crate::sessions::is_extra_window(l)).collect();
+    let mut extra: Vec<&String> = windows.keys().filter(|l| crate::session::is_extra_window(l)).collect();
     extra.sort();
     extra.first().map(|l| l.to_string()).unwrap_or_else(|| MAIN.to_string())
 }
@@ -464,7 +463,7 @@ unsafe extern "system" fn subclass_proc(
 
 /// Tells every window to re-apply its material when Windows started or stopped allowing it.
 fn check_translucency() {
-    if crate::win::translucency_changed() {
+    if crate::platform::win::translucency_changed() {
         emit("translucency-changed", ());
     }
 }
@@ -547,7 +546,7 @@ pub fn profile_override() -> Option<PathBuf> {
 }
 
 pub fn init_services(app: &AppHandle) -> tauri::Result<()> {
-    // The profile this process runs (chosen in `main`, see profiles.rs) owns every data folder.
+    // The profile this process runs (chosen in `app::run`, see `profiles`) owns every data folder.
     let paths: Paths = crate::profiles::active().paths();
     let _ = std::fs::create_dir_all(&paths.roaming);
     let _ = std::fs::create_dir_all(&paths.local);
@@ -559,7 +558,7 @@ pub fn init_services(app: &AppHandle) -> tauri::Result<()> {
     // Media jobs do not survive a restart; drop their partial data.
     crate::media::job::cleanup_temp();
     db().exec(|c| {
-        let _ = crate::store::history_prune(c, 0, 100_000);
+        let _ = crate::history::history_prune(c, 0, 100_000);
     });
     Ok(())
 }
@@ -1258,7 +1257,7 @@ thread_local! {
 pub fn set_bindings(specs: Vec<BindingSpec>) -> Vec<String> {
     let bindings = Bindings::from_specs(&specs);
     BINDINGS.with(|b| *b.borrow_mut() = bindings);
-    crate::hotkey::set(&specs)
+    crate::shortcuts::hotkey::set(&specs)
 }
 
 /// Runs a browser action in window `label`'s chrome UI, as if its shortcut was pressed there.
@@ -1416,7 +1415,7 @@ pub fn clear_browsing_data(
             Some(since) => profile.ClearBrowsingDataInTimeRange(
                 mask,
                 since as f64 / 1000.0,
-                crate::store::now_ms() as f64 / 1000.0 + 60.0,
+                crate::storage::now_ms() as f64 / 1000.0 + 60.0,
                 &handler,
             ),
             None => profile.ClearBrowsingData(mask, &handler),

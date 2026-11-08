@@ -18,7 +18,7 @@ use super::detect::{self, Sniffed};
 use super::{dash, hls, Found, Scan};
 use crate::host::tab::TabShared;
 use crate::host::{app, emit_tab, with_host};
-use crate::urls::{host_of, site_of};
+use crate::platform::urls::{host_of, site_of};
 
 /// Largest manifest read (DASH SegmentLists of long films run to a few MB).
 const MAX_MANIFEST: usize = 16 << 20;

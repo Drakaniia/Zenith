@@ -11,6 +11,7 @@
 //! - DRM-protected media (Encrypted Media Extensions, encrypted HLS, DASH ContentProtection,
 //!   Common Encryption) is detected and never downloaded.
 
+pub mod commands;
 pub mod dash;
 pub mod detect;
 pub mod hls;
@@ -237,7 +238,7 @@ pub fn mime_for(ext: &str, audio: bool) -> String {
 }
 
 fn now() -> i64 {
-    crate::store::now_ms()
+    crate::storage::now_ms()
 }
 
 fn hls_master_item(m: &hls::Master) -> (Vec<Choice>, Vec<Choice>, Option<(u32, u32)>) {
