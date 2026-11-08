@@ -12,14 +12,13 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, WebviewWindow};
 use tauri_plugin_dialog::DialogExt;
 
-use crate::host::downloads::{self, DownloadEvent};
 use crate::host::crx;
 use crate::host::page_tools;
 use crate::host::extensions::{self, ExtensionInfo};
 use crate::host::tab::{self, CreateOptions};
 use crate::host::{self, bookmarks_db, db, paths, LayoutSpec, RuntimeConfig, BLOCKER};
 use crate::keys::BindingSpec;
-use crate::store::{self, DownloadRecord, HistoryEntry, Note};
+use crate::storage;
 use crate::platform::{net, urls, win};
 use crate::{blocker, bookmarks, importer, sessions};
 
@@ -306,7 +305,7 @@ pub async fn clear_browsing_data(
 ) -> CmdResult<()> {
     let private = private(&window);
     if history && !private {
-        db().call(move |c| store::history_clear(c, since_ms)).await?;
+        db().call(move |c| crate::history::history_clear(c, since_ms)).await?;
     }
     if kinds.is_empty() {
         return Ok(());
@@ -339,7 +338,7 @@ pub async fn session_load(window: WebviewWindow) -> CmdResult<SessionStart> {
     let label = window.label().to_string();
     let start = sessions::take_pending(&label);
     if label == host::MAIN {
-        let data = blocking(|| store::read_text(&paths().session())).await?;
+        let data = blocking(|| storage::read_text(&paths().session())).await?;
         return Ok(SessionStart { data, keep: start.and_then(|s| s.keep), fresh: false });
     }
     Ok(start.map(|s| SessionStart { data: s.data, keep: s.keep, fresh: s.fresh }).unwrap_or(empty))
@@ -355,7 +354,7 @@ pub async fn session_save(window: WebviewWindow, data: String) -> CmdResult<()> 
     blocking(move || {
         let _guard = SESSION_LOCK.lock();
         if label == host::MAIN {
-            store::write_atomic(&paths().session(), data.as_bytes()).map_err(|e| e.to_string())
+            storage::write_atomic(&paths().session(), data.as_bytes()).map_err(|e| e.to_string())
         } else {
             sessions::save(&label, data)
         }
@@ -365,7 +364,7 @@ pub async fn session_save(window: WebviewWindow, data: String) -> CmdResult<()> 
 
 #[tauri::command]
 pub async fn settings_load() -> CmdResult<Option<String>> {
-    blocking(|| store::read_text(&paths().settings())).await
+    blocking(|| storage::read_text(&paths().settings())).await
 }
 
 #[derive(Serialize, Clone)]
@@ -381,13 +380,13 @@ pub async fn settings_save(window: WebviewWindow, data: String) -> CmdResult<()>
     if private(&window) {
         return Ok(());
     }
-    blocking(move || store::write_atomic(&paths().settings(), data.as_bytes()).map_err(|e| e.to_string())).await??;
+    blocking(move || storage::write_atomic(&paths().settings(), data.as_bytes()).map_err(|e| e.to_string())).await??;
     host::emit("settings-changed", SettingsChanged { origin: window.label().to_string() });
     Ok(())
 }
 
 fn wallpaper_file(id: &str) -> CmdResult<PathBuf> {
-    if !store::valid_wallpaper_id(id) {
+    if !storage::valid_wallpaper_id(id) {
         return Err("invalid background id".into());
     }
     Ok(paths().wallpapers().join(format!("{id}.txt")))
@@ -397,17 +396,17 @@ fn wallpaper_file(id: &str) -> CmdResult<PathBuf> {
 #[tauri::command]
 pub async fn wallpaper_save(window: WebviewWindow, id: String, data: String) -> CmdResult<()> {
     refuse_in_incognito(&window, "Adding a background")?;
-    if !store::valid_wallpaper_data(&data) {
+    if !storage::valid_wallpaper_data(&data) {
         return Err("This image can't be used as a background. Try a JPEG, PNG or WebP file.".into());
     }
     let path = wallpaper_file(&id)?;
-    blocking(move || store::write_atomic(&path, data.as_bytes()).map_err(|e| e.to_string())).await?
+    blocking(move || storage::write_atomic(&path, data.as_bytes()).map_err(|e| e.to_string())).await?
 }
 
 #[tauri::command]
 pub async fn wallpaper_load(id: String) -> CmdResult<Option<String>> {
     let path = wallpaper_file(&id)?;
-    blocking(move || store::read_text(&path)).await
+    blocking(move || storage::read_text(&path)).await
 }
 
 #[tauri::command]
@@ -421,33 +420,6 @@ pub async fn wallpaper_delete(window: WebviewWindow, id: String) -> CmdResult<()
         _ => Ok(()),
     })
     .await?
-}
-
-#[tauri::command]
-pub async fn history_search(text: String, limit: Option<i64>, offset: Option<i64>) -> CmdResult<Vec<HistoryEntry>> {
-    let (limit, offset) = (limit.unwrap_or(50).clamp(1, 500), offset.unwrap_or(0).max(0));
-    db().call(move |c| store::history_search(c, &text, limit, offset)).await
-}
-
-#[tauri::command]
-pub async fn history_top(limit: Option<i64>) -> CmdResult<Vec<HistoryEntry>> {
-    let limit = limit.unwrap_or(40).clamp(1, 200);
-    db().call(move |c| store::history_top(c, limit)).await
-}
-
-#[tauri::command]
-pub async fn history_delete(ids: Vec<i64>) -> CmdResult<usize> {
-    db().call(move |c| store::history_delete(c, &ids)).await
-}
-
-#[tauri::command]
-pub async fn history_clear(since_ms: Option<i64>) -> CmdResult<usize> {
-    db().call(move |c| store::history_clear(c, since_ms)).await
-}
-
-#[tauri::command]
-pub async fn history_prune(days: i64) -> CmdResult<()> {
-    db().call(move |c| store::history_prune(c, days, 100_000)).await
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -513,45 +485,6 @@ pub async fn bookmarks_remove_url(window: WebviewWindow, url: String) -> CmdResu
     Ok(())
 }
 
-// ---------------------------------------------------------------------------------------------
-// Notes. Shared by every window, incognito ones included (notes are the user's own documents,
-// not browsing data). Other windows hear about changes through `notes-changed`.
-
-#[derive(Serialize, Clone)]
-#[serde(rename_all = "camelCase")]
-struct NotesChanged {
-    /// Window that made the change; it already has the new state.
-    origin: String,
-    id: String,
-    deleted: bool,
-}
-
-#[tauri::command]
-pub async fn notes_list() -> CmdResult<Vec<Note>> {
-    bookmarks_db().call(store::notes_list).await
-}
-
-#[tauri::command]
-pub async fn note_save(window: WebviewWindow, note: Note) -> CmdResult<bool> {
-    if note.id.is_empty() || note.id.len() > 64 {
-        return Err("invalid note id".into());
-    }
-    let id = note.id.clone();
-    let written = bookmarks_db().call(move |c| store::note_save(c, &note)).await?;
-    if written {
-        host::emit("notes-changed", NotesChanged { origin: window.label().to_string(), id, deleted: false });
-    }
-    Ok(written)
-}
-
-#[tauri::command]
-pub async fn note_delete(window: WebviewWindow, id: String) -> CmdResult<()> {
-    let key = id.clone();
-    bookmarks_db().call(move |c| store::note_delete(c, &key)).await?;
-    host::emit("notes-changed", NotesChanged { origin: window.label().to_string(), id, deleted: true });
-    Ok(())
-}
-
 /// Largest bookmarks file read (an export or a backup is far smaller).
 const MAX_BOOKMARK_FILE: u64 = 64 * 1024 * 1024;
 
@@ -586,7 +519,7 @@ pub async fn bookmarks_export(app: AppHandle) -> CmdResult<Option<String>> {
             return Ok(None);
         };
         let path = path.into_path().map_err(|e| e.to_string())?;
-        store::write_atomic(&path, html.as_bytes()).map_err(|e| e.to_string())?;
+        storage::write_atomic(&path, html.as_bytes()).map_err(|e| e.to_string())?;
         Ok(Some(path.display().to_string()))
     })
     .await?
@@ -620,7 +553,7 @@ pub async fn bookmarks_import(window: WebviewWindow, app: AppHandle) -> CmdResul
 #[tauri::command]
 pub async fn bookmarks_backup(app: AppHandle) -> CmdResult<Option<String>> {
     let backup = bookmarks_db().call(|c| bookmarks::backup_json(c)).await?;
-    let name = format!("zenith-bookmarks-{}.json", bookmarks::date_string(store::now_ms()));
+    let name = format!("zenith-bookmarks-{}.json", bookmarks::date_string(storage::now_ms()));
     blocking(move || {
         let Some(path) = app
             .dialog()
@@ -633,7 +566,7 @@ pub async fn bookmarks_backup(app: AppHandle) -> CmdResult<Option<String>> {
             return Ok(None);
         };
         let path = path.into_path().map_err(|e| e.to_string())?;
-        store::write_atomic(&path, backup.json.as_bytes()).map_err(|e| e.to_string())?;
+        storage::write_atomic(&path, backup.json.as_bytes()).map_err(|e| e.to_string())?;
         Ok(Some(path.display().to_string()))
     })
     .await?
@@ -661,7 +594,7 @@ pub async fn bookmarks_restore(window: WebviewWindow, app: AppHandle) -> CmdResu
     .await??;
     let Some(json) = json else { return Ok(None) };
     let dir = bookmark_backups_dir();
-    let restored = bookmarks_db().call(move |c| bookmarks::restore(c, Some(&dir), &json, store::now_ms())).await?;
+    let restored = bookmarks_db().call(move |c| bookmarks::restore(c, Some(&dir), &json, storage::now_ms())).await?;
     bookmarks_changed(&window);
     Ok(Some(restored))
 }
@@ -684,7 +617,7 @@ pub async fn bookmarks_restore_backup(window: WebviewWindow, name: String) -> Cm
         let dir = dir.clone();
         blocking(move || bookmarks::read_backup(&dir, &name)).await??
     };
-    let restored = bookmarks_db().call(move |c| bookmarks::restore(c, Some(&dir), &json, store::now_ms())).await?;
+    let restored = bookmarks_db().call(move |c| bookmarks::restore(c, Some(&dir), &json, storage::now_ms())).await?;
     bookmarks_changed(&window);
     Ok(restored)
 }
@@ -710,7 +643,7 @@ pub async fn bookmarks_auto_backup(window: WebviewWindow) -> CmdResult<()> {
         return Ok(());
     }
     let dir = bookmark_backups_dir();
-    bookmarks_db().call(move |c| bookmarks::auto_backup(c, &dir, store::now_ms())).await
+    bookmarks_db().call(move |c| bookmarks::auto_backup(c, &dir, storage::now_ms())).await
 }
 
 /// Browser profiles on this PC with bookmarks or history to import.
@@ -749,33 +682,8 @@ pub async fn import_run(
         bookmarks_changed(&window);
     }
     let visits: Vec<_> = data.history.into_iter().map(|v| (v.url, v.title, v.visit_count, v.last_visit)).collect();
-    let merged = if visits.is_empty() { 0 } else { db().call(move |c| store::history_import(c, &visits)).await? };
+    let merged = if visits.is_empty() { 0 } else { db().call(move |c| crate::history::history_import(c, &visits)).await? };
     Ok(ImportResult { bookmarks: added, history: merged, errors: data.errors })
-}
-
-// ---------------------------------------------------------------------------------------------
-// Downloads
-
-#[tauri::command]
-pub async fn downloads_active(app: AppHandle) -> CmdResult<Vec<DownloadEvent>> {
-    on_main(&app, downloads::active).await
-}
-
-#[tauri::command]
-pub async fn downloads_history(limit: Option<i64>) -> CmdResult<Vec<DownloadRecord>> {
-    let limit = limit.unwrap_or(200).clamp(1, 1000);
-    db().call(move |c| store::downloads_list(c, limit)).await
-}
-
-#[tauri::command]
-pub async fn download_action(app: AppHandle, id: i64, action: String) -> CmdResult<()> {
-    on_main(&app, move || downloads::action(id, &action)).await?
-}
-
-#[tauri::command]
-pub async fn downloads_remove(id: Option<i64>) -> CmdResult<()> {
-    crate::media::job::forget(id);
-    db().call(move |c| store::downloads_remove(c, id)).await
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -866,7 +774,7 @@ pub async fn blocker_configure(lists: Vec<FilterList>, update: bool, disabled_si
                 match net::get(&list.url, 16 * 1024 * 1024, 20_000) {
                     Ok(body) => {
                         let _ = std::fs::create_dir_all(host::persistent_paths().filters());
-                        if let Err(e) = store::write_atomic(&file, &body) {
+                        if let Err(e) = storage::write_atomic(&file, &body) {
                             error = Some(e.to_string());
                         }
                     }

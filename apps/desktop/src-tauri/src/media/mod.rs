@@ -237,7 +237,7 @@ pub fn mime_for(ext: &str, audio: bool) -> String {
 }
 
 fn now() -> i64 {
-    crate::store::now_ms()
+    crate::storage::now_ms()
 }
 
 fn hls_master_item(m: &hls::Master) -> (Vec<Choice>, Vec<Choice>, Option<(u32, u32)>) {

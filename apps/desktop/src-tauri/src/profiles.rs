@@ -34,7 +34,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
-use crate::store::{self, Paths};
+use crate::storage::{self, Paths};
 
 /// The profile that holds the data of Zenith versions before profiles existed.
 pub const DEFAULT: &str = "default";
@@ -259,13 +259,13 @@ pub fn repair(mut list: List) -> List {
 static LIST_LOCK: Mutex<()> = Mutex::new(());
 
 pub fn load(base: &Base) -> List {
-    let raw = store::read_text(&base.list_file()).and_then(|s| serde_json::from_str::<List>(&s).ok());
+    let raw = storage::read_text(&base.list_file()).and_then(|s| serde_json::from_str::<List>(&s).ok());
     repair(raw.unwrap_or_default())
 }
 
 fn save(base: &Base, list: &List) -> Result<(), String> {
     let json = serde_json::to_vec_pretty(list).map_err(|e| e.to_string())?;
-    store::write_atomic(&base.list_file(), &json).map_err(|e| format!("Could not save the profile list: {e}"))
+    storage::write_atomic(&base.list_file(), &json).map_err(|e| format!("Could not save the profile list: {e}"))
 }
 
 /// Loads the current list, applies `f` and saves the result when `f` succeeds.
@@ -311,8 +311,8 @@ fn write_icon(base: &Base, id: &str, after: i64, look: &Look) -> Result<i64, Str
     let (Some(_), Some(png)) = (look.avatar, look.icon) else { return Ok(0) };
     let rev = now_ms().max(after + 1);
     let fail = |e: std::io::Error| format!("Could not save the profile picture: {e}");
-    store::write_atomic(&base.icon_file(id, rev, "png"), png).map_err(fail)?;
-    store::write_atomic(&base.icon_file(id, rev, "ico"), &ico_from_png(png)).map_err(fail)?;
+    storage::write_atomic(&base.icon_file(id, rev, "png"), png).map_err(fail)?;
+    storage::write_atomic(&base.icon_file(id, rev, "ico"), &ico_from_png(png)).map_err(fail)?;
     Ok(rev)
 }
 

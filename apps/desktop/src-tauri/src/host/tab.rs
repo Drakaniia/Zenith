@@ -691,7 +691,7 @@ fn wire(view: &wry::WebView, core: &ICoreWebView2, env: &ICoreWebView2Environmen
                 .send();
                 if ok.as_bool() && is_web(&url) && config().record_history && !sh.private {
                     db().exec(move |c| {
-                        let _ = crate::store::history_add_visit(c, &url, &title);
+                        let _ = crate::history::history_add_visit(c, &url, &title);
                     });
                 }
                 if ok.as_bool() {
@@ -720,7 +720,7 @@ fn wire(view: &wry::WebView, core: &ICoreWebView2, env: &ICoreWebView2Environmen
                 if is_web(&url) && !title.is_empty() && config().record_history && !sh.private {
                     let t = title.clone();
                     db().exec(move |c| {
-                        let _ = crate::store::history_set_title(c, &url, &t);
+                        let _ = crate::history::history_set_title(c, &url, &t);
                     });
                 }
                 TabPatch { title: Some(title), ..TabPatch::new(&sh.id) }.send();

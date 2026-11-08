@@ -12,7 +12,7 @@ use tauri::{AppHandle, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, Webv
 
 use super::startup::set_startup_urls;
 use crate::platform::win;
-use crate::{host, incognito, profile_commands, profiles, sessions, store};
+use crate::{host, incognito, profile_commands, profiles, sessions, storage};
 
 pub(crate) static NEXT_INCOGNITO: AtomicU32 = AtomicU32::new(1);
 static NEXT_WINDOW: AtomicU32 = AtomicU32::new(1);
@@ -64,13 +64,13 @@ pub(crate) fn remember_window_state(window: &tauri::Window) {
 pub(crate) fn save_window_state() {
     if let Some(state) = WINDOW_STATE.lock().ok().and_then(|s| *s) {
         if let Ok(json) = serde_json::to_vec(&state) {
-            let _ = store::write_atomic(&window_state_file(), &json);
+            let _ = storage::write_atomic(&window_state_file(), &json);
         }
     }
 }
 
 fn restore_window_state(window: &WebviewWindow) {
-    let Some(state) = store::read_text(&window_state_file())
+    let Some(state) = storage::read_text(&window_state_file())
         .and_then(|s| serde_json::from_str::<WindowState>(&s).ok())
     else {
         let _ = window.center();

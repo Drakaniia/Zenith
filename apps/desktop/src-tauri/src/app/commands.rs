@@ -9,7 +9,7 @@ use tauri_plugin_dialog::DialogExt;
 use super::command::{blocking, on_main, private, CmdResult};
 use crate::host::{self, paths};
 use crate::platform::win;
-use crate::store;
+use crate::storage;
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -50,7 +50,7 @@ pub async fn ui_ready(app: AppHandle, window: WebviewWindow) -> CmdResult<Startu
     if std::env::var_os("ZENITH_PERF").is_some() {
         if let Some(started) = host::STARTED.get() {
             let json = format!("{{\"startupMs\":{}}}", started.elapsed().as_millis());
-            let _ = store::write_atomic(&paths().local.join("perf.json"), json.as_bytes());
+            let _ = storage::write_atomic(&paths().local.join("perf.json"), json.as_bytes());
         }
     }
     let startup_urls = super::startup::take_startup_urls(&label);

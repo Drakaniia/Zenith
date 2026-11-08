@@ -27,7 +27,7 @@ use windows::core::{Interface, BOOL, HSTRING, PWSTR};
 
 use super::crx;
 use super::{emit_tab, paths, with_host};
-use crate::store::{read_text, write_atomic};
+use crate::storage::{read_text, write_atomic};
 
 #[derive(Serialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -257,7 +257,7 @@ pub fn stage_folder(source: &Path) -> Result<PathBuf, String> {
     let manifest = read_manifest(source).ok_or("the folder has no valid manifest.json")?;
     let dest = paths()
         .extensions()
-        .join(format!("{}-{}", slug(&manifest.name), crate::store::now_ms()));
+        .join(format!("{}-{}", slug(&manifest.name), crate::storage::now_ms()));
     copy_dir(source, &dest).map_err(|e| format!("could not copy the extension: {e}"))?;
     Ok(dest)
 }
@@ -306,7 +306,7 @@ fn stage_crx_in(bytes: &[u8], root: &Path) -> Result<Staged, String> {
     let package = crx::parse(bytes)?;
     let zip = package.zip;
     fs::create_dir_all(root).map_err(|e| e.to_string())?;
-    let stamp = crate::store::now_ms();
+    let stamp = crate::storage::now_ms();
     let archive = root.join(format!("pkg-{stamp}.zip"));
     fs::write(&archive, zip).map_err(|e| e.to_string())?;
     let dest = root.join(format!("crx-{stamp}"));

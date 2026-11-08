@@ -372,7 +372,7 @@ fn new_id() -> String {
 }
 
 fn now_ms() -> i64 {
-    crate::store::now_ms()
+    crate::storage::now_ms()
 }
 
 fn check_len(value: &str, max: usize, what: &str) -> Result<(), String> {
@@ -473,7 +473,7 @@ impl Vault {
         self.file.index = crypto::protect(&plain)?;
         self.file.version = if self.index.cards.is_empty() && self.file.card_secrets.is_empty() { 1 } else { FILE_VERSION };
         let json = serde_json::to_vec_pretty(&self.file).map_err(|e| e.to_string())?;
-        crate::store::write_atomic(&self.path, &json).map_err(|e| format!("Could not save passwords: {e}"))
+        crate::storage::write_atomic(&self.path, &json).map_err(|e| format!("Could not save passwords: {e}"))
     }
 
     pub fn exists(&self) -> bool {

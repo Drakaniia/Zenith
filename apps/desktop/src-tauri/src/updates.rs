@@ -121,7 +121,7 @@ pub async fn check(app: AppHandle) -> Status {
         Ok::<_, tauri_plugin_updater::Error>(Some(Ready { update, bytes }))
     }
     .await;
-    let now = crate::store::now_ms();
+    let now = crate::storage::now_ms();
     match result {
         Ok(Some(ready)) => {
             let version = ready.update.version.clone();

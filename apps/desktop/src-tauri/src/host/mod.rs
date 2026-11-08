@@ -44,7 +44,7 @@ use wry::{Rect, WebViewExtWindows};
 
 use crate::blocker::Engine;
 use crate::keys::{BindingSpec, Bindings, Chord};
-use crate::store::{Db, Paths};
+use crate::storage::{Db, Paths};
 use tab::{Tab, TabShared};
 
 // ---------------------------------------------------------------------------------------------
@@ -559,7 +559,7 @@ pub fn init_services(app: &AppHandle) -> tauri::Result<()> {
     // Media jobs do not survive a restart; drop their partial data.
     crate::media::job::cleanup_temp();
     db().exec(|c| {
-        let _ = crate::store::history_prune(c, 0, 100_000);
+        let _ = crate::history::history_prune(c, 0, 100_000);
     });
     Ok(())
 }
@@ -1416,7 +1416,7 @@ pub fn clear_browsing_data(
             Some(since) => profile.ClearBrowsingDataInTimeRange(
                 mask,
                 since as f64 / 1000.0,
-                crate::store::now_ms() as f64 / 1000.0 + 60.0,
+                crate::storage::now_ms() as f64 / 1000.0 + 60.0,
                 &handler,
             ),
             None => profile.ClearBrowsingData(mask, &handler),

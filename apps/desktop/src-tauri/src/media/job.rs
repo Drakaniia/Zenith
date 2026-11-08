@@ -1045,7 +1045,8 @@ fn mark_of_the_web(path: &Path, host_url: &str, referrer: &str) {
 // Runner: connects jobs to the downloads list
 
 use crate::host::downloads::DownloadEvent;
-use crate::store::{now_ms, DownloadRecord};
+use crate::downloads::DownloadRecord;
+use crate::storage::now_ms;
 
 /// Everything needed to start a job.
 #[derive(Debug)]
@@ -1138,7 +1139,7 @@ fn emit_locked(j: &mut Running) {
         j.persisted = event.record.state.clone();
         let record = event.record.clone();
         crate::host::db().exec(move |c| {
-            let _ = crate::store::download_upsert(c, &record);
+            let _ = crate::downloads::download_upsert(c, &record);
         });
     }
     crate::host::emit("download", event);

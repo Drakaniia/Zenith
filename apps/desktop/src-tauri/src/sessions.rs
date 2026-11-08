@@ -11,7 +11,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 
-use crate::store;
+use crate::storage;
 
 /// Labels of the normal windows other than the main one start with this.
 pub const LABEL_PREFIX: &str = "window-";
@@ -81,7 +81,7 @@ pub fn take_pending(label: &str) -> Option<Start> {
 /// Saves an extra window's session (in memory and on disk).
 pub fn save(label: &str, data: String) -> Result<(), String> {
     let path = file(label).ok_or("not a browser window")?;
-    store::write_atomic(&path, data.as_bytes()).map_err(|e| e.to_string())?;
+    storage::write_atomic(&path, data.as_bytes()).map_err(|e| e.to_string())?;
     with(|s| s.latest.insert(label.to_string(), data));
     Ok(())
 }
@@ -143,7 +143,7 @@ pub fn take_saved(keep: bool) -> Vec<String> {
     let mut out = Vec::new();
     for (_, path) in files {
         if keep {
-            if let Some(data) = store::read_text(&path) {
+            if let Some(data) = storage::read_text(&path) {
                 out.push(data);
             }
         }

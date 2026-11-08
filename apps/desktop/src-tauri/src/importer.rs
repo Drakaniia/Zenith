@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 use rusqlite::{params, Connection, OpenFlags};
 use serde::Serialize;
 
-use crate::store::{now_ms, Bookmark};
+use crate::storage::{now_ms, Bookmark};
 
 /// Most history entries taken from one profile (newest first).
 const HISTORY_LIMIT: i64 = 20_000;

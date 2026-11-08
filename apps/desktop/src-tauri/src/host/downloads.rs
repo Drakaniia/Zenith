@@ -13,7 +13,8 @@ use windows::core::{Interface, BOOL, HSTRING, PWSTR};
 
 use super::tab::TabShared;
 use super::{config, db, emit, post, with_host};
-use crate::store::{now_ms, DownloadRecord};
+use crate::downloads::DownloadRecord;
+use crate::storage::now_ms;
 
 static NEXT_ID: AtomicI64 = AtomicI64::new(0);
 
@@ -167,7 +168,7 @@ fn publish(id: i64, force: bool) {
         // Downloads from incognito windows are not kept in the download history.
         if (finished || force) && !super::tab_is_private(&ev.tab_id) {
             db().exec(move |c| {
-                let _ = crate::store::download_upsert(c, &record);
+                let _ = crate::downloads::download_upsert(c, &record);
             });
         }
         emit("download", ev);

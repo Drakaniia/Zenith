@@ -19,7 +19,7 @@ use std::path::Path;
 use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 use serde::{Deserialize, Serialize};
 
-use crate::store::{now_ms, write_atomic, Bookmark as FlatBookmark};
+use crate::storage::{now_ms, write_atomic, Bookmark as FlatBookmark};
 
 pub const ROOT_TOOLBAR: i64 = 1;
 pub const ROOT_MENU: i64 = 2;

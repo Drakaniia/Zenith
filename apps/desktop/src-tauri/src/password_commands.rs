@@ -13,7 +13,7 @@ use zeroize::Zeroizing;
 
 use crate::host::{self, autofill};
 use crate::platform::win;
-use crate::{store, vault};
+use crate::{storage, vault};
 
 pub(crate) type CmdResult<T> = Result<T, String>;
 
@@ -64,7 +64,7 @@ pub(crate) fn secret(s: Option<String>) -> Option<Zeroizing<String>> {
 
 /// Today's date as YYYY-MM-DD (UTC), for backup file names.
 fn today() -> String {
-    let days = store::now_ms() / 1000 / 86_400;
+    let days = storage::now_ms() / 1000 / 86_400;
     // Civil date from days since 1970-01-01 (Howard Hinnant's algorithm).
     let z = days + 719_468;
     let era = z.div_euclid(146_097);
@@ -241,7 +241,7 @@ pub async fn passwords_export_csv(app: AppHandle, master: String) -> CmdResult<O
             return Ok(None);
         };
         let path = path.into_path().map_err(|e| e.to_string())?;
-        store::write_atomic(&path, text.as_bytes()).map_err(|e| e.to_string())?;
+        storage::write_atomic(&path, text.as_bytes()).map_err(|e| e.to_string())?;
         Ok(Some(path.display().to_string()))
     })
     .await?
@@ -271,7 +271,7 @@ pub async fn passwords_backup(app: AppHandle, master: String) -> CmdResult<Optio
             return Ok(None);
         };
         let path = path.into_path().map_err(|e| e.to_string())?;
-        store::write_atomic(&path, &bytes).map_err(|e| e.to_string())?;
+        storage::write_atomic(&path, &bytes).map_err(|e| e.to_string())?;
         Ok(Some(path.display().to_string()))
     })
     .await?
