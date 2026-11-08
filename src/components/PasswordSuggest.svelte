@@ -59,6 +59,12 @@
     return placeSuggestions(s.rect, s.dpr, window.devicePixelRatio || 1, pane, { w: 300, h: height });
   });
 
+  // Which way the list flies in and out. Remembered, because the exit transition starts after the
+  // list has been closed, when `pos` is already null: reading it there threw inside Svelte's
+  // teardown, which left the list and its full-window backdrop on screen for good.
+  let lastAbove = false;
+  const above = $derived.by(() => (pos ? (lastAbove = pos.above) : lastAbove));
+
   function close(refocus = true) {
     const tab = s?.tabId;
     vault.closeSuggest();
@@ -140,7 +146,7 @@
     style:width="{pos.w}px"
     role="dialog"
     aria-label="Saved passwords for {s.site}"
-    transition:fly={{ y: pos.above ? 6 : -6, duration: 140 }}
+    transition:fly={{ y: above ? 6 : -6, duration: 140 }}
   >
     {#if pending}
       <div class="unlock">
