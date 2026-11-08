@@ -57,6 +57,26 @@ pub fn now_ms() -> i64 {
         .unwrap_or(0)
 }
 
+/// Days since 1970-01-01 as (year, month, day), in the proleptic Gregorian calendar.
+fn civil_from_days(days: i64) -> (i64, u32, u32) {
+    let z = days + 719_468;
+    let era = (if z >= 0 { z } else { z - 146_096 }) / 146_097;
+    let doe = (z - era * 146_097) as u64;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let y = yoe as i64 + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = (doy - (153 * mp + 2) / 5 + 1) as u32;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
+    (if m <= 2 { y + 1 } else { y }, m, d)
+}
+
+/// "2026-11-07" (UTC) for a time in milliseconds.
+pub fn date_string(ms: i64) -> String {
+    let (y, m, d) = civil_from_days(ms.div_euclid(86_400_000));
+    format!("{y:04}-{m:02}-{d:02}")
+}
+
 /// Writes `data` to `path` atomically: write + flush a sibling temp file, then rename over.
 pub fn write_atomic(path: &Path, data: &[u8]) -> std::io::Result<()> {
     if let Some(dir) = path.parent() {
@@ -216,6 +236,18 @@ pub struct Bookmark {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn dates_are_computed_without_a_calendar_crate() {
+        assert_eq!(civil_from_days(0), (1970, 1, 1));
+        assert_eq!(civil_from_days(19_723), (2024, 1, 1));
+        assert_eq!(civil_from_days(11_016), (2000, 2, 29));
+        assert_eq!(civil_from_days(-1), (1969, 12, 31));
+        assert_eq!(date_string(1_700_000_000_000), "2023-11-14");
+        assert_eq!(date_string(86_399_999), "1970-01-01");
+        assert_eq!(date_string(86_400_000), "1970-01-02");
+        assert_eq!(date_string(-1), "1969-12-31");
+    }
 
     #[test]
     fn atomic_write_replaces_file() {
