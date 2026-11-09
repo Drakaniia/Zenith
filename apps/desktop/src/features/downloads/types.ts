@@ -21,6 +21,9 @@ export interface DownloadItem {
   detail?: string;
   /** A live recording: it can be stopped (keeping what was recorded) but not paused. */
   live?: boolean;
+  /** First event of a page download: where the pointer was in that tab's window (CSS px) as it
+   *  started, for the fly-to-downloads animation. */
+  origin?: { x: number; y: number; window: string };
 }
 
 /** A quality or audio-language choice offered for a stream. */

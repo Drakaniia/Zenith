@@ -10,6 +10,9 @@ use std::result::Result;
 use webview2_com::Microsoft::Web::WebView2::Win32::*;
 use webview2_com::*;
 use windows::core::{Interface, BOOL, HSTRING, PWSTR};
+use windows::Win32::Foundation::POINT;
+use windows::Win32::Graphics::Gdi::ScreenToClient;
+use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
 
 use super::tab::TabShared;
 use super::{config, db, emit, post, with_host};
@@ -30,6 +33,8 @@ pub struct ActiveDownload {
     pub tab: String,
     pub paused: bool,
     pub last_emit: Instant,
+    /// Where the pointer was as the download started; sent once, with its first event.
+    pub origin: Option<Origin>,
 }
 
 #[derive(Serialize, Clone)]
@@ -50,6 +55,36 @@ pub struct DownloadEvent {
     /// A live recording: it can be stopped (keeping what was recorded) but not paused.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub live: bool,
+    /// On the first event of a page download: where the pointer was in the tab's window as it
+    /// started (the click on the page's download link), so the chrome can fly the file from there
+    /// to its downloads button.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub origin: Option<Origin>,
+}
+
+/// A point in a window's chrome (CSS px), and which window.
+#[derive(Serialize, Clone, Debug, PartialEq)]
+pub struct Origin {
+    pub x: f64,
+    pub y: f64,
+    pub window: String,
+}
+
+/// The pointer's position in a window's chrome, in CSS px.
+fn pointer_in(label: &str) -> Option<Origin> {
+    with_host(|h| {
+        let hwnd = h.wins.get(label)?.hwnd;
+        let scale = h.scale(label);
+        let mut p = POINT::default();
+        unsafe {
+            GetCursorPos(&mut p).ok()?;
+            if !ScreenToClient(hwnd, &mut p).as_bool() {
+                return None;
+            }
+        }
+        Some(Origin { x: p.x as f64 / scale, y: p.y as f64 / scale, window: label.to_string() })
+    })
+    .flatten()
 }
 
 fn file_name(path: &str) -> String {
@@ -149,6 +184,7 @@ fn snapshot(d: &mut ActiveDownload) -> DownloadEvent {
         kind: "file",
         detail: String::new(),
         live: false,
+        origin: None,
     }
 }
 
@@ -159,11 +195,15 @@ fn publish(id: i64, force: bool) {
             return None;
         }
         d.last_emit = Instant::now();
-        Some(snapshot(d))
+        let origin = d.origin.take();
+        Some(DownloadEvent { origin, ..snapshot(d) })
     })
     .flatten();
     if let Some(ev) = event {
         let finished = ev.record.state != "progress";
+        if ev.record.state == "completed" {
+            crate::downloads::remember_finished(ev.record.id, &ev.record.path);
+        }
         let record = ev.record.clone();
         // Downloads from incognito windows are not kept in the download history.
         if (finished || force) && !super::tab_is_private(&ev.tab_id) {
@@ -304,10 +344,11 @@ pub fn attach(core: &ICoreWebView2, shared: Rc<TabShared>) {
                     &mut t,
                 )?;
                 let tab = shared.id.clone();
+                let origin = pointer_in(&shared.window);
                 with_host(|h| {
                     h.downloads.insert(
                         id,
-                        ActiveDownload { op, record, tab, paused: false, last_emit: Instant::now() },
+                        ActiveDownload { op, record, tab, paused: false, last_emit: Instant::now(), origin },
                     );
                 });
                 publish(id, true);

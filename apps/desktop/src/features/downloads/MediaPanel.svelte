@@ -8,6 +8,7 @@
   import { settings } from '$features/settings/settings.svelte';
   import { ui } from '$shared/ui/ui.svelte';
   import { overlayLease } from '$platform/layout.svelte';
+  import { flights } from './flights.svelte';
   import { copyText } from '$shared/clipboard';
   import { openInternal } from '$features/browser/target';
   import { kindLabel, mediaMeta, mediaTitle } from './media';
@@ -117,14 +118,22 @@
     return !!item.variants.find((v) => v.id === id)?.audioOnly;
   }
 
-  async function download(item: MediaItem) {
+  async function download(item: MediaItem, button: HTMLElement) {
     const target = ui.media;
     if (!target || busy[item.id]) return;
     busy[item.id] = true;
+    // The item's thumbnail is the file that flies into the downloads button once it started.
+    const thumb = button.closest('.item')?.querySelector<HTMLElement>('.thumb')?.getBoundingClientRect();
     try {
       const p = picks[item.id];
       await downloadsApi.mediaDownload(target.tabId, item.id, p?.variant || null, variantIsAudio(item) ? null : p?.audio || null);
       started[item.id] = true;
+      if (thumb) {
+        flights.launch(
+          { x: thumb.left, y: thumb.top, w: thumb.width, h: thumb.height },
+          { icon: iconFor(item), label: (variantIsAudio(item) ? '' : item.ext).slice(0, 4).toUpperCase(), color: null },
+        );
+      }
     } catch (e) {
       ui.toast(String(e), { icon: 'alert', timeout: 6000 });
     } finally {
@@ -199,7 +208,7 @@
                   class="btn primary go"
                   disabled={item.protected || busy[item.id] || (item.live && item.kind === 'dash')}
                   title={item.live ? 'Record from now until you stop it in Downloads' : `Download ${kindLabel(item).toLowerCase()}`}
-                  onclick={() => void download(item)}
+                  onclick={(e) => void download(item, e.currentTarget)}
                 >
                   {#if started[item.id]}
                     <Icon name="check" size={14} />{item.live ? 'Recording' : 'Started'}

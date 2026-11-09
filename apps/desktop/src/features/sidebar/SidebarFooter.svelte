@@ -1,13 +1,13 @@
 <script lang="ts">
   import Icon from '$shared/ui/Icon.svelte';
   import { browser } from '$features/browser/browser.svelte';
-  import { downloads } from '$features/downloads/downloads.svelte';
+  import DownloadsButton from '$features/downloads/DownloadsButton.svelte';
   import { ui } from '$shared/ui/ui.svelte';
   import { updates } from '$features/updates/updates.svelte';
   import { dnd } from './sidebar-dnd.svelte';
   import { createNewMenu, spaceMenu } from './menus';
   import { openNotes } from '$features/notes/actions';
-  import { withHint } from '$features/shortcuts/hints';
+
   import { settings } from '$features/settings/settings.svelte';
   import { internalPage } from '$shared/url';
 
@@ -53,16 +53,7 @@
 </script>
 
 <footer class="foot" class:collapsed class:inline>
-  <button class="icon-btn dl" title={withHint('Downloads', 'downloads')} onclick={() => (ui.downloadsOpen = !ui.downloadsOpen)} data-downloads-anchor>
-    <span class="motion-icon" data-sidebar-icon="downloads"><Icon name="download" /></span>
-    {#if downloads.progress >= 0}
-      <svg class="ring" viewBox="0 0 36 36" aria-hidden="true">
-        <circle cx="18" cy="18" r="15" pathLength="100" stroke-dasharray="{Math.max(3, downloads.progress * 100)} 100" />
-      </svg>
-    {:else if downloads.active.length}
-      <span class="dot"></span>
-    {/if}
-  </button>
+  <DownloadsButton />
   <button class="icon-btn" class:on={onNotes} title={notesKey ? `Notes (${notesKey})` : 'Notes'} data-action="notes" onclick={() => openNotes()}>
     <span class="motion-icon" data-sidebar-icon="notes"><Icon name="note" /></span>
   </button>
@@ -216,7 +207,6 @@
     border-radius: 50%;
     background: color-mix(in srgb, currentColor 50%, transparent);
   }
-  .dl,
   .update {
     position: relative;
   }
@@ -226,19 +216,7 @@
   .update {
     color: var(--accent-fg);
   }
-  .ring {
-    position: absolute;
-    inset: 1px;
-    transform: rotate(-90deg);
-    pointer-events: none;
-  }
-  .ring circle {
-    fill: none;
-    stroke: var(--accent-button);
-    stroke-width: 2.4;
-    stroke-linecap: round;
-    transition: stroke-dasharray 0.3s;
-  }
+
   .dot {
     position: absolute;
     right: 4px;

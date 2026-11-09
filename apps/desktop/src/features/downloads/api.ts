@@ -12,6 +12,8 @@ export const downloadsApi = {
   ) => invoke<void>("download_action", { id, action }),
   downloadsRemove: (id: number | null) =>
     invoke<void>("downloads_remove", { id }),
+  /** Drags a finished download's file from the pointer until it is dropped; true when it was. */
+  downloadDrag: (id: number) => invoke<boolean>("download_drag", { id }),
   mediaList: (tabId: string, scan = true) =>
     invoke<MediaReport>("media_list", { tabId, scan }),
   mediaDownload: (

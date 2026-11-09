@@ -180,6 +180,14 @@
     };
   });
 
+  /** A file dragged over the chrome (from the downloads button, or from Explorer) can't be
+   *  dropped on it: the chrome's webview would navigate to the file. Pages below take it. */
+  function refuseFileDrop(e: DragEvent) {
+    if (e.defaultPrevented || !e.dataTransfer?.types.includes('Files')) return;
+    e.preventDefault();
+    if (e.type === 'dragover') e.dataTransfer.dropEffect = 'none';
+  }
+
   function onKeydown(e: KeyboardEvent) {
     if (e.key === 'Escape') {
       if (ui.menu) ui.closeMenu();
@@ -199,7 +207,7 @@
   }
 </script>
 
-<svelte:window onkeydown={onKeydown} bind:innerWidth={winW} />
+<svelte:window onkeydown={onKeydown} ondragover={refuseFileDrop} ondrop={refuseFileDrop} bind:innerWidth={winW} />
 
 <div
   class="app"

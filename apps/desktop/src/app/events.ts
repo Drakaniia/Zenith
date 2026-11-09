@@ -8,6 +8,8 @@ import { browser } from '../features/browser/browser.svelte';
 import { settings } from '../features/settings/settings.svelte';
 import { bookmarks } from '../features/bookmarks/bookmarks.svelte';
 import { downloads } from '../features/downloads/downloads.svelte';
+import { flights } from '../features/downloads/flights.svelte';
+import { formatFromShortcut } from '../features/notes/rich-dom';
 import { permissions } from '../features/page/permissions.svelte';
 import { ui } from '../shared/ui/ui.svelte';
 import { incognito } from '../features/window/window.svelte';
@@ -55,6 +57,8 @@ export function listenBackend(flushAndClose: () => Promise<void>): Promise<() =>
     // The setup assistant is modal: only Quit gets through.
     on('shortcut', (s) => {
       if (onboarding.open && s.action !== 'quit') return;
+      // Ctrl+B and Ctrl+I format the note being typed in rather than run their actions.
+      if (s.keys && formatFromShortcut(s.keys)) return;
       void runAction(s.action, s.source, s.repeat);
     }),
     on('permission-request', (p) => permissions.push(p)),
@@ -72,6 +76,8 @@ export function listenBackend(flushAndClose: () => Promise<void>): Promise<() =>
       const known = downloads.items.some((x) => x.id === d.id);
       downloads.upsert(d);
       if (!known && d.state === 'progress') {
+        // Every window hears about every download; the file flies in the one it was started in.
+        if (d.origin && d.origin.window === getCurrentWebviewWindow().label) flights.launchFromPage(d);
         ui.toast(`Downloading ${d.fileName ?? 'file'}`, {
           icon: 'download',
           action: { label: 'Show', run: () => (ui.downloadsOpen = true) },

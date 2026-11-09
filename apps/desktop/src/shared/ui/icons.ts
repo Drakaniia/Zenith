@@ -6,6 +6,10 @@ const c = (cx: number, cy: number, r: number) =>
 const rect = (x: number, y: number, w: number, h: number, r = 2) =>
   `M${x + r} ${y}h${w - 2 * r}a${r} ${r} 0 0 1 ${r} ${r}v${h - 2 * r}a${r} ${r} 0 0 1 ${-r} ${r}h${-(w - 2 * r)}a${r} ${r} 0 0 1 ${-r} ${-r}v${-(h - 2 * r)}a${r} ${r} 0 0 1 ${r} ${-r}z`;
 
+/** The sheet of the `file` icon and its folded corner, shared by the file-type icons. */
+const FILE = "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z";
+const FILE_FOLD = "M14 2v6h6";
+
 /** A five-pointed star outline centred on (cx, cy). */
 const starPath = (cx: number, cy: number, ro: number, ri: number) => {
   const pts: string[] = [];
@@ -162,6 +166,18 @@ export const icons = {
     "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z",
     "M14 2v6h6",
   ],
+  // Text formatting (the notes editor).
+  bold: ["M7 4.5h6a3.75 3.75 0 0 1 0 7.5H7z", "M7 12h7a3.75 3.75 0 0 1 0 7.5H7z"],
+  italic: ["M19 4.5h-8.5", "M13.5 19.5H5", "M15 4.5 9 19.5"],
+  listBullets: ["M9 6h11", "M9 12h11", "M9 18h11", c(4.5, 6, 0.9), c(4.5, 12, 0.9), c(4.5, 18, 0.9)],
+  listNumbers: ["M10 6h10", "M10 12h10", "M10 18h10", "M4 4.5 5.5 4v4.5", "M4 14.2a1.4 1.4 0 0 1 2.6.6c0 .9-2.6 1.6-2.6 3.2h2.8"],
+  // File types (the downloads button shows the latest download's).
+  fileText: [FILE, FILE_FOLD, "M8 13h8", "M8 17h5"],
+  fileSheet: [FILE, FILE_FOLD, "M8 12h8v6H8z", "M12 12v6", "M8 15h8"],
+  fileSlides: [FILE, FILE_FOLD, "M8 12h8v5H8z", "M12 17v2"],
+  fileZip: [FILE, FILE_FOLD, "M10 5h2", "M10 8h2", "M10 11h2", "M10 14h2v4h-2z"],
+  fileCode: [FILE, FILE_FOLD, "M10 13l-2 2 2 2", "M14 13l2 2-2 2"],
+  fileApp: [FILE, FILE_FOLD, "M8.5 12.5h7v5.5h-7z", "M8.5 14.5h7"],
   pause: ["M8 5v14", "M16 5v14"],
   play: ["M7 4.5v15l12-7.5z"],
   zap: ["M13 2 3 14h9l-1 8 10-12h-9l1-8z"],

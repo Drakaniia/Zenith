@@ -191,6 +191,7 @@ pub(super) fn snapshot(j: &mut Running) -> DownloadEvent {
         kind: "media",
         detail,
         live: j.live,
+        origin: None,
     }
 }
 
@@ -200,6 +201,9 @@ pub(super) fn snapshot(j: &mut Running) -> DownloadEvent {
 fn emit_locked(j: &mut Running) {
     j.last_emit = Instant::now();
     let event = snapshot(j);
+    if event.record.state == "completed" {
+        crate::downloads::remember_finished(event.record.id, &event.record.path);
+    }
     if event.record.state != "progress" && j.persisted != event.record.state {
         j.persisted = event.record.state.clone();
         let record = event.record.clone();

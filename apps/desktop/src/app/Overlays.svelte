@@ -18,6 +18,7 @@
   import Menu from './Menu.svelte';
   import BookmarkGhost from '$features/bookmarks/BookmarkGhost.svelte';
   import Toasts from './Toasts.svelte';
+  import DownloadFlights from '$features/downloads/DownloadFlights.svelte';
 </script>
 
 <Glance />
@@ -38,3 +39,4 @@
 <Menu />
 <BookmarkGhost />
 <Toasts />
+<DownloadFlights />

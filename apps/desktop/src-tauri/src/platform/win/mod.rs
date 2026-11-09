@@ -1,6 +1,7 @@
 //! Windows platform services: default-browser registration, shell integration, memory stats.
 
 pub mod commands;
+pub mod drag;
 
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
@@ -354,6 +355,35 @@ pub fn system_memory_load() -> u32 {
 /// Puts Unicode text on the clipboard (works even when a page webview has focus).
 pub fn set_clipboard_text(text: &str) -> Result<(), String> {
     put_clipboard(text, false).map(|_| ())
+}
+
+/// The clipboard's Unicode text ("" when it holds none).
+pub fn get_clipboard_text() -> Result<String, String> {
+    use windows::Win32::Foundation::HGLOBAL;
+    use windows::Win32::System::DataExchange::{CloseClipboard, GetClipboardData, IsClipboardFormatAvailable, OpenClipboard};
+    use windows::Win32::System::Memory::{GlobalLock, GlobalSize, GlobalUnlock};
+    const CF_UNICODETEXT: u32 = 13;
+    unsafe {
+        if IsClipboardFormatAvailable(CF_UNICODETEXT).is_err() {
+            return Ok(String::new());
+        }
+        OpenClipboard(None).map_err(|e| e.to_string())?;
+        let text = (|| {
+            let data = GetClipboardData(CF_UNICODETEXT).map_err(|e| e.to_string())?;
+            let mem = HGLOBAL(data.0);
+            let ptr = GlobalLock(mem) as *const u16;
+            if ptr.is_null() {
+                return Err("could not read the clipboard".to_string());
+            }
+            let units = std::slice::from_raw_parts(ptr, GlobalSize(mem) / 2);
+            let len = units.iter().position(|&u| u == 0).unwrap_or(units.len());
+            let text = String::from_utf16_lossy(&units[..len]);
+            let _ = GlobalUnlock(mem);
+            Ok(text)
+        })();
+        let _ = CloseClipboard();
+        text
+    }
 }
 
 /// Copies a password: kept out of Windows clipboard history and cloud sync, and cleared after

@@ -3,7 +3,10 @@
 
 pub mod commands;
 
-use rusqlite::{params, Connection};
+use std::collections::HashMap;
+use std::sync::{LazyLock, Mutex};
+
+use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -51,6 +54,30 @@ pub fn downloads_list(conn: &mut Connection, limit: i64) -> rusqlite::Result<Vec
     rows.collect()
 }
 
+
+/// Where a finished download was saved, from the history.
+pub fn completed_path(conn: &mut Connection, id: i64) -> rusqlite::Result<Option<String>> {
+    conn.query_row(
+        "SELECT path FROM downloads WHERE id = ?1 AND state = 'completed'",
+        params![id],
+        |r| r.get(0),
+    )
+    .optional()
+}
+
+/// Downloads finished in this session, incognito ones included (they are not in the history):
+/// the files the downloads button may drag out.
+static FINISHED: LazyLock<Mutex<HashMap<i64, String>>> = LazyLock::new(Default::default);
+
+pub fn remember_finished(id: i64, path: &str) {
+    if let Ok(mut m) = FINISHED.lock() {
+        m.insert(id, path.to_string());
+    }
+}
+
+pub fn finished_path(id: i64) -> Option<String> {
+    FINISHED.lock().ok()?.get(&id).cloned()
+}
 
 pub fn downloads_remove(conn: &mut Connection, id: Option<i64>) -> rusqlite::Result<()> {
     match id {

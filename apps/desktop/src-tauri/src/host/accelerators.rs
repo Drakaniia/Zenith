@@ -29,7 +29,7 @@ pub fn set_bindings(specs: Vec<BindingSpec>) -> Vec<String> {
 
 /// Runs a browser action in window `label`'s chrome UI, as if its shortcut was pressed there.
 pub fn emit_shortcut(label: &str, action: &str) {
-    emit_to_window(label, "shortcut", ShortcutEvent { action: action.to_string(), repeat: false, source: None });
+    emit_to_window(label, "shortcut", ShortcutEvent { action: action.to_string(), repeat: false, source: None, keys: None });
 }
 
 #[derive(Serialize, Clone)]
@@ -38,6 +38,18 @@ pub(super) struct ShortcutEvent {
     pub(super) action: String,
     pub(super) repeat: bool,
     pub(super) source: Option<String>,
+    /// The keys pressed, for shortcuts pressed in the chrome itself: a text editor there (Notes)
+    /// takes its formatting keys (Ctrl+B, Ctrl+I) back from the browser actions bound to them.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(super) keys: Option<ShortcutKeys>,
+}
+
+#[derive(Serialize, Clone, Copy)]
+pub(super) struct ShortcutKeys {
+    pub(super) ctrl: bool,
+    pub(super) alt: bool,
+    pub(super) shift: bool,
+    pub(super) vk: u32,
 }
 
 pub(super) fn key_down(vk: windows::Win32::UI::Input::KeyboardAndMouse::VIRTUAL_KEY) -> bool {
@@ -85,20 +97,21 @@ pub fn attach_accelerators(controller: &ICoreWebView2Controller, tab: Option<std
                     if vk == VK_ESCAPE.0 as u32 && !ctrl && !alt && !shift {
                         if t.glance.get() {
                             args.SetHandled(true)?;
-                            emit_to_window(&label, "shortcut", ShortcutEvent { action: "closeGlance".into(), repeat, source });
+                            emit_to_window(&label, "shortcut", ShortcutEvent { action: "closeGlance".into(), repeat, source, keys: None });
                             return Ok(());
                         }
                         // Esc stops a page that is still loading (the UI knows whether it is);
                         // the page gets the key as well.
                         if !repeat {
-                            emit_to_window(&label, "shortcut", ShortcutEvent { action: "escape".into(), repeat, source });
+                            emit_to_window(&label, "shortcut", ShortcutEvent { action: "escape".into(), repeat, source, keys: None });
                         }
                         return Ok(());
                     }
                 }
                 if let Some(action) = bound_action(ctrl, alt, shift, vk) {
                     args.SetHandled(true)?;
-                    emit_to_window(&label, "shortcut", ShortcutEvent { action, repeat, source });
+                    let keys = tab.is_none().then_some(ShortcutKeys { ctrl, alt, shift, vk });
+                    emit_to_window(&label, "shortcut", ShortcutEvent { action, repeat, source, keys });
                 }
                 Ok(())
             })),

@@ -9,4 +9,6 @@ export const shell = {
   pickFolder: (title?: string) =>
     invoke<string | null>("pick_folder", { title: title ?? null }),
   clipboardWrite: (text: string) => invoke<void>("clipboard_write", { text }),
+  /** The clipboard's text, for the chrome's own Paste menu items. */
+  clipboardRead: () => invoke<string>("clipboard_read"),
 };

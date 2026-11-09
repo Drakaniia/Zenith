@@ -11,6 +11,12 @@ export const shortcutsApi = {
 
 declare module "../../platform/ipc" {
   interface BackendEvents {
-    shortcut: { action: string; repeat: boolean; source: string | null };
+    shortcut: {
+      action: string;
+      repeat: boolean;
+      source: string | null;
+      /** The keys pressed, for shortcuts pressed in the chrome itself (`vk`: virtual-key code). */
+      keys?: { ctrl: boolean; alt: boolean; shift: boolean; vk: number };
+    };
   }
 }

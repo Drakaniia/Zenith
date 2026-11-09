@@ -1,5 +1,8 @@
 // The notes editor's data and the pure helpers its page uses (no Svelte state, so the Node
-// tests can import them). The store itself is notes.svelte.ts.
+// tests can import them). The store itself is notes.svelte.ts. A note's body is formatted text
+// (rich-text.ts); titles, previews, search and copying use its plain text.
+
+import { noteText } from "./rich-text.ts";
 
 export interface Note {
   id: string;
@@ -34,13 +37,13 @@ function firstLine(text: string): string {
 export function noteTitle(n: Pick<Note, "title" | "body">): string {
   const own = n.title.trim();
   if (own) return own;
-  const line = firstLine(n.body);
+  const line = firstLine(noteText(n.body));
   return line ? line.slice(0, 80) : UNTITLED;
 }
 
 /** A one-line excerpt of the text, skipping the line already used as the title. */
 export function notePreview(n: Pick<Note, "title" | "body">, max = 120): string {
-  let text = n.body.trim();
+  let text = noteText(n.body).trim();
   if (!n.title.trim()) {
     const line = firstLine(text);
     text = text.slice(text.indexOf(line) + line.length);
@@ -52,7 +55,7 @@ export function notePreview(n: Pick<Note, "title" | "body">, max = 120): string 
 export function matchesQuery(n: Pick<Note, "title" | "body">, query: string): boolean {
   const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
   if (!terms.length) return true;
-  const hay = `${n.title}\n${n.body}`.toLowerCase();
+  const hay = `${n.title}\n${noteText(n.body)}`.toLowerCase();
   return terms.every((t) => hay.includes(t));
 }
 
@@ -122,7 +125,8 @@ export function wordCount(text: string): number {
   return words ? words.length : 0;
 }
 
-/** What "Copy" puts on the clipboard: the text, or the title for a note without text. */
+/** What "Copy" puts on the clipboard: the plain text (lists keep their bullets and numbers),
+ *  or the title for a note without text. */
 export function copyableText(n: Pick<Note, "title" | "body">): string {
-  return n.body.trim() ? n.body : n.title.trim();
+  return n.body.trim() ? noteText(n.body, true) : n.title.trim();
 }

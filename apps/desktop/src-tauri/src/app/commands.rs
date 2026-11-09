@@ -151,3 +151,9 @@ pub async fn pick_folder(app: AppHandle, title: Option<String>) -> CmdResult<Opt
 pub async fn clipboard_write(text: String) -> CmdResult<()> {
     blocking(move || win::set_clipboard_text(&text)).await?
 }
+
+/// The clipboard's text, for the chrome's own Paste menu items (pages never get this).
+#[tauri::command]
+pub async fn clipboard_read() -> CmdResult<String> {
+    blocking(win::get_clipboard_text).await?
+}

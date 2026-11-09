@@ -5,6 +5,8 @@
   import { settings } from '$features/settings/settings.svelte';
   import { displayChord } from '$features/shortcuts/shortcuts';
   import { formatEdited, wordCount } from './notes';
+  import { noteText } from './rich-text';
+  import NoteBody from './NoteBody.svelte';
 
   // The open note on zenith://notes (title, word count, text), or the empty state.
 
@@ -22,15 +24,12 @@
   const shortcut = $derived(settings.value.shortcuts.openNotes?.[0]);
 
   let titleEl: HTMLInputElement | undefined = $state();
-  let bodyEl: HTMLTextAreaElement | undefined = $state();
+  let body: NoteBody | undefined = $state();
   /** The field undo/redo act on: the one last typed in. */
-  let lastField: HTMLInputElement | HTMLTextAreaElement | null = null;
+  let lastField: HTMLElement | null = null;
 
   export function focusBody(atEnd = true) {
-    const el = bodyEl;
-    if (!el) return;
-    el.focus({ preventScroll: true });
-    if (atEnd) el.setSelectionRange(el.value.length, el.value.length);
+    body?.focus(atEnd);
   }
 
   // The store asks for focus (the shortcut, "New note", Ctrl+F on this page).
@@ -40,9 +39,8 @@
   });
 
   export function history(cmd: 'undo' | 'redo') {
-    const el = lastField?.isConnected ? lastField : bodyEl;
-    if (!el) return;
-    el.focus();
+    if (lastField?.isConnected) lastField.focus();
+    else focusBody();
     // The fields' own undo stacks, as Ctrl+Z / Ctrl+Y use them.
     document.execCommand(cmd);
   }
@@ -52,6 +50,7 @@
 <main class="editor" class:wide onclick={(e) => e.target === e.currentTarget && focusBody()}>
   {#if active}
     {@const note = active}
+    {@const words = wordCount(noteText(note.body))}
     {#key note.id}
       <article class="doc">
         <input
@@ -66,24 +65,15 @@
             if (e.key === 'Enter' || (e.key === 'ArrowDown' && !e.shiftKey)) {
               e.preventDefault();
               focusBody(false);
-              bodyEl?.setSelectionRange(0, 0);
             }
           }}
         />
         <div class="meta">
           Edited {formatEdited(note.updated, now)}
           <span aria-hidden="true">·</span>
-          {wordCount(note.body)} {wordCount(note.body) === 1 ? 'word' : 'words'}
+          {words} {words === 1 ? 'word' : 'words'}
         </div>
-        <textarea
-          class="text"
-          bind:this={bodyEl}
-          bind:value={() => note.body, (v) => notes.edit(note.id, { body: v })}
-          placeholder="Start writing…"
-          aria-label="Note text"
-          spellcheck="true"
-          onfocus={(e) => (lastField = e.currentTarget)}
-        ></textarea>
+        <NoteBody bind:this={body} {note} onfocus={(el) => (lastField = el)} />
       </article>
     {/key}
   {:else if notes.loaded}
@@ -134,8 +124,7 @@
     color: var(--text);
     font: 600 26px/1.3 var(--font-display);
   }
-  .title::placeholder,
-  .text::placeholder {
+  .title::placeholder {
     color: var(--text-3);
   }
   .meta {
@@ -145,20 +134,7 @@
     font-size: 12px;
     color: var(--text-3);
   }
-  .text {
-    border: 0;
-    outline: none;
-    resize: none;
-    background: transparent;
-    padding: 0;
-    color: var(--text);
-    font: 15px/1.7 var(--font);
-    /* Grows with its text; the editor pane scrolls like a document. */
-    field-sizing: content;
-    min-height: 55vh;
-    tab-size: 4;
-    overflow-wrap: anywhere;
-  }
+
   .empty {
     height: 100%;
     display: flex;

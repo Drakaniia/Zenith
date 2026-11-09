@@ -9,6 +9,8 @@ Files download to your Windows **Downloads** folder. Choose a different folder i
 
 The downloads button in the toolbar shows active and recent downloads. `Ctrl+Shift+Y` opens the full **Downloads** page, which is also in the app menu. Download history can be cleared in **Settings › Privacy & blocking › Clear browsing data**.
 
+For ten minutes after a file finishes downloading, the downloads button shows that file's type (a red sheet for a PDF, blue for a Word document, an archive for a ZIP, and so on) with its extension. Drag the button onto a page, such as a Google Classroom assignment or a Messenger chat, to attach the file as if you had picked it from your Downloads folder. Clicking the button still opens the downloads list.
+
 A tab that is downloading never goes to sleep. Incognito windows don't record downloads.
 
 ## The video downloader

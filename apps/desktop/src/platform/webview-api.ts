@@ -7,6 +7,9 @@ export interface PaneSpec {
   y: number;
   w: number;
   h: number;
+  /** While the layout animates: the content size kept for the whole animation (CSS px). */
+  cw?: number;
+  ch?: number;
 }
 
 export interface LayoutSpec {
