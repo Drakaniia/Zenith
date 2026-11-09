@@ -1,7 +1,12 @@
 //! Minimal HTTPS GET over WinHTTP (ships with Windows, so it adds no TLS stack to the binary).
-//! Used only for opt-in search suggestions and filter-list updates.
+//! Used only for opt-in search suggestions, filter-list updates, favicons and extensions.
+//!
+//! Every request goes through one process-wide WinHTTP session: its connection pool keeps TLS
+//! connections alive between requests and its proxy lookup is done once, so repeated requests
+//! to the same server (search suggestions while typing) skip the DNS, TCP and TLS setup.
 
 use std::ffi::c_void;
+use std::sync::OnceLock;
 
 use tauri::Url;
 use windows::core::{HSTRING, PCWSTR};
@@ -19,12 +24,42 @@ impl Drop for Handle {
     }
 }
 
+/// The shared session handle. WinHTTP session handles may be used from any thread at once.
+struct Session(Handle);
+
+unsafe impl Send for Session {}
+unsafe impl Sync for Session {}
+
+static SESSION: OnceLock<Session> = OnceLock::new();
+
 fn check(h: *mut c_void, what: &str) -> Result<Handle, String> {
     if h.is_null() {
         Err(format!("{what} failed: {}", windows::core::Error::from_thread()))
     } else {
         Ok(Handle(h))
     }
+}
+
+/// Opens the shared session on first use. A failed open is retried on the next request.
+fn session() -> Result<&'static Session, String> {
+    if let Some(s) = SESSION.get() {
+        return Ok(s);
+    }
+    let handle = unsafe {
+        check(
+            WinHttpOpen(
+                &HSTRING::from("Zenith/0.1 (+https://zenith.invalid)"),
+                WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY,
+                PCWSTR::null(),
+                PCWSTR::null(),
+                0,
+            ),
+            "WinHttpOpen",
+        )?
+    };
+    // Two threads may race to open it; the loser's handle is closed when dropped here.
+    let _ = SESSION.set(Session(handle));
+    SESSION.get().ok_or_else(|| "WinHTTP session unavailable".into())
 }
 
 /// Performs a blocking GET request. Call from a background thread.
@@ -53,20 +88,10 @@ fn fetch(url: &str, max_bytes: usize, timeout_ms: i32, follow_redirects: bool) -
         object.push_str(q);
     }
 
+    let session = session()?;
     unsafe {
-        let session = check(
-            WinHttpOpen(
-                &HSTRING::from("Zenith/0.1 (+https://zenith.invalid)"),
-                WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY,
-                PCWSTR::null(),
-                PCWSTR::null(),
-                0,
-            ),
-            "WinHttpOpen",
-        )?;
-        let _ = WinHttpSetTimeouts(session.0, timeout_ms, timeout_ms, timeout_ms, timeout_ms);
         let connect = check(
-            WinHttpConnect(session.0, &HSTRING::from(host.as_str()), port, 0),
+            WinHttpConnect(session.0 .0, &HSTRING::from(host.as_str()), port, 0),
             "WinHttpConnect",
         )?;
         let flags = if secure { WINHTTP_FLAG_SECURE } else { WINHTTP_OPEN_REQUEST_FLAGS(0) };
@@ -82,6 +107,8 @@ fn fetch(url: &str, max_bytes: usize, timeout_ms: i32, follow_redirects: bool) -
             ),
             "WinHttpOpenRequest",
         )?;
+        // Timeouts are per request: the shared session serves callers with different limits.
+        let _ = WinHttpSetTimeouts(request.0, timeout_ms, timeout_ms, timeout_ms, timeout_ms);
         let decompression: u32 = WINHTTP_DECOMPRESSION_FLAG_GZIP | WINHTTP_DECOMPRESSION_FLAG_DEFLATE;
         let _ = WinHttpSetOption(
             Some(request.0),
