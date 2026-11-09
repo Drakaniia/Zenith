@@ -15,7 +15,7 @@ mod sleep;
 
 pub use find::find;
 pub use permissions::{respond_permission, PendingPermission};
-pub use requests::TOTAL_BLOCKED;
+pub use requests::{apply_blocking, TOTAL_BLOCKED};
 pub use sleep::{content_size, sleep};
 
 use std::cell::{Cell, RefCell};

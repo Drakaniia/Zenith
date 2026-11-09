@@ -1,11 +1,17 @@
 //! Web requests of a tab: content blocking, request counts and media request notes.
+//!
+//! WebView2 holds every intercepted request until its handler has run on the UI thread, so
+//! interception is kept as narrow as possible: requests of pages and their frames only (never
+//! service or shared workers, whose requests would stall behind a busy UI thread or a slept
+//! tab), every resource type only while the blocker is on, and otherwise just media requests
+//! (the media downloader's hint).
 
 use std::rc::Rc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use webview2_com::Microsoft::Web::WebView2::Win32::*;
 use webview2_com::*;
-use windows::core::{Interface, HSTRING, PWSTR};
+use windows::core::{HSTRING, PWSTR};
 use windows::Win32::System::Com::IStream;
 
 use super::{is_web, take, TabPatch, TabShared};
@@ -14,21 +20,33 @@ use crate::platform::urls::{host_of, site_of};
 
 pub static TOTAL_BLOCKED: AtomicU64 = AtomicU64::new(0);
 
-pub(super) unsafe fn attach_blocker(core: &ICoreWebView2, env: &ICoreWebView2Environment, s: Rc<TabShared>) {
+/// Adds or removes the all-requests filter the blocker needs. Idempotent: the filter is removed
+/// first so it is never registered twice. The plain `AddWebResourceRequestedFilter` covers
+/// document requests only (pages and frames), not service or shared workers.
+unsafe fn set_block_filter(core: &ICoreWebView2, on: bool) {
     unsafe {
         let filter = HSTRING::from("*");
-        match core.cast::<ICoreWebView2_22>() {
-            Ok(c22) => {
-                let _ = c22.AddWebResourceRequestedFilterWithRequestSourceKinds(
-                    &filter,
-                    COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL,
-                    COREWEBVIEW2_WEB_RESOURCE_REQUEST_SOURCE_KINDS_ALL,
-                );
-            }
-            Err(_) => {
-                let _ = core.AddWebResourceRequestedFilter(&filter, COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL);
-            }
+        let _ = core.RemoveWebResourceRequestedFilter(&filter, COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL);
+        if on {
+            let _ = core.AddWebResourceRequestedFilter(&filter, COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL);
         }
+    }
+}
+
+/// Applies a change of the blocker setting to every open tab. Runs on the UI thread.
+pub fn apply_blocking(on: bool) {
+    let cores: Vec<ICoreWebView2> =
+        with_host(|h| h.tabs.values().chain(h.zombies.values()).map(|t| t.core()).collect()).unwrap_or_default();
+    for core in cores {
+        unsafe { set_block_filter(&core, on) };
+    }
+}
+
+pub(super) unsafe fn attach_blocker(core: &ICoreWebView2, env: &ICoreWebView2Environment, s: Rc<TabShared>) {
+    unsafe {
+        // Media requests are always watched (few and cheap); everything else only while blocking.
+        let _ = core.AddWebResourceRequestedFilter(&HSTRING::from("*"), COREWEBVIEW2_WEB_RESOURCE_CONTEXT_MEDIA);
+        set_block_filter(core, crate::host::blocker_enabled());
         let env = env.clone();
         let mut token = 0i64;
         let _ = core.add_WebResourceRequested(

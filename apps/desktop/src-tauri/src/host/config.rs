@@ -90,7 +90,13 @@ pub fn blocker_enabled() -> bool {
 }
 
 pub fn apply_config(cfg: RuntimeConfig) {
-    BLOCKER_ON.store(cfg.blocker_enabled, Ordering::Relaxed);
+    let blocking = cfg.blocker_enabled;
+    if BLOCKER_ON.swap(blocking, Ordering::Relaxed) != blocking {
+        // Tabs only intercept every request while the blocker is on.
+        if let Some(app) = APP.get() {
+            let _ = app.run_on_main_thread(move || super::tab::apply_blocking(blocking));
+        }
+    }
     let button = cfg.media_button;
     let changed = match CONFIG.write() {
         Ok(mut c) => {
