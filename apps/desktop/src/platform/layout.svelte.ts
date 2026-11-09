@@ -71,17 +71,65 @@ export function scheduleLayout() {
   });
 }
 
+
+
+let followUntil = 0;
+/** Each pane's largest size during the running layout animation (see `measureMotion`). */
+const motionSize = new Map<HTMLElement, { w: number; h: number }>();
+let remeasure = false;
+
+/** Seeks the running CSS transitions to their end for a moment to read where every pane ends
+ *  up, and keeps the larger of its current and final size. The page webview keeps that size for
+ *  the whole animation while its container clips it (placement.rs), so the page isn't re-laid
+ *  out on every frame and never trails the chrome with an unpainted strip. The transitions are
+ *  restored in the same task, so nothing is painted or fired in between. */
+function measureMotion() {
+  motionSize.clear();
+  if (typeof document.getAnimations !== "function" || typeof CSSTransition === "undefined") return;
+  const anims = document
+    .getAnimations()
+    .filter((a) => a instanceof CSSTransition && a.playState === "running" && a.currentTime !== null);
+  if (!anims.length) return;
+  const els = [...panes.keys()].filter((el) => el.isConnected);
+  const before = els.map((el) => el.getBoundingClientRect());
+  const saved = anims.map((a) => a.currentTime);
+  try {
+    for (const a of anims) {
+      const end = Number(a.effect?.getComputedTiming().endTime ?? 0);
+      // Just short of the end, so no animation reaches its finished state.
+      a.currentTime = Math.max(0, end - 0.5);
+    }
+    els.forEach((el, i) => {
+      const f = el.getBoundingClientRect();
+      motionSize.set(el, { w: Math.max(before[i].width, f.width), h: Math.max(before[i].height, f.height) });
+    });
+  } finally {
+    anims.forEach((a, i) => (a.currentTime = saved[i]));
+  }
+}
+
 /** Re-sends the page rectangles every frame for `ms`, while the chrome animates its layout.
  *  (The ResizeObserver only reports size changes, not moves.) */
-let followUntil = 0;
 export function followLayout(ms: number) {
   const running = performance.now() < followUntil;
+  // A change mid-animation retargets the transitions: measure again on the next frame.
+  remeasure = true;
   followUntil = Math.max(followUntil, performance.now() + ms);
   if (running) return;
   const step = () => {
+    if (performance.now() >= followUntil) {
+      // Back to content that matches its pane.
+      motionSize.clear();
+      applyLatestLayout();
+      return;
+    }
+    if (remeasure) {
+      remeasure = false;
+      measureMotion();
+    }
     // Already in an animation frame; scheduleLayout would defer the first update one more frame.
     applyLatestLayout();
-    if (performance.now() < followUntil) requestAnimationFrame(step);
+    requestAnimationFrame(step);
   };
   requestAnimationFrame(step);
 }
@@ -124,6 +172,11 @@ async function flush() {
   for (const [el, id] of live) {
     const r = rectOf(el, id);
     if (!r) continue;
+    const m = motionSize.get(el);
+    if (m && (m.w > r.w || m.h > r.h)) {
+      r.cw = Math.ceil(Math.max(m.w, r.w));
+      r.ch = Math.ceil(Math.max(m.h, r.h));
+    }
     list.push(r);
     cutouts.push({ x: r.x, y: r.y, w: r.w, h: r.h });
   }

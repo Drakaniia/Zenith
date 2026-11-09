@@ -52,9 +52,9 @@ See [Ad and tracker blocking](../../guides/ad-blocking/) and [Privacy](../privac
 | Setting | What it does | Default |
 | --- | --- | --- |
 | Put background tabs to sleep after | Never, 1, 2, 5, 10, 15 or 30 minutes, or 1 hour. Sleeping tabs free their memory and reload when you open them. Tabs playing audio, downloading or in split view stay awake. | 5 minutes |
-| Suspend background tabs after a minute | Pauses page scripts without unloading the page. | On |
+| Suspend background tabs after a minute | Pauses page scripts without unloading the page. | Off |
 | Sleep tabs when switching spaces | | Off |
-| Unload tabs when Windows is low on memory | | On |
+| Unload tabs when Windows is low on memory | | Off |
 
 Unloading a tab discards anything you typed into it that the page hasn't saved. **Memory in use** shows the private memory of all Zenith processes and how much of the system's memory is in use.
 

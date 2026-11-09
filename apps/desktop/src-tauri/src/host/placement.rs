@@ -34,20 +34,46 @@ fn px_rect(x: f64, y: f64, w: f64, h: f64, scale: f64) -> (i32, i32, i32, i32) {
 /// Places a tab's webview. The container window is moved synchronously, in step with the page
 /// inside it (wry moves it asynchronously after resizing the page, which shows the page shifted
 /// for a frame). A move that keeps the size leaves the page alone, so nothing is repainted.
-fn place_view(view: &wry::WebView, p: &PaneSpec, prev: Option<(f64, f64, f64, f64)>, scale: f64) {
+/// The page content's size in physical px: the pane, or while the layout animates the larger
+/// size the content keeps throughout (`PaneSpec::cw`/`ch`).
+fn content_px(p: &PaneSpec, scale: f64) -> (i32, i32) {
+    let (_, _, w, h) = px_rect(p.x, p.y, p.w, p.h, scale);
+    let cw = if p.cw > p.w { (p.cw * scale).round() as i32 } else { 0 };
+    let ch = if p.ch > p.h { (p.ch * scale).round() as i32 } else { 0 };
+    (cw.max(w), ch.max(h))
+}
+
+/// While the layout animates, the content keeps its largest size and only the container (which
+/// wry doesn't subclass for child webviews, so resizing it leaves the page alone) moves and
+/// clips it: the page needs no relayout or repaint per frame, so it never lags the chrome and
+/// leaves no unpainted strip.
+fn place_view(
+    view: &wry::WebView,
+    p: &PaneSpec,
+    prev: Option<(f64, f64, f64, f64)>,
+    content: &mut Option<(i32, i32)>,
+    scale: f64,
+) {
+    let want = content_px(p, scale);
     let (left, top, w, h) = px_rect(p.x, p.y, p.w, p.h, scale);
     let same_size = prev.is_some_and(|(x, y, pw, ph)| {
         let (_, _, ow, oh) = px_rect(x, y, pw, ph, scale);
         (ow, oh) == (w, h)
     });
     unsafe {
+        // Size the content while the old container still clips it. Growing the container
+        // first would expose a strip with no WebView content until SetBounds catches up.
+        if *content != Some(want) {
+            let _ = view.controller().SetBounds(RECT { left: 0, top: 0, right: want.0, bottom: want.1 });
+            *content = Some(want);
+        }
         if same_size {
             let flags = SWP_NOACTIVATE | SWP_NOZORDER | SWP_NOSIZE;
             let _ = SetWindowPos(view.hwnd(), None, left, top, 0, 0, flags);
         } else {
-            // Size the content while the old container still clips it. Growing the container
-            // first exposes a strip with no WebView content until SetBounds catches up.
-            let _ = view.controller().SetBounds(RECT { left: 0, top: 0, right: w, bottom: h });
+
+
+
             let _ = SetWindowPos(view.hwnd(), None, left, top, w, h, SWP_NOACTIVATE | SWP_NOZORDER);
         }
     }
@@ -105,8 +131,8 @@ impl Host {
             match visible.get(id) {
                 Some(p) => {
                     let rect = (p.x, p.y, p.w, p.h);
-                    if tab.last_rect != Some(rect) {
-                        place_view(&tab.view, p, tab.last_rect, scale);
+                    if tab.last_rect != Some(rect) || tab.content_px != Some(content_px(p, scale)) {
+                        place_view(&tab.view, p, tab.last_rect, &mut tab.content_px, scale);
                         tab.last_rect = Some(rect);
                     }
                     if !tab.visible {

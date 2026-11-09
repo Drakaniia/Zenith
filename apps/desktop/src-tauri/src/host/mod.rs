@@ -75,6 +75,13 @@ pub enum Focus {
 #[derive(Deserialize, Clone, Debug, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct PaneSpec {
+    /// While the chrome animates its layout: the size the page content keeps for the whole
+    /// animation (the largest the pane gets). The webview's container clips it to `w`x`h`, so
+    /// the page isn't re-laid out and repainted on every frame. 0: the pane size.
+    #[serde(default)]
+    pub cw: f64,
+    #[serde(default)]
+    pub ch: f64,
     pub id: String,
     pub x: f64,
     pub y: f64,

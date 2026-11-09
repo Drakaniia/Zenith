@@ -140,8 +140,9 @@
     onmouseleave={cancelReveal}
     data-tauri-drag-region
   ></div>
-  {#if ui.flyout && sideShown}
-    {#if strip}
+  <!-- One if/else-if chain, not nested blocks: Svelte's local transitions skip a block created
+       together with its parent, so a nested {#if strip} would pop in and out without sliding. -->
+  {#if ui.flyout && sideShown && strip}
       <div
         class="flyout strip {side}"
         role="presentation"
@@ -156,7 +157,7 @@
           <TopBar floating />
         {/if}
       </div>
-    {:else}
+  {:else if ui.flyout && sideShown}
       <div
         class="flyout {side}"
         role="presentation"
@@ -168,7 +169,6 @@
       >
         <Sidebar floating />
       </div>
-    {/if}
   {/if}
 {/if}
 

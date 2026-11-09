@@ -154,6 +154,8 @@ pub struct Tab {
     pub shared: Rc<TabShared>,
     pub visible: bool,
     pub last_rect: Option<(f64, f64, f64, f64)>,
+    /// Size of the page content inside the container, in physical px (see `PaneSpec::cw`).
+    pub content_px: Option<(i32, i32)>,
     pub find: Option<ICoreWebView2Find>,
 }
 
@@ -219,7 +221,8 @@ pub fn create(opts: CreateOptions) -> Result<ICoreWebView2, String> {
 
     super::set_tab_window(&opts.id, &label);
     let light_bg = opts.url.as_deref().is_some_and(|u| u.starts_with("chrome-extension://"));
-    let bg = if light_bg { (255, 255, 255) } else { bg };
+    // Extension pages keep an opaque white fill (their popups assume one).
+    let bg = if light_bg { (255, 255, 255, 255) } else { (bg.0, bg.1, bg.2, super::profile::PAGE_BG_ALPHA) };
     let shared = Rc::new(TabShared::new(&opts.id, &label, opts.glance, light_bg));
     shared.restore_scroll.set(opts.scroll);
     let rect = pane.as_ref().map(super::logical_rect).unwrap_or_default();
@@ -230,7 +233,7 @@ pub fn create(opts: CreateOptions) -> Result<ICoreWebView2, String> {
         .with_devtools(true)
         .with_hotkeys_zoom(true)
         .with_back_forward_navigation_gestures(true)
-        .with_background_color((bg.0, bg.1, bg.2, 255))
+        .with_background_color(bg)
         .with_browser_accelerator_keys(true)
         .with_default_context_menus(true)
         // Incognito windows: their tabs share one in-memory InPrivate profile, which WebView2
@@ -294,6 +297,7 @@ pub fn create(opts: CreateOptions) -> Result<ICoreWebView2, String> {
         shared,
         visible: false,
         last_rect: None,
+        content_px: None,
         find: None,
     };
     with_host(move |h| {

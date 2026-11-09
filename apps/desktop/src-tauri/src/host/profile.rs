@@ -25,11 +25,16 @@ impl Host {
 // ---------------------------------------------------------------------------------------------
 // Appearance
 
+/// Pages are transparent until they paint: while a page webview grows (sidebar toggle, compact
+/// mode) its not-yet-painted area shows the chrome behind it instead of a solid black/white fill.
+/// WebView2 accepts only fully opaque or fully transparent default backgrounds.
+pub const PAGE_BG_ALPHA: u8 = 0;
+
 pub fn set_page_background(rgb: (u8, u8, u8)) {
     with_host(|h| {
         h.page_bg = rgb;
         for t in h.tabs.values().filter(|t| !t.shared.light_bg) {
-            let _ = t.view.set_background_color((rgb.0, rgb.1, rgb.2, 255));
+            let _ = t.view.set_background_color((rgb.0, rgb.1, rgb.2, PAGE_BG_ALPHA));
         }
     });
 }

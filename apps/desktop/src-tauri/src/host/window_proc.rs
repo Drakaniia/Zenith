@@ -88,7 +88,7 @@ pub(super) unsafe extern "system" fn subclass_proc(
                     let shift = key_down(VK_SHIFT);
                     if let Some(action) = bound_action(ctrl, alt, shift, wparam.0 as u32) {
                         let repeat = lparam.0 & (1 << 30) != 0;
-                        emit_to_window(&label, "shortcut", ShortcutEvent { action, repeat, source: None });
+                        emit_to_window(&label, "shortcut", ShortcutEvent { action, repeat, source: None, keys: None });
                         return LRESULT(0);
                     }
                 }

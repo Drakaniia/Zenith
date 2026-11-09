@@ -51,7 +51,7 @@ To save memory, Zenith puts background tabs to rest in two stages:
 1. After a minute in the background, a tab is **suspended**: its scripts pause, but the page stays loaded.
 2. After 5 minutes (change this in **Settings › Tabs & memory**), the tab **sleeps**: the page is unloaded. Click it and it reloads at the same scroll position.
 
-Tabs that are visible, in split view or Glance, downloading, or playing audio stay awake. When Windows runs low on memory, Zenith puts the least recently used tabs to sleep early. You can also put a tab to sleep from its right-click menu.
+Tabs that are visible, in split view or Glance, downloading, or playing audio stay awake. With **Unload tabs when Windows is low on memory** turned on (it is off by default), Zenith puts the least recently used tabs to sleep early when Windows runs low on memory. You can also put a tab to sleep from its right-click menu.
 
 :::caution
 A sleeping tab loses anything you typed into it that the page hadn't saved.
