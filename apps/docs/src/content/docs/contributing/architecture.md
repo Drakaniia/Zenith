@@ -26,6 +26,7 @@ The layout and its rules are described in [Project structure](../project-structu
 | Downloads | `src-tauri/src/host/downloads.rs` (WebView2 side), `src-tauri/src/downloads/` (records); UI in `src/features/downloads/` |
 | Extensions | `src-tauri/src/extensions/` (`install.rs`, `crx.rs`, `updates.rs`); UI in `src/features/extensions/` |
 | Video downloader | `src-tauri/src/media/`: `sniff.rs` (WebView2 side), `detect.rs`, `hls.rs`, `dash/`, `job/`, `http.rs`, `mp4/`; UI in `src/features/downloads/MediaPanel.svelte` |
+| Torrents | `src-tauri/src/torrents/`: `engine.rs` (librqbit session), `adding.rs`, `list.rs`, `status.rs`, `store.rs`, `stream.rs`; UI in `src/features/downloads/` (`torrents.svelte.ts`, `TorrentFiles.svelte`, `AddTorrent.svelte`) |
 | Commands for the UI | `commands.rs` in each domain folder (`src-tauri/src/<domain>/commands.rs`), all registered in `src-tauri/src/app/handlers.rs`, helpers in `src-tauri/src/app/command.rs`; each feature's `src/features/<domain>/api.ts` wraps its commands |
 | Ad/tracker blocker | `src-tauri/src/blocker/`, `src-tauri/resources/blocklist.txt` |
 | Storage (JSON snapshots, SQLite) | `src-tauri/src/storage/mod.rs` (each domain keeps its own queries) |
@@ -86,6 +87,16 @@ Downloading happens in `media/job/`, one thread per job, outside WebView2's down
 Pages are untrusted input, so their manifests are bounded. Playlists and MPDs are parsed on worker threads. HLS is capped at 200,000 segments per playlist; DASH at 100 representations and 400,000 segments in total. A page gets at most 200 manifest reads, 8 at a time. FFmpeg reads only local files with a forced demuxer (`-protocol_whitelist file -f …`), so a hostile "segment" can't make it fetch anything. Cancel kills FFmpeg mid-run.
 
 DRM is never circumvented. Items are refused when the player uses Encrypted Media Extensions, an HLS key method other than NONE is present, a DASH ContentProtection is declared, or an MP4 init segment carries `encv`/`enca` sample entries or `pssh`.
+
+### Torrents
+
+`src-tauri/src/torrents/` runs one [librqbit](https://github.com/ikatson/rqbit) session on its own two-thread Tokio runtime (`engine.rs`), started on first use or at startup when torrents are waiting. It has DHT, peer exchange, trackers, local discovery and UPnP, and keeps its state (pieces, paused, chosen files, DHT routing table) in `%LOCALAPPDATA%\dev.zenith.browser\torrents`. Speed limits come from the runtime settings and change live.
+
+- **Entry points.** A tab's `NavigationStarting` and `LaunchingExternalUriScheme` cancel `magnet:` navigations and add the torrent; `NewWindowRequested` does the same for user-initiated magnet popups. A finished WebView2 download that is a `.torrent` file (by name or `application/x-bittorrent`) is added from disk. The downloads page adds pasted magnets, picked or dropped `.torrent` files (their bytes, capped at 32 MB). Command-line arguments that are magnets or existing `.torrent` paths are taken out of `url_args` and added, at first launch and from a second instance. `--register-browser` adds the `ZenithMagnet` URL protocol and `ZenithTorrent` file type to Zenith's Default Apps capabilities.
+- **Adding** (`adding.rs`). The torrent is listed first (`list_only`), which resolves a magnet link's metadata from peers; the `.torrent` bytes are kept in `torrents/files/<hash>.torrent`. A multi-file torrent waits for the user's file choice (`choosing`) when the setting asks, then is added with `output_folder` (its own subfolder for multi-file torrents), `only_files`, `overwrite` (resume from data on disk) and the peers already found.
+- **List and history** (`list.rs`). A once-a-second ticker turns `TorrentStats` into the regular `download` event (`kind: "torrent"` plus a `torrent` object: stage, peers, speeds, ETA, uploaded bytes, ratio), sending only changes. A finished torrent's record is written to the download history once (not for incognito windows). Upload totals survive pauses and restarts (`status::UploadCounter`). When the ratio limit is reached, or the user stops seeding, the torrent leaves the engine with its files kept and stays in the list as an ordinary finished download. Cancel deletes the torrent's files.
+- **Persistence** (`store.rs`). `torrents/list.json` maps download ids to info hashes, sources, folders and upload totals. At startup each entry is matched with the engine's restored torrent by hash, or prepared again from its source.
+- **Streaming** (`stream.rs`). A loopback HTTP server (`127.0.0.1`, random port) serves one file of a torrent with byte ranges, so a tab's player can seek; librqbit's `FileStream` waits for and prioritises the pieces being read, and each file's pieces are fetched roughly in order anyway. Addresses carry a 128-bit random token checked in constant time, so pages, which can reach loopback, can't read torrents.
 
 ## Tab sleeping
 

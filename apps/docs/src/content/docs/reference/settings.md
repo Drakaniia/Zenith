@@ -76,6 +76,11 @@ Under **Manage** you can open the bookmarks library, import from another browser
 | Show a download button on videos | Appears when you point at a video. Applies to pages loaded after you change it. | On |
 | Use FFmpeg when it is installed | Lets FFmpeg convert `.ts` recordings to `.mp4` and merge audio and video Zenith can't merge itself. | On |
 | FFmpeg location | Found automatically on your `PATH`, or choose `ffmpeg.exe`. | Automatic |
+| Download torrents in Zenith | Magnet links you click and `.torrent` files you download start in the downloads list. Off: magnet links go to another app. | On |
+| Ask which files to download | For torrents with several files. | On |
+| Seed after downloading | Share a finished torrent until it uploaded half, once, twice or five times its size, or not at all. | Its size (ratio 1) |
+| Download speed limit | KB/s for all torrents together; 0 is unlimited. | 0 |
+| Upload speed limit | KB/s for all torrents together; 0 is unlimited. | 0 |
 
 See [Downloads and video](../../guides/downloads-and-video/).
 

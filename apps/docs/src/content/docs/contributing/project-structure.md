@@ -70,6 +70,7 @@ One folder per domain, in the `mod.rs` style. Each domain keeps its Tauri comman
 | `storage/` | The SQLite worker, JSON snapshots, paths and atomic writes. |
 | `history/`, `bookmarks/`, `notes/`, `downloads/`, `importer/` | Their data and commands. |
 | `media/` | The video downloader: detection, HLS, DASH, MP4 merging, jobs. |
+| `torrents/` | Torrent and magnet downloads on librqbit: engine, file choice, seeding, streaming server. |
 | `blocker/`, `extensions/`, `vault/`, `updates/`, `search/` | Ad blocking, extensions, the password manager and wallet, app updates, search suggestions. |
 | `platform/` | WinHTTP (`net.rs`), URL validation (`urls.rs`), Windows integration (`win/`). |
 
