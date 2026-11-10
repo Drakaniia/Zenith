@@ -75,10 +75,17 @@ pub(super) unsafe fn attach_blocker(core: &ICoreWebView2, env: &ICoreWebView2Env
                 let Some(request_host) = host_of(&uri) else { return Ok(()) };
                 let blocked = {
                     let page = s.page_host.borrow();
+                    let page_host = (!page.is_empty()).then_some(page.as_str());
+                    // Pages, frames and downloads (all document requests) only meet whole-host rules.
+                    let document = context == COREWEBVIEW2_WEB_RESOURCE_CONTEXT_DOCUMENT;
                     match BLOCKER.read() {
                         Ok(b) => {
                             !b.disabled_sites.contains(site_of(&page))
-                                && b.engine.should_block(request_host, (!page.is_empty()).then_some(page.as_str()))
+                                && if document {
+                                    b.engine.should_block_document(request_host, page_host)
+                                } else {
+                                    b.engine.should_block(request_host, page_host)
+                                }
                         }
                         Err(_) => false,
                     }

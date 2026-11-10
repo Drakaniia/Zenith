@@ -16,6 +16,9 @@ pub const BUILTIN_LIST: &str = include_str!("../../resources/blocklist.txt");
 #[derive(Default)]
 pub struct Engine {
     block: HashSet<Box<str>>,
+    /// Hosts whose rules name only subresource types (`$script`, `$image`, ...) or only
+    /// `$third-party`: they never apply to pages, frames or the files a link downloads.
+    subresource: HashSet<Box<str>>,
     allow: HashSet<Box<str>>,
 }
 
@@ -27,7 +30,7 @@ impl Engine {
     }
 
     pub fn rule_count(&self) -> usize {
-        self.block.len() + self.allow.len()
+        self.block.len() + self.subresource.len() + self.allow.len()
     }
 
     /// Adds rules from a hosts file, plain domain list or Adblock Plus list.
@@ -35,8 +38,12 @@ impl Engine {
     pub fn add_list(&mut self, text: &str) -> usize {
         let mut added = 0;
         for line in text.lines() {
-            if let Some((domain, exception)) = parse_line(line) {
-                let set = if exception { &mut self.allow } else { &mut self.block };
+            if let Some((domain, exception, documents)) = parse_line(line) {
+                let set = match (exception, documents) {
+                    (true, _) => &mut self.allow,
+                    (false, true) => &mut self.block,
+                    (false, false) => &mut self.subresource,
+                };
                 if set.insert(domain.into_boxed_str()) {
                     added += 1;
                 }
@@ -48,6 +55,16 @@ impl Engine {
     /// Decides whether a subresource request to `request_host` should be blocked when the
     /// top-level page is on `page_host`. Requests to the page's own site are never blocked.
     pub fn should_block(&self, request_host: &str, page_host: Option<&str>) -> bool {
+        self.lookup(request_host, page_host, false)
+    }
+
+    /// Like `should_block`, for a document request (a page, a frame, or a link that turns out to
+    /// be a download): only rules meant for whole hosts apply, not ones for scripts or images.
+    pub fn should_block_document(&self, request_host: &str, page_host: Option<&str>) -> bool {
+        self.lookup(request_host, page_host, true)
+    }
+
+    fn lookup(&self, request_host: &str, page_host: Option<&str>, document: bool) -> bool {
         if let Some(page) = page_host {
             if site_of(page).eq_ignore_ascii_case(site_of(request_host)) {
                 return false;
@@ -65,7 +82,7 @@ impl Engine {
             if self.allow.contains(host) {
                 return false;
             }
-            if self.block.contains(host) {
+            if self.block.contains(host) || (!document && self.subresource.contains(host)) {
                 return true;
             }
             match host.find('.') {
@@ -76,7 +93,8 @@ impl Engine {
     }
 }
 
-fn parse_line(line: &str) -> Option<(String, bool)> {
+/// A rule as (domain, exception, applies to documents).
+fn parse_line(line: &str) -> Option<(String, bool, bool)> {
     let line = line.trim();
     if line.is_empty() || line.starts_with('!') || line.starts_with('#') || line.starts_with('[') {
         return None;
@@ -96,7 +114,7 @@ fn parse_line(line: &str) -> Option<(String, bool)> {
             if matches!(ip, "0.0.0.0" | "127.0.0.1" | "::" | "::1" | "::0") {
                 return normalize_domain(host)
                     .filter(|h| !matches!(h.as_str(), "localhost.localdomain" | "broadcasthost"))
-                    .map(|h| (h, false));
+                    .map(|h| (h, false, true));
             }
         }
     }
@@ -118,11 +136,12 @@ fn parse_line(line: &str) -> Option<(String, bool)> {
                 return None;
             }
         }
-        return normalize_domain(domain).map(|d| (d, exception));
+        let documents = options.is_none_or(applies_to_documents);
+        return normalize_domain(domain).map(|d| (d, exception, documents));
     }
 
     if !exception && !body.contains(['/', '*', '^', '$', '|', ' ', '=', '@', '#']) {
-        return normalize_domain(body).map(|d| (d, false));
+        return normalize_domain(body).map(|d| (d, false, true));
     }
     None
 }
@@ -153,6 +172,17 @@ fn broad_options(options: &str) -> bool {
                 | "doc"
         )
     })
+}
+
+/// Options that still cover documents: pages and frames (the request type a download has).
+/// `$third-party` alone does not: a page or download the user opened is never third-party.
+fn applies_to_documents(options: &str) -> bool {
+    let opts: Vec<&str> = options.split(',').map(str::trim).collect();
+    let modifier = |o: &&str| matches!(*o, "third-party" | "3p" | "important");
+    if opts.iter().all(modifier) {
+        return !opts.iter().any(|o| matches!(*o, "third-party" | "3p"));
+    }
+    opts.iter().any(|o| matches!(*o, "all" | "document" | "doc" | "subdocument" | "frame"))
 }
 
 fn normalize_domain(raw: &str) -> Option<String> {
@@ -203,6 +233,18 @@ mod tests {
         assert!(!engine.should_block("cdn.example.org", Some("site.test")));
         assert!(!engine.should_block("scoped.example.com", Some("site.test")));
         assert!(!engine.should_block("localhost", None));
+    }
+
+    #[test]
+    fn subresource_rules_leave_documents_and_downloads_alone() {
+        let mut engine = Engine::default();
+        engine.add_list("||ads.example.net^\n||cdn.files.example^$third-party\n||img.example.org^$image,script\n||frames.example.io^$subdocument\n");
+        assert!(engine.should_block_document("ads.example.net", Some("site.test")));
+        assert!(engine.should_block_document("frames.example.io", Some("site.test")));
+        assert!(!engine.should_block_document("cdn.files.example", Some("site.test")));
+        assert!(!engine.should_block_document("img.example.org", Some("site.test")));
+        assert!(engine.should_block("cdn.files.example", Some("site.test")), "still blocked as a subresource");
+        assert!(engine.should_block("img.example.org", Some("site.test")));
     }
 
     #[test]
