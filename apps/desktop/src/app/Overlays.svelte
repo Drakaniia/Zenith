@@ -9,6 +9,7 @@
   import DownloadsPopover from '$features/downloads/DownloadsPopover.svelte';
   import ExtensionsPopover from '$features/extensions/ExtensionsPopover.svelte';
   import MediaPanel from '$features/downloads/MediaPanel.svelte';
+  import TorrentFiles from '$features/downloads/TorrentFiles.svelte';
   import SpaceEditor from '$features/sidebar/SpaceEditor.svelte';
   import BookmarkPopup from '$features/bookmarks/BookmarkPopup.svelte';
   import BookmarkDialog from '$features/bookmarks/BookmarkDialog.svelte';
@@ -30,6 +31,7 @@
 <DownloadsPopover />
 <ExtensionsPopover />
 <MediaPanel />
+<TorrentFiles />
 <SpaceEditor />
 <BookmarkPopup />
 <BookmarkDialog />

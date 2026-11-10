@@ -9,6 +9,7 @@ import { settings } from '../features/settings/settings.svelte';
 import { bookmarks } from '../features/bookmarks/bookmarks.svelte';
 import { downloads } from '../features/downloads/downloads.svelte';
 import { flights } from '../features/downloads/flights.svelte';
+import { torrents } from '../features/downloads/torrents.svelte';
 import { formatFromShortcut } from '../features/notes/rich-dom';
 import { permissions } from '../features/page/permissions.svelte';
 import { ui } from '../shared/ui/ui.svelte';
@@ -73,16 +74,26 @@ export function listenBackend(flushAndClose: () => Promise<void>): Promise<() =>
     on('card-save-offer', (o) => vault.pushCardOffer(o)),
     on('ext-install', (e) => extensions.handleEvent(e)),
     on('download', (d) => {
-      const known = downloads.items.some((x) => x.id === d.id);
+      const prev = downloads.items.find((x) => x.id === d.id);
+      const known = !!prev;
       downloads.upsert(d);
-      if (!known && d.state === 'progress') {
+      // A torrent with several files waits for the user's choice.
+      if (d.torrent?.stage === 'choosing' && prev?.torrent?.stage !== 'choosing') {
+        ui.toast(`Choose what to download from ${d.fileName ?? 'the torrent'}`, {
+          icon: 'magnet',
+          timeout: 10000,
+          action: { label: 'Choose', run: () => torrents.openPicker(d.id) },
+        });
+      }
+      // Torrents restored at startup are not news.
+      if (!known && d.state === 'progress' && Date.now() - d.started < 60_000) {
         // Every window hears about every download; the file flies in the one it was started in.
         if (d.origin && d.origin.window === getCurrentWebviewWindow().label) flights.launchFromPage(d);
         ui.toast(`Downloading ${d.fileName ?? 'file'}`, {
           icon: 'download',
           action: { label: 'Show', run: () => (ui.downloadsOpen = true) },
         });
-      } else if (known && d.state === 'completed') {
+      } else if (prev && prev.state !== 'completed' && d.state === 'completed') {
         ui.toast(`Downloaded ${d.fileName ?? 'file'}`, {
           icon: 'check',
           action: { label: 'Open', run: () => void shell.openPath(d.path) },
@@ -98,6 +109,7 @@ export function listenBackend(flushAndClose: () => Promise<void>): Promise<() =>
     on('open-urls', (urls) => {
       for (const url of urls) browser.openTab(url);
     }),
+    on('torrent-error', (message) => ui.toast(message, { icon: 'alert', timeout: 6000 })),
     on('update-status', (s) => updates.apply(s)),
     on('media-changed', ({ tabId, count }) => browser.setMediaCount(tabId, count)),
     on('media-request', ({ tabId, hint }) => {

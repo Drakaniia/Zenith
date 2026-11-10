@@ -60,6 +60,9 @@ pub struct DownloadEvent {
     /// to its downloads button.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub origin: Option<Origin>,
+    /// Peers, speeds, ratio and stage of a torrent (kind "torrent").
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub torrent: Option<crate::torrents::TorrentView>,
 }
 
 /// A point in a window's chrome (CSS px), and which window.
@@ -71,7 +74,7 @@ pub struct Origin {
 }
 
 /// The pointer's position in a window's chrome, in CSS px.
-fn pointer_in(label: &str) -> Option<Origin> {
+pub(crate) fn pointer_in(label: &str) -> Option<Origin> {
     with_host(|h| {
         let hwnd = h.wins.get(label)?.hwnd;
         let scale = h.scale(label);
@@ -185,6 +188,7 @@ fn snapshot(d: &mut ActiveDownload) -> DownloadEvent {
         detail: String::new(),
         live: false,
         origin: None,
+        torrent: None,
     }
 }
 
@@ -203,6 +207,13 @@ fn publish(id: i64, force: bool) {
         let finished = ev.record.state != "progress";
         if ev.record.state == "completed" {
             crate::downloads::remember_finished(ev.record.id, &ev.record.path);
+            // A downloaded .torrent file starts its torrent.
+            if crate::torrents::is_torrent_file(&ev.record.path, &ev.record.mime) && crate::torrents::enabled() {
+                let private = super::tab_is_private(&ev.tab_id);
+                if let Err(e) = crate::torrents::add_file(&ev.record.path, &ev.tab_id, private) {
+                    super::emit_tab(&ev.tab_id, "torrent-error", e);
+                }
+            }
         }
         let record = ev.record.clone();
         // Downloads from incognito windows are not kept in the download history.
@@ -363,6 +374,9 @@ pub fn action(id: i64, action: &str) -> Result<(), String> {
     if crate::media::job::owns(id) {
         return crate::media::job::action(id, action);
     }
+    if crate::torrents::owns(id) {
+        return crate::torrents::action(id, action);
+    }
     let op = with_host(|h| {
         let d = h.downloads.get_mut(&id)?;
         match action {
@@ -391,5 +405,6 @@ pub fn action(id: i64, action: &str) -> Result<(), String> {
 pub fn active() -> Vec<DownloadEvent> {
     let mut list: Vec<DownloadEvent> = with_host(|h| h.downloads.values_mut().map(snapshot).collect()).unwrap_or_default();
     list.extend(crate::media::job::active());
+    list.extend(crate::torrents::active());
     list
 }

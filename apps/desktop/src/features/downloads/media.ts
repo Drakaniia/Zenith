@@ -1,6 +1,7 @@
 // Display helpers for the media downloader (kept free of Svelte state so they can be unit tested).
 import type { DownloadItem, MediaItem } from "./types";
 import { formatBytes as formatSize } from "../../shared/format.ts";
+import { torrentStatus } from "./torrent.ts";
 
 /** 3:07, 1:02:05 */
 export function formatDuration(seconds: number): string {
@@ -64,6 +65,7 @@ export function downloadStatus(
   d: DownloadItem,
   timeAgo: (ms: number) => string,
 ): string {
+  if (d.kind === "torrent") return torrentStatus(d, timeAgo);
   const detail = d.detail ? ` · ${d.detail}` : "";
   if (d.state === "progress") {
     if (d.live) return `${d.detail || "Recording"} · ${formatSize(d.received)}`;

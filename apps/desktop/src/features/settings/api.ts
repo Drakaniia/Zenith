@@ -11,6 +11,12 @@ export interface RuntimeConfig {
   useFfmpeg: boolean;
   ffmpegPath: string | null;
   autoUpdate: boolean;
+  /** Torrents (see settings.svelte.ts). */
+  torrentsEnabled: boolean;
+  torrentSeedRatio: number;
+  torrentDownKib: number;
+  torrentUpKib: number;
+  torrentChooseFiles: boolean;
   /** Password manager and autofill (see settings.svelte.ts). */
   passwordsEnabled: boolean;
   passwordsOfferSave: boolean;

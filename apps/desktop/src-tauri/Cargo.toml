@@ -31,7 +31,10 @@ tauri-plugin-single-instance = "2.4"
 tauri-plugin-dialog = "2.8"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tokio = { version = "1", features = ["sync"] }
+# rt-multi-thread/net/io-util: the torrent engine's runtime and its local streaming server.
+tokio = { version = "1", features = ["sync", "rt-multi-thread", "net", "io-util", "time"] }
+# Torrent and magnet downloads (DHT, PEX, persistence, rate limits, streaming).
+librqbit = { version = "9.1", default-features = false, features = ["default-tls"] }
 rusqlite = { version = "0.32", features = ["bundled"] }
 base64 = "0.22"
 tauri-plugin-updater = "2"

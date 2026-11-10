@@ -36,11 +36,11 @@ class DownloadStore {
     else this.items = [d, ...this.items];
   }
 
-  /** A WebView2 download is running in the tab (closing its webview would cancel it). Media
+  /** A WebView2 download is running in the tab (closing its webview would cancel it). Media and torrent
    *  downloader jobs run on their own and do not keep a tab awake. */
   busyTab(tabId: string) {
     return this.items.some(
-      (d) => d.state === "progress" && d.tabId === tabId && d.kind !== "media",
+      (d) => d.state === "progress" && d.tabId === tabId && (d.kind ?? "file") === "file",
     );
   }
 

@@ -192,6 +192,7 @@ pub(super) fn snapshot(j: &mut Running) -> DownloadEvent {
         detail,
         live: j.live,
         origin: None,
+        torrent: None,
     }
 }
 

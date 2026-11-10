@@ -20,6 +20,7 @@ mod session;
 mod settings;
 mod shortcuts;
 mod storage;
+mod torrents;
 mod updates;
 mod vault;
 

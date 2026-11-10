@@ -12,13 +12,21 @@ use crate::{host, incognito, profiles};
 
 /// Web addresses on a command line (skipping the program itself and `--profile <id>`).
 pub(crate) fn url_args(argv: &[String]) -> Vec<String> {
-    profiles::without_flag(argv).iter().skip(1).filter_map(|a| urls::external_arg_to_url(a)).collect()
+    // Torrents (magnet links, .torrent files) are `torrents::open_args`'s.
+    let torrents = crate::torrents::torrent_args(argv);
+    profiles::without_flag(argv)
+        .iter()
+        .skip(1)
+        .filter(|a| !torrents.iter().any(|t| t == a.trim().trim_matches('"')))
+        .filter_map(|a| urls::external_arg_to_url(a))
+        .collect()
 }
 
 /// A second launch (e.g. a link clicked in another app, or the jump list's incognito entry)
 /// hands its command line to the running instance of the same profile.
 pub(crate) fn on_second_instance(app: &AppHandle, argv: Vec<String>) {
     let urls = url_args(&argv);
+    crate::torrents::open_args(&argv);
     if incognito::requested(&argv) {
         incognito::open_window(urls);
         return;

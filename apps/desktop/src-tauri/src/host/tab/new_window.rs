@@ -100,6 +100,10 @@ pub(super) unsafe fn wire_new_window(core: &ICoreWebView2, s: &Rc<TabShared>) {
                         }
                     }
                     _ => {
+                        // A magnet link opened in a new window: download it, no tab.
+                        if user.as_bool() && crate::torrents::open_from_page(&uri, &opener, sh.private, &sh.window) {
+                            return Ok(());
+                        }
                         if !user.as_bool() && config().block_popups {
                             emit_tab(&opener.clone(), "popup-blocked", PopupBlocked { tab_id: opener, url: uri });
                             return Ok(());

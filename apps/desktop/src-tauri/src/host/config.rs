@@ -25,6 +25,15 @@ pub struct RuntimeConfig {
     pub ffmpeg_path: Option<PathBuf>,
     /// Check for updates in the background and install them when Zenith closes.
     pub auto_update: bool,
+    /// Torrents: open magnet links and downloaded .torrent files in Zenith.
+    pub torrents_enabled: bool,
+    /// Stop seeding a finished torrent once it uploaded this many times its size (0: don't seed).
+    pub torrent_seed_ratio: f64,
+    /// Torrent speed limits in KiB/s (0: unlimited).
+    pub torrent_down_kib: u32,
+    pub torrent_up_kib: u32,
+    /// Ask which files to download when a torrent has several.
+    pub torrent_choose_files: bool,
     /// Password manager: off means no saving, suggestions or filling.
     pub passwords_enabled: bool,
     /// Offer to save logins submitted on pages.
@@ -60,6 +69,11 @@ impl Default for RuntimeConfig {
             use_ffmpeg: true,
             ffmpeg_path: None,
             auto_update: true,
+            torrents_enabled: true,
+            torrent_seed_ratio: 1.0,
+            torrent_down_kib: 0,
+            torrent_up_kib: 0,
+            torrent_choose_files: true,
             passwords_enabled: true,
             passwords_offer_save: true,
             cards_offer_save: true,
@@ -97,6 +111,7 @@ pub fn apply_config(cfg: RuntimeConfig) {
             let _ = app.run_on_main_thread(move || super::tab::apply_blocking(blocking));
         }
     }
+    crate::torrents::apply_limits(&cfg);
     let button = cfg.media_button;
     let changed = match CONFIG.write() {
         Ok(mut c) => {

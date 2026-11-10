@@ -26,6 +26,8 @@ use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
 pub const APP_NAME: &str = "Zenith";
 const PROG_HTML: &str = "ZenithHTML";
 const PROG_URL: &str = "ZenithURL";
+const PROG_TORRENT: &str = "ZenithTorrent";
+const PROG_MAGNET: &str = "ZenithMagnet";
 
 struct Key(HKEY);
 
@@ -102,6 +104,8 @@ pub fn register_browser(exe: &Path) -> Result<(), String> {
     for (prog, desc, is_url) in [
         (PROG_HTML, "Zenith HTML Document", false),
         (PROG_URL, "Zenith URL", true),
+        (PROG_TORRENT, "Torrent file", false),
+        (PROG_MAGNET, "Magnet link", true),
     ] {
         let base = format!("Software\\Classes\\{prog}");
         let k = create_key(&base)?;
@@ -139,10 +143,15 @@ pub fn register_browser(exe: &Path) -> Result<(), String> {
     for scheme in ["http", "https"] {
         set_str(&k, Some(scheme), PROG_URL)?;
     }
+    set_str(&k, Some("magnet"), PROG_MAGNET)?;
     let k = create_key(&format!("{caps}\\FileAssociations"))?;
     for ext in [".htm", ".html", ".shtml", ".xhtml", ".svg", ".pdf"] {
         set_str(&k, Some(ext), PROG_HTML)?;
     }
+    set_str(&k, Some(".torrent"), PROG_TORRENT)?;
+    // Offered under "Open with" for .torrent files.
+    let k = create_key("Software\\Classes\\.torrent\\OpenWithProgids")?;
+    set_str(&k, Some(PROG_TORRENT), "")?;
     let k = create_key("Software\\RegisteredApplications")?;
     set_str(&k, Some(APP_NAME), &caps)?;
 
@@ -156,6 +165,8 @@ pub fn unregister_browser() {
         for path in [
             format!("Software\\Classes\\{PROG_HTML}"),
             format!("Software\\Classes\\{PROG_URL}"),
+            format!("Software\\Classes\\{PROG_TORRENT}"),
+            format!("Software\\Classes\\{PROG_MAGNET}"),
             format!("Software\\Clients\\StartMenuInternet\\{APP_NAME}"),
         ] {
             let _ = RegDeleteTreeW(HKEY_CURRENT_USER, &HSTRING::from(path.as_str()));
@@ -163,6 +174,9 @@ pub fn unregister_browser() {
         }
         if let Ok(k) = open_key("Software\\RegisteredApplications") {
             let _ = RegDeleteValueW(k.0, &HSTRING::from(APP_NAME));
+        }
+        if let Ok(k) = open_key("Software\\Classes\\.torrent\\OpenWithProgids") {
+            let _ = RegDeleteValueW(k.0, &HSTRING::from(PROG_TORRENT));
         }
         SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, None, None);
     }

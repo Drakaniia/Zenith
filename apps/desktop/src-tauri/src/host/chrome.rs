@@ -47,6 +47,8 @@ pub fn init_services(app: &AppHandle) -> tauri::Result<()> {
     crate::incognito::sweep_stale();
     // Media jobs do not survive a restart; drop their partial data.
     crate::media::job::cleanup_temp();
+    // Torrents continue where they stopped.
+    crate::torrents::restore();
     db().exec(|c| {
         let _ = crate::history::history_prune(c, 0, 100_000);
     });

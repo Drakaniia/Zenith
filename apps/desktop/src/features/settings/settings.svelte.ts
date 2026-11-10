@@ -74,6 +74,15 @@ export interface Settings {
   ffmpegPath: string | null;
   /** Download updates in the background and install them when Zenith closes. */
   autoUpdate: boolean;
+  /** Torrents: magnet links and downloaded .torrent files are downloaded by Zenith. */
+  torrentsEnabled: boolean;
+  /** Seed a finished torrent until it uploaded this many times its size (0: don't seed). */
+  torrentSeedRatio: number;
+  /** Torrent speed limits in KiB/s (0: unlimited). */
+  torrentDownKib: number;
+  torrentUpKib: number;
+  /** Ask which files to download when a torrent has several. */
+  torrentChooseFiles: boolean;
   /** Extensions whose icons show next to the extensions button (WebView2 extension ids). */
   pinnedExtensions: string[];
   /** Check the Chrome Web Store for extension updates at startup. */
@@ -201,6 +210,11 @@ export function defaultSettings(): Settings {
     useFfmpeg: true,
     ffmpegPath: null,
     autoUpdate: true,
+    torrentsEnabled: true,
+    torrentSeedRatio: 1,
+    torrentDownKib: 0,
+    torrentUpKib: 0,
+    torrentChooseFiles: true,
     pinnedExtensions: [],
     extensionUpdates: true,
     shortcuts: defaultShortcuts(),
@@ -360,6 +374,11 @@ class SettingsStore {
         useFfmpeg: s.useFfmpeg,
         ffmpegPath: s.ffmpegPath,
         autoUpdate: s.autoUpdate,
+        torrentsEnabled: s.torrentsEnabled,
+        torrentSeedRatio: Math.max(0, Number(s.torrentSeedRatio) || 0),
+        torrentDownKib: Math.max(0, Math.round(Number(s.torrentDownKib) || 0)),
+        torrentUpKib: Math.max(0, Math.round(Number(s.torrentUpKib) || 0)),
+        torrentChooseFiles: s.torrentChooseFiles,
         passwordsEnabled: s.passwordsEnabled,
         passwordsOfferSave: s.passwordsOfferSave,
         cardsOfferSave: s.cardsOfferSave,

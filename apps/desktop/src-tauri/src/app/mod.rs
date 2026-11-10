@@ -58,6 +58,7 @@ pub fn request_quit(app: &AppHandle) {
     let app2 = app.clone();
     let _ = app.run_on_main_thread(move || {
         host::shutdown();
+        crate::torrents::shutdown();
         // Only returns when there was nothing to install (the installer ends the process).
         if updates::install_on_exit() {
             app2.restart();
@@ -100,6 +101,8 @@ pub fn run() {
             host::init_services(app.handle())?;
             // Locks the password vault after the configured inactivity.
             vault::start_timer();
+            // Magnet links and .torrent files Windows started Zenith with.
+            crate::torrents::open_args(&args);
             // `zenith --incognito` with no Zenith running opens only an incognito window.
             if start_incognito {
                 let label = format!("{}{}", incognito::LABEL_PREFIX, NEXT_INCOGNITO.fetch_add(1, Ordering::Relaxed));

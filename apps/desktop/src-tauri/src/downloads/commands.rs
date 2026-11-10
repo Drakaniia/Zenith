@@ -29,6 +29,7 @@ pub async fn download_action(app: AppHandle, id: i64, action: String) -> CmdResu
 #[tauri::command]
 pub async fn downloads_remove(id: Option<i64>) -> CmdResult<()> {
     crate::media::job::forget(id);
+    crate::torrents::forget(id);
     db().call(move |c| super::downloads_remove(c, id)).await
 }
 

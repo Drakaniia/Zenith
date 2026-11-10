@@ -16,6 +16,19 @@
     settings.update({ [key]: value } as Partial<Settings>);
   }
 
+  const seedOptions = [
+    { value: 0, label: "Don't seed" },
+    { value: 0.5, label: 'Half its size' },
+    { value: 1, label: 'Its size (ratio 1)' },
+    { value: 2, label: 'Twice its size' },
+    { value: 5, label: 'Five times its size' },
+  ];
+
+  function setKib(key: 'torrentDownKib' | 'torrentUpKib', raw: string) {
+    const n = Math.round(Number(raw));
+    set(key, Number.isFinite(n) && n > 0 ? n : 0);
+  }
+
   async function pickDownloadDir() {
     const dir = await shell.pickFolder('Choose a download folder');
     if (dir) set('downloadDir', dir);
@@ -80,6 +93,35 @@
     </div>
     <p class="note">DRM-protected video (Netflix, Disney+ and similar) is never downloaded.</p>
   </div>
+  <h3>Torrents</h3>
+  <div class="group">
+    <div class="row">
+      <div class="text">
+        <b>Download torrents in Zenith</b>
+        <span>Magnet links you click and .torrent files you download start in the downloads list, where you can also add them yourself.</span>
+      </div>
+      <Toggle checked={s.torrentsEnabled} onchange={(v) => set('torrentsEnabled', v)} label="Download torrents in Zenith" />
+    </div>
+    <div class="row">
+      <div class="text"><b>Ask which files to download</b><span>When a torrent has several files. You can change the choice later from its Files button.</span></div>
+      <Toggle checked={s.torrentChooseFiles} onchange={(v) => set('torrentChooseFiles', v)} label="Ask which files to download" />
+    </div>
+    <div class="row">
+      <div class="text"><b>Seed after downloading</b><span>Keep sharing a finished torrent with others until it uploaded this much of its size.</span></div>
+      <select class="field select" value={String(s.torrentSeedRatio)} onchange={(e) => set('torrentSeedRatio', Number((e.currentTarget as HTMLSelectElement).value))}>
+        {#each seedOptions as o (o.value)}<option value={String(o.value)}>{o.label}</option>{/each}
+      </select>
+    </div>
+    <div class="row">
+      <div class="text"><b>Download speed limit</b><span>KB/s for all torrents together. 0 means no limit.</span></div>
+      <input class="field num" type="number" min="0" step="64" value={s.torrentDownKib} onchange={(e) => setKib('torrentDownKib', e.currentTarget.value)} aria-label="Download speed limit in KB/s" />
+    </div>
+    <div class="row">
+      <div class="text"><b>Upload speed limit</b><span>KB/s for all torrents together. 0 means no limit.</span></div>
+      <input class="field num" type="number" min="0" step="64" value={s.torrentUpKib} onchange={(e) => setKib('torrentUpKib', e.currentTarget.value)} aria-label="Upload speed limit in KB/s" />
+    </div>
+    <p class="note">To open magnet links and .torrent files from other apps in Zenith, choose Zenith for them in Windows Settings &gt; Apps &gt; Default apps. Only download what you have the right to share.</p>
+  </div>
 </section>
 
 <style>
@@ -136,6 +178,11 @@
     margin: 10px 0;
     font-size: 12px;
     color: var(--text-3);
+  }
+  .num {
+    width: 110px;
+    height: 32px;
+    padding: 0 10px;
   }
   .inline {
     display: flex;

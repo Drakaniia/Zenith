@@ -87,6 +87,11 @@ unsafe fn wire_navigation(core: &ICoreWebView2, s: &Rc<TabShared>) {
                 let mut uri = PWSTR::null();
                 args.Uri(&mut uri)?;
                 let uri = take(uri);
+                // A magnet link: a torrent download, not a page.
+                if crate::torrents::open_from_page(&uri, &sh.id, sh.private, &sh.window) {
+                    args.SetCancel(true)?;
+                    return Ok(());
+                }
                 *sh.page_host.borrow_mut() = host_of(&uri).unwrap_or("").to_ascii_lowercase();
                 *sh.nav_uri.borrow_mut() = uri;
                 sh.blocked.set(0);
@@ -108,6 +113,23 @@ unsafe fn wire_navigation(core: &ICoreWebView2, s: &Rc<TabShared>) {
         );
 
         let sh = s.clone();
+        // Links to other apps' schemes: magnet links stay in Zenith (for when WebView2 reports
+        // them here rather than to NavigationStarting).
+        if let Ok(c18) = core.cast::<ICoreWebView2_18>() {
+            let sm = s.clone();
+            let _ = c18.add_LaunchingExternalUriScheme(
+                &LaunchingExternalUriSchemeEventHandler::create(Box::new(move |_, args| {
+                    let Some(args) = args else { return Ok(()) };
+                    let mut uri = PWSTR::null();
+                    args.Uri(&mut uri)?;
+                    if crate::torrents::open_from_page(&take(uri), &sm.id, sm.private, &sm.window) {
+                        args.SetCancel(true)?;
+                    }
+                    Ok(())
+                })),
+                &mut token,
+            );
+        }
         let _ = core.add_SourceChanged(
             &SourceChangedEventHandler::create(Box::new(move |sender, _| {
                 let Some(core) = sender else { return Ok(()) };
