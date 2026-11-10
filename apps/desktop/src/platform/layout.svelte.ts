@@ -1,9 +1,4 @@
-// Keeps the backend's webview rectangles in sync with the chrome UI's layout.
-//
-// Each visible web tab renders an empty "pane" element; its client rect (CSS px, which are
-// window DIPs) becomes the webview bounds. Floating UI takes an "overlay lease" while mounted:
-// with any lease held, the backend raises the transparent chrome above the page webviews so
-// menus, the palette and Glance draw over live pages.
+// Keeps native page bounds and chrome cutouts in sync with the visible DOM panes.
 import type { LayoutSpec, PaneSpec } from "./webview-api";
 import { webviewApi } from "./webview-api";
 import { intersectRects, sameRects, type Rect } from "./rects";
@@ -12,14 +7,12 @@ export type { Rect };
 
 interface Registry {
   isLive(id: string): boolean;
-  /** False while a live tab's webview is still being created (the backend doesn't know it yet). */
+  /** False while the backend is still creating the tab's webview. */
   isReady(id: string): boolean;
 }
 
 let registry: Registry = { isLive: () => false, isReady: () => true };
-export function setLayoutRegistry(r: Registry) {
-  registry = r;
-}
+export function setLayoutRegistry(r: Registry) { registry = r; }
 
 const panes = new Map<HTMLElement, string>();
 let glanceEl: { el: HTMLElement; id: string } | null = null;
@@ -31,21 +24,18 @@ let applying = false;
 let dirty = false;
 
 class OverlayState {
-  /** Elements still on screen that need the chrome above the pages, including ones playing
-   *  their exit transition. Drives the z-order. */
+  /** Includes floating elements playing their exit transition. */
   holds = $state(0);
   forced = $state(false);
-  /** Window rectangles of the live page webviews (CSS px), as last sent to the backend. */
+  /** Page rectangles (CSS px) last applied to the native host. */
   panes = $state<Rect[]>([]);
 }
 export const overlay = new OverlayState();
 
-// ResizeObserver runs after layout, before paint. Waiting for another animation frame here
-// leaves the native page at the old bounds while the sidebar has already moved.
+// ResizeObserver runs after layout, before paint; don't defer it another frame.
 const observer = new ResizeObserver(() => applyLatestLayout());
 
-/** One active IPC/paint pass and one request for the latest DOM geometry, never a queue of
- *  redundant flushes for frames missed while the backend is busy. */
+/** One active pass and one request for fresh geometry, never a backlog of missed frames. */
 function applyLatestLayout() {
   dirty = true;
   if (applying) return;
@@ -54,7 +44,12 @@ function applyLatestLayout() {
     try {
       do {
         dirty = false;
-        await flush();
+        const resume = holdLayoutMotion();
+        try {
+          await flush();
+        } finally {
+          resume();
+        }
       } while (dirty);
     } finally {
       applying = false;
@@ -71,72 +66,99 @@ export function scheduleLayout() {
   });
 }
 
+/** Only transitions owned by shell layout, never unrelated hover or fade motion. */
+function layoutTransitions(): CSSTransition[] {
+  if (typeof document.getAnimations !== "function" || typeof CSSTransition === "undefined") return [];
+  return document.getAnimations().filter((a): a is CSSTransition => {
+    if (!(a instanceof CSSTransition) || a.currentTime === null || a.playState === "finished" || a.playState === "idle") return false;
+    const target = (a.effect as KeyframeEffect | null)?.target;
+    return target instanceof HTMLElement && (
+      (a.transitionProperty.startsWith("--lay-") && target.hasAttribute("data-layout-root")) ||
+      (a.transitionProperty === "width" && target.hasAttribute("data-layout-sidebar"))
+    );
+  });
+}
 
+/** Native placement is asynchronous. Hold the coupled CSS clocks while it catches up so the
+ *  shell cannot advance through several frames against one stale native rectangle. */
+function holdLayoutMotion() {
+  const held = layoutTransitions().filter((a) => a.playState === "running");
+  for (const a of held) a.pause();
+  return () => {
+    for (const a of held) if (a.playState === "paused") a.play();
+  };
+}
 
 let followUntil = 0;
-/** Each pane's largest size during the running layout animation (see `measureMotion`). */
+let following = false;
+const followed: (() => void)[] = [];
 const motionSize = new Map<HTMLElement, { w: number; h: number }>();
 let remeasure = false;
 
-/** Seeks the running CSS transitions to their end for a moment to read where every pane ends
- *  up, and keeps the larger of its current and final size. The page webview keeps that size for
- *  the whole animation while its container clips it (placement.rs), so the page isn't re-laid
- *  out on every frame and never trails the chrome with an unpainted strip. The transitions are
- *  restored in the same task, so nothing is painted or fired in between. */
+function retainSize(el: HTMLElement, w: number, h: number) {
+  const held = motionSize.get(el);
+  motionSize.set(el, { w: Math.max(held?.w ?? 0, w), h: Math.max(held?.h ?? 0, h) });
+}
+
+/** Sample only layout-owned endpoints, then restore them in the same task. Retargeting must
+ *  not shrink the content allocation: the container clips it until all motion has settled. */
 function measureMotion() {
-  motionSize.clear();
-  if (typeof document.getAnimations !== "function" || typeof CSSTransition === "undefined") return;
-  const anims = document
-    .getAnimations()
-    .filter((a) => a instanceof CSSTransition && a.playState === "running" && a.currentTime !== null);
+  const anims = layoutTransitions();
   if (!anims.length) return;
   const els = [...panes.keys()].filter((el) => el.isConnected);
-  const before = els.map((el) => el.getBoundingClientRect());
+  for (const el of els) {
+    const r = el.getBoundingClientRect();
+    retainSize(el, r.width, r.height);
+  }
   const saved = anims.map((a) => a.currentTime);
   try {
     for (const a of anims) {
       const end = Number(a.effect?.getComputedTiming().endTime ?? 0);
-      // Just short of the end, so no animation reaches its finished state.
       a.currentTime = Math.max(0, end - 0.5);
     }
-    els.forEach((el, i) => {
-      const f = el.getBoundingClientRect();
-      motionSize.set(el, { w: Math.max(before[i].width, f.width), h: Math.max(before[i].height, f.height) });
-    });
+    for (const el of els) {
+      const r = el.getBoundingClientRect();
+      retainSize(el, r.width, r.height);
+    }
   } finally {
     anims.forEach((a, i) => (a.currentTime = saved[i]));
   }
 }
 
-/** Re-sends the page rectangles every frame for `ms`, while the chrome animates its layout.
- *  (The ResizeObserver only reports size changes, not moves.) */
-export function followLayout(ms: number) {
-  const running = performance.now() < followUntil;
-  // A change mid-animation retargets the transitions: measure again on the next frame.
+/** Follow position changes as well as resizes. Resolves after gated CSS transitions settle,
+ *  which can take longer than their nominal duration when the native host is busy. */
+export function followLayout(ms: number): Promise<void> {
+  const done = new Promise<void>((resolve) => followed.push(resolve));
+  // Called before Svelte changes the DOM, so the original allocation is retained too.
+  for (const el of panes.keys()) {
+    if (!el.isConnected) continue;
+    const r = el.getBoundingClientRect();
+    retainSize(el, r.width, r.height);
+  }
   remeasure = true;
   followUntil = Math.max(followUntil, performance.now() + ms);
-  if (running) return;
+  if (following) return done;
+  following = true;
   const step = () => {
-    if (performance.now() >= followUntil) {
-      // Back to content that matches its pane.
+    if (performance.now() >= followUntil && !layoutTransitions().length) {
       motionSize.clear();
+      following = false;
       applyLatestLayout();
+      for (const resolve of followed.splice(0)) resolve();
       return;
     }
     if (remeasure) {
       remeasure = false;
       measureMotion();
     }
-    // Already in an animation frame; scheduleLayout would defer the first update one more frame.
     applyLatestLayout();
     requestAnimationFrame(step);
   };
   requestAnimationFrame(step);
+  return done;
 }
 
-/** Resolves once the layout for the current DOM has reached the backend (Svelte has updated the
- *  DOM by the next frame, when the pass runs). A hidden window gets no frames, so it gives up
- *  waiting after a moment. */
+/** A hidden window gets no frames, so don't wait indefinitely. */
 export function layoutApplied(): Promise<void> {
   scheduleLayout();
   return new Promise((resolve) => {
@@ -145,14 +167,12 @@ export function layoutApplied(): Promise<void> {
   });
 }
 
-/** Moves keyboard focus to a tab's page (or the chrome with `null`) once the layout is applied. */
 export function focusAfterLayout(id: string | null) {
   pendingFocus = id;
   scheduleLayout();
 }
 
-/** A pane's window rectangle. Its edges are rounded, not its size, so the right and bottom edges
- *  stay put to the pixel while the left/top edge moves. */
+/** Round edges rather than sizes so fixed right/bottom edges don't wobble. */
 function rectOf(el: HTMLElement, id: string): PaneSpec | null {
   const r = el.getBoundingClientRect();
   if (r.width < 2 || r.height < 2) return null;
@@ -163,13 +183,11 @@ function rectOf(el: HTMLElement, id: string): PaneSpec | null {
   return { id, x, y, w: right - x, h: bottom - y };
 }
 
-async function flush() {
-  const live = [...panes].filter(([el, id]) => el.isConnected && registry.isLive(id));
+function readLayout() {
   const list: PaneSpec[] = [];
-  // Both native bounds and tint cutouts follow the actual animated pane, in single and split
-  // view alike. Holding an endpoint here makes the page snap while the sidebar slides.
   const cutouts: Rect[] = [];
-  for (const [el, id] of live) {
+  for (const [el, id] of panes) {
+    if (!el.isConnected || !registry.isLive(id)) continue;
     const r = rectOf(el, id);
     if (!r) continue;
     const m = motionSize.get(el);
@@ -180,10 +198,8 @@ async function flush() {
     list.push(r);
     cutouts.push({ x: r.x, y: r.y, w: r.w, h: r.h });
   }
-  const glance =
-    glanceEl && glanceEl.el.isConnected && registry.isLive(glanceEl.id)
-      ? rectOf(glanceEl.el, glanceEl.id)
-      : null;
+  const glance = glanceEl && glanceEl.el.isConnected && registry.isLive(glanceEl.id)
+    ? rectOf(glanceEl.el, glanceEl.id) : null;
   const spec: LayoutSpec = {
     panes: list,
     glance,
@@ -191,59 +207,55 @@ async function flush() {
     viewportW: window.innerWidth,
     viewportH: window.innerHeight,
   };
-  const key = JSON.stringify(spec);
-  if (key !== lastSent) {
-    lastSent = key;
-    // The backend moves a webview before the chrome paints its next frame, so a cutout that
-    // followed the move would leave the bare window background, not the tint, where a page has
-    // just moved away (a blink as the bookmarks panel or the sidebar opens). So the tint first
-    // comes back everywhere but where a page is both before and after the move, painted before
-    // the webviews move; the new cutouts follow once the webviews are in place and cover them.
-    const keep = intersectRects(overlay.panes, cutouts);
+  return { spec, cutouts, key: JSON.stringify(spec) };
+}
+
+async function flush() {
+  let layout = readLayout();
+  const root = document.documentElement;
+  while (layout.key !== lastSent) {
+    // Restore tint before moving away from a cutout. Only raised chrome needs a paint fence;
+    // waiting below pages would put every native update another frame behind the sidebar.
+    const keep = intersectRects(overlay.panes, layout.cutouts);
     const exposes = !sameRects(keep, overlay.panes);
     if (exposes) overlay.panes = keep;
-    // Only raised chrome can cover a live page with its tint. Below the pages, waiting for
-    // another paint on every resize needlessly leaves the webview a frame behind the sidebar.
-    const root = document.documentElement;
-    let paint = exposes && (spec.overlay || root.hasAttribute("data-raised")) && !document.hidden;
-    // `data-raised` drops the window's opaque body background (app.css), which would
-    // cover the pages once the chrome is above them. It goes off before the raise has painted
-    // and comes back only after the chrome is below the pages again.
-    if (spec.overlay && !root.hasAttribute("data-raised")) {
+    let paint = exposes && (layout.spec.overlay || root.hasAttribute("data-raised")) && !document.hidden;
+    if (layout.spec.overlay && !root.hasAttribute("data-raised")) {
       root.setAttribute("data-raised", "");
-      paint = true;
+      paint = !document.hidden;
     }
-    if (paint) await nextPaint();
+    if (paint) {
+      await nextPaint();
+      // Layout can change during the fence (resize, reversal, closing a pane or an overlay).
+      // Recheck exposure as well as geometry; never submit the pre-fence snapshot.
+      layout = readLayout();
+      continue;
+    }
     try {
-      await webviewApi.setLayout(spec);
+      await webviewApi.setLayout(layout.spec);
+      lastSent = layout.key;
     } catch (e) {
       console.warn("set_layout failed", e);
+      break;
     }
-    if (!sameRects(cutouts, overlay.panes)) overlay.panes = cutouts;
-    if (!spec.overlay) root.removeAttribute("data-raised");
+    if (!sameRects(layout.cutouts, overlay.panes)) overlay.panes = layout.cutouts;
+    if (!layout.spec.overlay) root.removeAttribute("data-raised");
+    break;
   }
-  // A page whose webview is still being created takes focus on the pass after it exists (`wake`
-  // schedules one); the backend would drop it now.
   const waiting = pendingFocus != null && registry.isLive(pendingFocus) && !registry.isReady(pendingFocus);
   if (pendingFocus !== undefined && !waiting) {
     const target = pendingFocus;
     pendingFocus = undefined;
     if (target === null || registry.isLive(target)) {
-      try {
-        await webviewApi.focusView(target);
-      } catch {
-        /* ignore */
-      }
+      try { await webviewApi.focusView(target); } catch { /* Ignore stale focus targets. */ }
     }
   }
 }
 
-/** Resolves once the chrome has painted the current DOM. */
 function nextPaint() {
   return new Promise<void>((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0)));
 }
 
-/** Where a live tab's page is on screen (window CSS px), or null when it isn't showing. */
 export function paneRectOf(id: string): Rect | null {
   const els = [...panes].filter(([, t]) => t === id).map(([el]) => el);
   if (glanceEl?.id === id) els.push(glanceEl.el);
@@ -261,12 +273,10 @@ export function pane(node: HTMLElement, id: string) {
   observer.observe(node);
   scheduleLayout();
   return {
-    update(next: string) {
-      panes.set(node, next);
-      scheduleLayout();
-    },
+    update(next: string) { panes.set(node, next); scheduleLayout(); },
     destroy() {
       panes.delete(node);
+      motionSize.delete(node);
       observer.unobserve(node);
       scheduleLayout();
     },
@@ -279,10 +289,7 @@ export function glancePane(node: HTMLElement, id: string) {
   observer.observe(node);
   scheduleLayout();
   return {
-    update(next: string) {
-      glanceEl = { el: node, id: next };
-      scheduleLayout();
-    },
+    update(next: string) { glanceEl = { el: node, id: next }; scheduleLayout(); },
     destroy() {
       if (glanceEl?.el === node) glanceEl = null;
       observer.unobserve(node);
@@ -291,15 +298,9 @@ export function glancePane(node: HTMLElement, id: string) {
   };
 }
 
-/** `use:overlayLease` on floating UI: the chrome stays above pages while the element is on
- *  screen, including its exit transition. */
-export function overlayLease(node: HTMLElement) {
-  return overlayHold(node);
-}
+export function overlayLease(node: HTMLElement) { return overlayHold(node); }
 
-/** Keeps the chrome above the pages until the returned function is called (any number of times).
- *  Floating UI takes it before it mounts, so its entrance plays above the page from the first
- *  frame instead of showing only once the z-order switch lands. */
+/** Raise before floating UI mounts, then release after its exit transition. */
 export function raiseChrome(): () => void {
   let held = true;
   overlay.holds++;
@@ -312,15 +313,11 @@ export function raiseChrome(): () => void {
   };
 }
 
-/** `use:overlayHold`: keeps the chrome above the pages while the element is mounted. */
 export function overlayHold(_node: HTMLElement) {
   overlay.holds++;
   scheduleLayout();
   return {
-    destroy() {
-      overlay.holds = Math.max(0, overlay.holds - 1);
-      scheduleLayout();
-    },
+    destroy() { overlay.holds = Math.max(0, overlay.holds - 1); scheduleLayout(); },
   };
 }
 

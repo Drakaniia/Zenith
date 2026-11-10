@@ -129,6 +129,7 @@
 
 <aside
   class="sidebar"
+  data-layout-sidebar
   class:floating
   class:collapsed
   class:single

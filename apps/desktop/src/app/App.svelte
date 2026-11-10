@@ -68,7 +68,7 @@
   const animating = $derived(motion.side > 0 || motion.bar > 0);
   let motionReady = false;
   let lastLayout: LayoutState | null = null;
-  let animTimer: ReturnType<typeof setTimeout> | undefined;
+  let motionRevision = 0;
   $effect.pre(() => {
     const next: LayoutState = { compact, mode, barOn, hideToolbar, side };
     const prev = lastLayout;
@@ -79,11 +79,13 @@
     // The floating sidebar is still flagged open here when compact mode was left from it.
     const m = layoutMotion(prev, next, untrack(() => ui.flyout));
     motion = m;
-    clearTimeout(animTimer);
+    const revision = ++motionRevision;
     const ms = followMs(m);
     if (!ms) return;
-    animTimer = setTimeout(() => (motion = STILL), ms);
-    followLayout(ms);
+
+    void followLayout(ms).then(() => {
+      if (revision === motionRevision) motion = STILL;
+    });
   });
 
 
@@ -211,6 +213,7 @@
 
 <div
   class="app"
+  data-layout-root
   role="application"
   class:compact
   class:fullscreen={pageFullscreen}
