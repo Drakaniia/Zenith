@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use super::fetch::{io_halt, Ctx, Halt};
 use super::state::CANCEL;
 use super::track::Track;
-use super::{Job, Output, PROTECTED};
+use super::{Job, Output, Source, PROTECTED};
 use crate::media::mp4;
 
 impl Job {
@@ -22,7 +22,9 @@ impl Job {
         }
         let cancelled = || ctx.control.get() == CANCEL;
         let Some(audio) = self.tracks.get(1) else {
-            if main.ext == "ts" && !main.mp4 {
+            // A page's download is kept exactly as it was served.
+            let plain = matches!(main.source, Source::Download { .. });
+            if main.ext == "ts" && !main.mp4 && !plain {
                 if let Some(ff) = &ffmpeg {
                     ctx.progress.set_stage("Converting to MP4…");
                     let out = ctx.work.join("converted.mp4");
@@ -163,7 +165,8 @@ fn run_ffmpeg(ffmpeg: &Path, args: &[&std::ffi::OsStr], cancelled: &dyn Fn() -> 
 pub(super) fn reserve(dir: &Path, stem: &str, ext: &str) -> io::Result<PathBuf> {
     fs::create_dir_all(dir)?;
     for n in 0..1000 {
-        let name = if n == 0 { format!("{stem}.{ext}") } else { format!("{stem} ({n}).{ext}") };
+        let dot = if ext.is_empty() { "" } else { "." };
+        let name = if n == 0 { format!("{stem}{dot}{ext}") } else { format!("{stem} ({n}){dot}{ext}") };
         let path = dir.join(name);
         match OpenOptions::new().write(true).create_new(true).open(&path) {
             Ok(_) => return Ok(path),

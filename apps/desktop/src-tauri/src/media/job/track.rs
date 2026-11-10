@@ -10,6 +10,7 @@ use std::sync::{Condvar, Mutex};
 use std::time::Duration;
 
 use super::fetch::{append, backoff, fetch_segment, fetch_small, io_halt, with_retries, Ctx, Halt};
+use super::ranged::{fetch_split, Piece};
 use super::state::TrackProgress;
 use super::{lock, Source, PROTECTED, RETRIES};
 use crate::media::dash::SegRef;
@@ -40,12 +41,14 @@ pub(super) struct Track {
     pub(super) ext: String,
     /// The output is (fragmented) MP4.
     pub(super) mp4: bool,
+    /// Whole files in fast mode: the byte ranges being fetched over several connections.
+    pub(super) pieces: Option<Vec<Piece>>,
 }
 
 impl Track {
     pub(super) fn new(index: usize, source: Source, work: &Path) -> Track {
         let ext = match &source {
-            Source::Segments { ext, .. } | Source::File { ext, .. } => ext.clone(),
+            Source::Segments { ext, .. } | Source::File { ext, .. } | Source::Download { ext, .. } => ext.clone(),
             Source::Hls(_) => "ts".into(),
         };
         Track {
@@ -61,6 +64,7 @@ impl Track {
             init_done: false,
             complete: false,
             ext,
+            pieces: None,
         }
     }
 
@@ -74,6 +78,7 @@ impl Track {
             self.last_seq = None;
             self.recent.clear();
             self.complete = false;
+            self.pieces = None;
             for c in [&p.bytes, &p.done, &p.appended, &p.recorded_ms] {
                 c.store(0, Ordering::Relaxed);
             }
@@ -275,8 +280,16 @@ pub(super) fn download(ctx: &Ctx, t: &mut Track) -> Result<(), Halt> {
         return Ok(());
     }
     let (init, media) = match t.source.clone() {
+        Source::Download { url, .. } => {
+            if !fetch_split(ctx, t, &url)? {
+                fetch_file(ctx, t, &url)?;
+            }
+            return Ok(());
+        }
         Source::File { url, .. } => {
-            fetch_file(ctx, t, &url)?;
+            if !fetch_split(ctx, t, &url)? {
+                fetch_file(ctx, t, &url)?;
+            }
             // A DASH single-file representation may still carry Common Encryption.
             let mut head = Vec::new();
             if let Ok(f) = File::open(&t.part) {

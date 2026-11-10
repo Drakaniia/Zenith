@@ -41,6 +41,8 @@ pub struct Ctx<'a> {
     pub progress: &'a Progress,
     pub work: &'a Path,
     pub parallel: usize,
+    /// Connections per whole file (fast mode); 1 downloads it in one stream.
+    pub connections: usize,
     /// Waits of a live recording (playlist refresh, retry after a failure); tests shorten them.
     pub live_wait: Option<Duration>,
     pub(super) abort: AtomicBool,
@@ -64,6 +66,7 @@ impl<'a> Ctx<'a> {
             progress,
             work,
             parallel: PARALLEL,
+            connections: 1,
             live_wait: None,
             abort: AtomicBool::new(false),
             cookies: Mutex::default(),

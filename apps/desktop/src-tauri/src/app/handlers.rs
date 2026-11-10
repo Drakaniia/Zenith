@@ -64,6 +64,7 @@ pub fn handler() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + Syn
         crate::downloads::commands::downloads_active,
         crate::downloads::commands::downloads_history,
         crate::downloads::commands::download_action,
+        crate::downloads::commands::download_again,
         crate::downloads::commands::downloads_remove,
         crate::downloads::commands::download_drag,
         crate::torrents::commands::torrent_add_magnet,

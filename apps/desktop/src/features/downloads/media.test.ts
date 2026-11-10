@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  canDownloadAgain,
   downloadStatus,
   formatDuration,
   kindLabel,
@@ -119,4 +120,26 @@ test("download rows describe media jobs", () => {
     ),
     "Network error",
   );
+});
+
+test("failed web downloads that can't resume can be fetched again", () => {
+  const d = (over: Partial<DownloadItem>): DownloadItem => ({
+    id: 1,
+    url: "https://a.test/setup.exe",
+    path: "C:\\d\\setup.exe",
+    mime: "",
+    total: 0,
+    received: 0,
+    state: "interrupted",
+    started: 0,
+    ...over,
+  });
+  assert.equal(canDownloadAgain(d({})), true);
+  assert.equal(canDownloadAgain(d({ state: "canceled" })), true);
+  assert.equal(canDownloadAgain(d({ canResume: true })), false, "Retry picks up where it stopped");
+  assert.equal(canDownloadAgain(d({ state: "completed" })), false);
+  assert.equal(canDownloadAgain(d({ state: "progress" })), false);
+  assert.equal(canDownloadAgain(d({ url: "blob:https://a.test/1" })), false, "made by the page");
+  assert.equal(canDownloadAgain(d({ kind: "media" })), false);
+  assert.equal(canDownloadAgain(d({ kind: "torrent" })), false);
 });

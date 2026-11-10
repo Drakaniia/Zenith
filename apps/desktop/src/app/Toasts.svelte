@@ -13,7 +13,11 @@
   // hidden, they float at the top right of the window like Zen's and raise the chrome above the
   // page (a hold, not a lease: a passing toast doesn't dim the page the way a menu does). A tab
   // strip (sidebar at the top or bottom) has no room for them either.
-  const floating = $derived(settings.value.compact || isStrip(settings.value.sidebarPosition));
+  // The icon-only collapsed sidebar is too narrow for them as well: --sidebar-w still spans the
+  // full sidebar width there, so a toast would land over the page's native view and be hidden.
+  const floating = $derived(
+    settings.value.compact || settings.value.toolbarMode === 'collapsed' || isStrip(settings.value.sidebarPosition),
+  );
 </script>
 
 {#snippet list()}

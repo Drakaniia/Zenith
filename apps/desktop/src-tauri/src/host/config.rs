@@ -34,6 +34,9 @@ pub struct RuntimeConfig {
     pub torrent_up_kib: u32,
     /// Ask which files to download when a torrent has several.
     pub torrent_choose_files: bool,
+    /// Hidden fast mode: files are fetched over several connections at once (byte ranges), and
+    /// page downloads go through Zenith's own downloader to get there.
+    pub fast_download: bool,
     /// Password manager: off means no saving, suggestions or filling.
     pub passwords_enabled: bool,
     /// Offer to save logins submitted on pages.
@@ -74,6 +77,7 @@ impl Default for RuntimeConfig {
             torrent_down_kib: 0,
             torrent_up_kib: 0,
             torrent_choose_files: true,
+            fast_download: false,
             passwords_enabled: true,
             passwords_offer_save: true,
             cards_offer_save: true,

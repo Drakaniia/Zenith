@@ -4,14 +4,14 @@
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, LazyLock, Mutex};
 use std::time::{Duration, Instant};
 
 use super::output::mark_of_the_web;
 use super::{lock, Output, Request};
 use crate::downloads::DownloadRecord;
-use crate::host::downloads::DownloadEvent;
+use crate::host::downloads::{DownloadEvent, Origin};
 use crate::storage::now_ms;
 
 // ---------------------------------------------------------------------------------------------
@@ -83,6 +83,8 @@ pub struct TrackProgress {
 pub struct Progress {
     pub tracks: [TrackProgress; 2],
     pub stage: Mutex<String>,
+    /// Fast mode is at work (a file split over several connections, or a boosted stream).
+    pub fast: AtomicBool,
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
@@ -144,6 +146,10 @@ pub(super) struct Running {
     pub(super) resumable: bool,
     /// The state last written to the database (it is written on changes only).
     pub(super) persisted: String,
+    /// "media" for the media downloader, "file" for a page download taken over by fast mode.
+    pub(super) kind: &'static str,
+    /// Where the pointer was as a page download started; sent once, with its first event.
+    pub(super) origin: Option<Origin>,
 }
 
 pub(super) static JOBS: LazyLock<Mutex<HashMap<i64, Running>>> = LazyLock::new(Mutex::default);
@@ -188,11 +194,12 @@ pub(super) fn snapshot(j: &mut Running) -> DownloadEvent {
         can_resume: j.record.state == "interrupted" && j.resumable,
         tab_id: j.tab.clone(),
         reason: j.reason.clone(),
-        kind: "media",
+        kind: j.kind,
         detail,
         live: j.live,
         origin: None,
         torrent: None,
+        fast: j.progress.fast.load(Ordering::Relaxed),
     }
 }
 
@@ -201,7 +208,7 @@ pub(super) fn snapshot(j: &mut Running) -> DownloadEvent {
 /// be written back after the removal (both calls only queue work).
 fn emit_locked(j: &mut Running) {
     j.last_emit = Instant::now();
-    let event = snapshot(j);
+    let event = DownloadEvent { origin: j.origin.take(), ..snapshot(j) };
     if event.record.state == "completed" {
         crate::downloads::remember_finished(event.record.id, &event.record.path);
     }

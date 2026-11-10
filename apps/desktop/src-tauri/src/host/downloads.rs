@@ -63,6 +63,9 @@ pub struct DownloadEvent {
     /// Peers, speeds, ratio and stage of a torrent (kind "torrent").
     #[serde(skip_serializing_if = "Option::is_none")]
     pub torrent: Option<crate::torrents::TorrentView>,
+    /// Fast mode is at work on it (several connections at once).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub fast: bool,
 }
 
 /// A point in a window's chrome (CSS px), and which window.
@@ -123,23 +126,7 @@ fn state_name(op: &ICoreWebView2DownloadOperation) -> (String, String, bool) {
         let _ = op.InterruptReason(&mut reason);
         let mut can_resume = BOOL::default();
         let _ = op.CanResume(&mut can_resume);
-        let reason_text = match reason {
-            COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_NONE => "",
-            COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_USER_CANCELED => "Canceled",
-            COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_FILE_NO_SPACE => "Disk full",
-            COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_FILE_ACCESS_DENIED => "Access denied",
-            COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_FILE_TOO_LARGE => "File too large",
-            COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_FILE_MALICIOUS => "Blocked: malicious file",
-            COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_NETWORK_DISCONNECTED => "Network disconnected",
-            COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_NETWORK_FAILED => "Network error",
-            COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_NETWORK_TIMEOUT => "Network timeout",
-            COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_SERVER_FAILED => "Server error",
-            COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_SERVER_UNAUTHORIZED => "Unauthorized",
-            COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_SERVER_BAD_CONTENT => "File not found",
-            COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_USER_SHUTDOWN => "Browser closed",
-            _ => "Failed",
-        }
-        .to_string();
+        let reason_text = interrupt_text(reason).to_string();
         let name = if state == COREWEBVIEW2_DOWNLOAD_STATE_COMPLETED {
             "completed"
         } else if state == COREWEBVIEW2_DOWNLOAD_STATE_INTERRUPTED {
@@ -152,6 +139,44 @@ fn state_name(op: &ICoreWebView2DownloadOperation) -> (String, String, bool) {
             "progress"
         };
         (name.to_string(), reason_text, can_resume.as_bool())
+    }
+}
+
+/// Why WebView2 stopped a download, in words (every reason it reports, so a failure always says
+/// what went wrong).
+fn interrupt_text(reason: COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON) -> &'static str {
+    match reason {
+        COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_NONE => "",
+        COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_USER_CANCELED => "Canceled",
+        COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_USER_PAUSED => "Paused",
+        COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_USER_SHUTDOWN => "Browser closed",
+        COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_FILE_NO_SPACE => "Disk full",
+        COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_FILE_ACCESS_DENIED => "Can't save to the folder (access denied)",
+        COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_FILE_NAME_TOO_LONG => "File name too long",
+        COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_FILE_TOO_LARGE => "File too large for the drive",
+        COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_FILE_MALICIOUS => "Blocked: malicious file",
+        COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_FILE_BLOCKED_BY_POLICY => "Blocked by Windows policy",
+        COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_FILE_SECURITY_CHECK_FAILED => "Blocked by a virus scan",
+        COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_FILE_TRANSIENT_ERROR => "File busy, try again",
+        COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_FILE_TOO_SHORT => "Download incomplete",
+        COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_FILE_HASH_MISMATCH => "File changed on the server",
+        COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_FILE_FAILED => "Couldn't write the file",
+        COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_NETWORK_DISCONNECTED => "Network disconnected",
+        COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_NETWORK_FAILED => "Network error",
+        COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_NETWORK_TIMEOUT => "Network timeout",
+        COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_NETWORK_SERVER_DOWN => "Server unreachable",
+        COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_NETWORK_INVALID_REQUEST => "Invalid request",
+        COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_SERVER_FAILED => "Server error",
+        COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_SERVER_NO_RANGE => "Server can't resume this download",
+        COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_SERVER_BAD_CONTENT => "File not found on the server",
+        COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_SERVER_UNAUTHORIZED => "Sign-in required",
+        COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_SERVER_CERTIFICATE_PROBLEM => "Server certificate problem",
+        COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_SERVER_FORBIDDEN => "Access denied by the server (the link may have expired)",
+        COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_SERVER_UNEXPECTED_RESPONSE => "Unexpected server response",
+        COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_SERVER_CONTENT_LENGTH_MISMATCH => "Download incomplete (size mismatch)",
+        COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_SERVER_CROSS_ORIGIN_REDIRECT => "Blocked: redirected to another site",
+        COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_DOWNLOAD_PROCESS_CRASHED => "Download process crashed",
+        _ => "Failed",
     }
 }
 
@@ -189,6 +214,7 @@ fn snapshot(d: &mut ActiveDownload) -> DownloadEvent {
         live: false,
         origin: None,
         torrent: None,
+        fast: false,
     }
 }
 
@@ -205,6 +231,9 @@ fn publish(id: i64, force: bool) {
     .flatten();
     if let Some(ev) = event {
         let finished = ev.record.state != "progress";
+        if ev.record.state == "interrupted" {
+            eprintln!("[zenith] download {} failed ({}): {}", ev.record.id, ev.reason, ev.record.url);
+        }
         if ev.record.state == "completed" {
             crate::downloads::remember_finished(ev.record.id, &ev.record.path);
             // A downloaded .torrent file starts its torrent.
@@ -295,6 +324,58 @@ fn take_over_crx(core: &ICoreWebView2, shared: &TabShared, uri: String, name: St
     });
 }
 
+/// A page download as WebView2 announced it.
+pub(super) struct Started {
+    pub uri: String,
+    /// Where it will be saved.
+    pub path: String,
+    pub mime: String,
+    /// Size in bytes (-1 or 0 when unknown).
+    pub total: i64,
+    /// Where the pointer was as it started.
+    pub origin: Option<Origin>,
+}
+
+/// Lists a WebView2 download and follows its progress.
+pub(super) fn track(op: ICoreWebView2DownloadOperation, s: Started, shared: &TabShared) -> windows::core::Result<()> {
+    let id = next_id();
+    let record = DownloadRecord {
+        id,
+        url: s.uri,
+        path: s.path,
+        mime: s.mime,
+        total: s.total.max(0),
+        received: 0,
+        state: "progress".into(),
+        started: now_ms(),
+        ended: None,
+    };
+    let mut t = 0i64;
+    unsafe {
+        op.add_BytesReceivedChanged(
+            &BytesReceivedChangedEventHandler::create(Box::new(move |_, _| {
+                publish(id, false);
+                Ok(())
+            })),
+            &mut t,
+        )?;
+        op.add_StateChanged(
+            &StateChangedEventHandler::create(Box::new(move |_, _| {
+                publish(id, true);
+                Ok(())
+            })),
+            &mut t,
+        )?;
+    }
+    let tab = shared.id.clone();
+    let origin = s.origin;
+    with_host(|h| {
+        h.downloads.insert(id, ActiveDownload { op, record, tab, paused: false, last_emit: Instant::now(), origin });
+    });
+    publish(id, true);
+    Ok(())
+}
+
 pub fn attach(core: &ICoreWebView2, shared: Rc<TabShared>) {
     let Ok(c4) = core.cast::<ICoreWebView2_4>() else { return };
     let mut token = 0i64;
@@ -306,6 +387,10 @@ pub fn attach(core: &ICoreWebView2, shared: Rc<TabShared>) {
                 let op = args.DownloadOperation()?;
                 // Zenith shows its own downloads UI instead of the default flyout.
                 args.SetHandled(true)?;
+                // A link that turned out to be a file leaves the page where it was: undo what its
+                // NavigationStarting changed, or the blocker would judge the page's own requests
+                // against the file's host.
+                shared.restore_page_after_download();
                 let mut path = PWSTR::null();
                 args.ResultFilePath(&mut path)?;
                 let mut path = take_pwstr(path);
@@ -320,6 +405,14 @@ pub fn attach(core: &ICoreWebView2, shared: Rc<TabShared>) {
                     take_over_crx(core, &shared, uri, file_name(&path));
                     return Ok(());
                 }
+                // Already downloaded (and still on disk): don't fetch it again. Incognito tabs keep no history.
+                if !shared.private {
+                    if let Some(name) = crate::downloads::already_downloaded(&uri) {
+                        args.SetCancel(true)?;
+                        super::emit_tab(&shared.id, "download-exists", crate::downloads::already_message(&name));
+                        return Ok(());
+                    }
+                }
                 if let Some(dir) = config().download_dir.filter(|d| d.is_dir()) {
                     let target = unique_path(&dir, &file_name(&path));
                     path = target.display().to_string();
@@ -327,43 +420,12 @@ pub fn attach(core: &ICoreWebView2, shared: Rc<TabShared>) {
                 }
                 let mut total = 0i64;
                 op.TotalBytesToReceive(&mut total)?;
-                let id = next_id();
-                let record = DownloadRecord {
-                    id,
-                    url: uri,
-                    path,
-                    mime,
-                    total: total.max(0),
-                    received: 0,
-                    state: "progress".into(),
-                    started: now_ms(),
-                    ended: None,
-                };
-                let mut t = 0i64;
-                op.add_BytesReceivedChanged(
-                    &BytesReceivedChangedEventHandler::create(Box::new(move |_, _| {
-                        publish(id, false);
-                        Ok(())
-                    })),
-                    &mut t,
-                )?;
-                op.add_StateChanged(
-                    &StateChangedEventHandler::create(Box::new(move |_, _| {
-                        publish(id, true);
-                        Ok(())
-                    })),
-                    &mut t,
-                )?;
-                let tab = shared.id.clone();
                 let origin = pointer_in(&shared.window);
-                with_host(|h| {
-                    h.downloads.insert(
-                        id,
-                        ActiveDownload { op, record, tab, paused: false, last_emit: Instant::now(), origin },
-                    );
-                });
-                publish(id, true);
-                Ok(())
+                let started = Started { uri, path, mime, total, origin };
+                if let (true, Some(core)) = (super::fast_download::wanted(&shared, &started), sender.as_ref()) {
+                    return super::fast_download::offer(core, &args, op, shared.clone(), started);
+                }
+                track(op, started, &shared)
             })),
             &mut token,
         );

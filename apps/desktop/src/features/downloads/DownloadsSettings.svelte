@@ -6,6 +6,8 @@
   import { downloadsApi } from './api';
   import { shell } from '$platform/shell';
   import { appInfo } from '$features/window/window.svelte';
+  import { ui } from '$shared/ui/ui.svelte';
+  import { FAST_CONNECTIONS_LABEL, tapCounter } from './secret';
 
   const s = $derived(settings.value);
   const info = $derived(appInfo.info);
@@ -14,6 +16,16 @@
 
   function set<K extends keyof Settings>(key: K, value: Settings[K]) {
     settings.update({ [key]: value } as Partial<Settings>);
+  }
+
+  // Clicking the heading quickly reveals the hidden fast mode switch, or hides it (and turns
+  // fast mode off) again.
+  const secret = tapCounter();
+  function tapHeading() {
+    if (!secret.tap(Date.now())) return;
+    const unlock = !s.fastDownloadUnlocked;
+    settings.update(unlock ? { fastDownloadUnlocked: true } : { fastDownloadUnlocked: false, fastDownload: false });
+    ui.toast(unlock ? 'Fast downloads unlocked' : 'Fast downloads hidden', { icon: 'zap' });
   }
 
   const seedOptions = [
@@ -56,7 +68,7 @@
 
 <!-- Downloads -->
 <section id="settings-downloads">
-  <h2>Downloads</h2>
+  <h2><button class="secret" tabindex="-1" onclick={tapHeading}>Downloads</button></h2>
   <div class="group">
     <div class="row">
       <div class="text"><b>Save files to</b><span class="ellipsis">{s.downloadDir ?? info?.defaultDownloadDir ?? 'Downloads'}</span></div>
@@ -65,6 +77,15 @@
         <button class="btn" onclick={pickDownloadDir}><Icon name="folder" size={15} />Change</button>
       </div>
     </div>
+    {#if s.fastDownloadUnlocked}
+      <div class="row">
+        <div class="text">
+          <b class="fast"><Icon name="zap" size={13} />Fast downloads</b>
+          <span>Large files download over {FAST_CONNECTIONS_LABEL} connections at once when the server allows it, and video streams fetch more segments at a time. Downloads from incognito windows are left alone.</span>
+        </div>
+        <Toggle checked={s.fastDownload} onchange={(v) => set('fastDownload', v)} label="Fast downloads" />
+      </div>
+    {/if}
   </div>
   <h3>Video downloader</h3>
   <div class="group">
@@ -132,6 +153,18 @@
   h2 {
     margin: 0 0 12px;
     font: 600 18px/1.3 var(--font-display);
+  }
+  /* The heading's hidden gesture: looks and behaves like plain heading text. */
+  .secret {
+    font: inherit;
+    color: inherit;
+    cursor: default;
+    user-select: none;
+  }
+  .fast {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
   }
   h3 {
     margin: 22px 0 10px;

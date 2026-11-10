@@ -110,6 +110,7 @@ export function listenBackend(flushAndClose: () => Promise<void>): Promise<() =>
       for (const url of urls) browser.openTab(url);
     }),
     on('torrent-error', (message) => ui.toast(message, { icon: 'alert', timeout: 6000 })),
+    on('download-exists', (message) => ui.toast(message, { icon: 'check', timeout: 4000 })),
     on('update-status', (s) => updates.apply(s)),
     on('media-changed', ({ tabId, count }) => browser.setMediaCount(tabId, count)),
     on('media-request', ({ tabId, hint }) => {

@@ -147,6 +147,18 @@ impl TabShared {
             button_script: RefCell::new(None),
         }
     }
+
+    /// A navigation turned out to be a download, so the page stayed: puts back the page's host
+    /// and address that NavigationStarting replaced with the file's (the blocker tells first- from
+    /// third-party requests by them).
+    pub fn restore_page_after_download(&self) {
+        let url = self.url.borrow().clone();
+        if url.is_empty() {
+            return; // a tab opened just for the download: there is no page to go back to
+        }
+        *self.page_host.borrow_mut() = crate::platform::urls::host_of(&url).unwrap_or("").to_ascii_lowercase();
+        *self.nav_uri.borrow_mut() = url;
+    }
 }
 
 pub struct Tab {

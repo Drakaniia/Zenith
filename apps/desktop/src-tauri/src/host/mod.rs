@@ -30,6 +30,7 @@ mod chrome;
 mod config;
 mod debug;
 mod devtools;
+mod fast_download;
 mod focus;
 mod placement;
 mod profile;

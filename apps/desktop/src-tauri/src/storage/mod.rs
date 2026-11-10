@@ -147,6 +147,19 @@ impl Db {
         let _ = rx.recv_timeout(timeout);
     }
 
+    /// Reads synchronously, giving up after `timeout` (for code that cannot be async).
+    pub fn query_blocking<T: Send + 'static>(
+        &self,
+        timeout: std::time::Duration,
+        f: impl FnOnce(&mut Connection) -> rusqlite::Result<T> + Send + 'static,
+    ) -> Option<T> {
+        let (tx, rx) = mpsc::channel();
+        self.exec(move |c| {
+            let _ = tx.send(f(c));
+        });
+        rx.recv_timeout(timeout).ok()?.ok()
+    }
+
     pub async fn call<T: Send + 'static>(
         &self,
         f: impl FnOnce(&mut Connection) -> rusqlite::Result<T> + Send + 'static,

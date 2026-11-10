@@ -135,7 +135,9 @@
         );
       }
     } catch (e) {
-      ui.toast(String(e), { icon: 'alert', timeout: 6000 });
+      const message = String(e);
+      const already = message.startsWith('Already downloaded');
+      ui.toast(message, { icon: already ? 'check' : 'alert', timeout: already ? 4000 : 6000 });
     } finally {
       busy[item.id] = false;
     }

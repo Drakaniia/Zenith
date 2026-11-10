@@ -10,6 +10,8 @@ export const downloadsApi = {
     id: number,
     action: "pause" | "resume" | "cancel" | "stop",
   ) => invoke<void>("download_action", { id, action }),
+  /** Fetches a failed or canceled download that can't resume once more; the new download's id. */
+  downloadAgain: (id: number) => invoke<number>("download_again", { id }),
   downloadsRemove: (id: number | null) =>
     invoke<void>("downloads_remove", { id }),
   /** Drags a finished download's file from the pointer until it is dropped; true when it was. */
@@ -46,5 +48,7 @@ declare module "../../platform/ipc" {
     "media-request": { tabId: string; hint: string };
     /** A torrent could not be added or resumed (shown as a toast). */
     "torrent-error": string;
+    /** A download was skipped because the file is already downloaded (shown as a toast). */
+    "download-exists": string;
   }
 }

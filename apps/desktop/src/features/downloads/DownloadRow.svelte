@@ -6,7 +6,7 @@
   import { torrents } from './torrents.svelte';
   import { timeAgo } from '$shared/format';
   import { ui } from '$shared/ui/ui.svelte';
-  import { downloadStatus } from './media';
+  import { canDownloadAgain, downloadStatus } from './media';
   import type { DownloadItem } from './types';
   import type { IconName } from '$shared/ui/icons';
 
@@ -51,7 +51,10 @@
     >
     <span class="meta">
       <span class="name ellipsis">{name}</span>
-      <span class="status ellipsis" class:bad={d.state === 'interrupted'}>{status}</span>
+      <span class="status ellipsis" class:bad={d.state === 'interrupted'}
+        >{#if d.fast && d.state === 'progress'}<span class="fast" title="Fast download: several connections at once"><Icon name="zap" size={11} /></span
+          >{/if}{status}</span
+      >
       {#if d.state === 'progress'}
         <span class="bar" class:indeterminate class:paused={d.paused}><span style:width="{pct}%"></span></span>
       {/if}
@@ -97,6 +100,9 @@
       {/if}
       <button class="icon-btn sm" title="Remove from list" onclick={() => act(() => downloads.remove(d.id))}><Icon name="trash" size={14} /></button>
     {:else}
+      {#if canDownloadAgain(d)}
+        <button class="icon-btn sm" title="Download again" onclick={() => act(() => downloads.again(d.id))}><Icon name="reload" size={14} /></button>
+      {/if}
       {#if d.state === 'completed'}
         <button class="icon-btn sm" title="Show in folder" onclick={() => act(() => shell.showInFolder(d.path))}><Icon name="folder" size={14} /></button>
       {/if}
@@ -158,6 +164,12 @@
   .status {
     font-size: 11.5px;
     color: var(--text-3);
+  }
+  .fast {
+    display: inline-flex;
+    vertical-align: -1px;
+    margin-right: 3px;
+    color: var(--accent);
   }
   .bar {
     height: 3px;

@@ -184,5 +184,10 @@ pub fn download(tab_id: &str, item_id: u32, variant: Option<String>, audio: Opti
         .ok_or("This tab is not loaded")?;
     let ua = sniff::user_agent(&core);
     let request = shared.media.borrow().request(tab_id, item_id, variant.as_deref(), audio.as_deref(), &ua)?;
+    if !shared.private {
+        if let Some(name) = crate::downloads::already_downloaded(&request.source_url) {
+            return Err(crate::downloads::already_message(&name));
+        }
+    }
     job::start(request)
 }

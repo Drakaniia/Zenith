@@ -16,14 +16,33 @@ pub async fn downloads_active(app: AppHandle) -> CmdResult<Vec<DownloadEvent>> {
 }
 
 #[tauri::command]
-pub async fn downloads_history(limit: Option<i64>) -> CmdResult<Vec<DownloadRecord>> {
+pub async fn downloads_history(app: AppHandle, limit: Option<i64>) -> CmdResult<Vec<DownloadRecord>> {
     let limit = limit.unwrap_or(200).clamp(1, 1000);
-    db().call(move |c| super::downloads_list(c, limit)).await
+    let live: Vec<i64> = on_main(&app, || downloads::active().into_iter().map(|d| d.record.id).collect()).await?;
+    let now = crate::storage::now_ms();
+    db().call(move |c| {
+        super::settle_stale(c, &live, now)?;
+        super::downloads_list(c, limit)
+    })
+    .await
 }
 
 #[tauri::command]
 pub async fn download_action(app: AppHandle, id: i64, action: String) -> CmdResult<()> {
     on_main(&app, move || downloads::action(id, &action)).await?
+}
+
+/// Fetches a failed or canceled download that can't resume once more, with Zenith's own
+/// downloader. The new download takes the old one's place in the list; returns its id.
+#[tauri::command]
+pub async fn download_again(app: AppHandle, id: i64) -> CmdResult<i64> {
+    let record = db()
+        .call(move |c| super::download_get(c, id))
+        .await?
+        .ok_or("This download is no longer in the history (downloads from incognito windows aren't kept), so it can't be fetched again.")?;
+    let new_id = on_main(&app, move || super::again::start(&record)).await??;
+    db().call(move |c| super::downloads_remove(c, Some(id))).await?;
+    Ok(new_id)
 }
 
 #[tauri::command]

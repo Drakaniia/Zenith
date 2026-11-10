@@ -83,6 +83,10 @@ export interface Settings {
   torrentUpKib: number;
   /** Ask which files to download when a torrent has several. */
   torrentChooseFiles: boolean;
+  /** Hidden fast mode: files download over several connections at once. */
+  fastDownload: boolean;
+  /** The fast mode switch was revealed in Settings (the secret gesture on the Downloads heading). */
+  fastDownloadUnlocked: boolean;
   /** Extensions whose icons show next to the extensions button (WebView2 extension ids). */
   pinnedExtensions: string[];
   /** Check the Chrome Web Store for extension updates at startup. */
@@ -215,6 +219,8 @@ export function defaultSettings(): Settings {
     torrentDownKib: 0,
     torrentUpKib: 0,
     torrentChooseFiles: true,
+    fastDownload: false,
+    fastDownloadUnlocked: false,
     pinnedExtensions: [],
     extensionUpdates: true,
     shortcuts: defaultShortcuts(),
@@ -379,6 +385,7 @@ class SettingsStore {
         torrentDownKib: Math.max(0, Math.round(Number(s.torrentDownKib) || 0)),
         torrentUpKib: Math.max(0, Math.round(Number(s.torrentUpKib) || 0)),
         torrentChooseFiles: s.torrentChooseFiles,
+        fastDownload: s.fastDownload === true,
         passwordsEnabled: s.passwordsEnabled,
         passwordsOfferSave: s.passwordsOfferSave,
         cardsOfferSave: s.cardsOfferSave,

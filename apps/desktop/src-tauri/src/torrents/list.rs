@@ -111,6 +111,7 @@ pub(super) fn snapshot(id: i64, e: &mut Entry, limit: f64) -> (DownloadEvent, St
         live: false,
         origin: e.origin.take(),
         torrent: Some(view),
+        fast: false,
     };
     (event, stage)
 }

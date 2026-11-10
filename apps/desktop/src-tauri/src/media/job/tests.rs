@@ -488,3 +488,89 @@ fn progress_estimates_totals_from_segments() {
     assert_eq!(format_clock(3_725_000), "1:02:05");
     assert_eq!(format_clock(65_000), "1:05");
 }
+
+/// Runs a plan in fast mode with `connections` per file; returns the output and progress.
+fn run_fast(plan: Plan, name: &str, connections: usize) -> (Result<Output, Halt>, bool, PathBuf) {
+    let root = temp_dir(name);
+    let (work, out) = (root.join("work"), root.join("out"));
+    fs::create_dir_all(&work).unwrap();
+    let client = Client::new("ZenithTest/1.0").unwrap();
+    let headers = vec![("Referer".to_string(), "https://page.example/files".to_string())];
+    let (env, control, progress) = (TestEnv, Control::default(), Progress::default());
+    let mut ctx = Ctx::new(&client, &headers, &env, &control, &progress, &work);
+    ctx.connections = connections;
+    let mut job = Job::new(plan, &work);
+    let result = job.run(&ctx).and_then(|()| job.finish(&ctx, &out, "setup"));
+    (result, progress.fast.load(Ordering::Relaxed), root)
+}
+
+fn big_body(len: usize) -> Vec<u8> {
+    (0..len as u32).map(|i| (i.wrapping_mul(2_654_435_761) >> 13) as u8).collect()
+}
+
+#[test]
+fn fast_mode_splits_a_file_over_several_connections() {
+    let body = big_body(9 << 20);
+    let mut routes = Routes::new();
+    routes.insert("/dl/setup.exe".into(), ("application/octet-stream".into(), body.clone()));
+    let server = serve(routes);
+    let url = format!("{}/dl/setup.exe", server.base);
+    let plan = Plan { main: Source::Download { url, ext: "exe".into() }, audio: None, live: false };
+    let (result, fast, root) = run_fast(plan, "fast-split", 4);
+    let out = result.unwrap();
+    assert_eq!(out.files[0].file_name().unwrap(), "setup.exe");
+    assert!(fs::read(&out.files[0]).unwrap() == body, "pieces reassembled in place");
+    assert!(fast);
+    let log = lock(&server.log).clone();
+    assert_eq!(log[0].1, "bytes=0-0", "probed first");
+    let pieces: Vec<_> = log.iter().skip(1).map(|(_, r, _)| r.clone()).collect();
+    // 9 MiB for 4 connections: pieces of 1 MiB (the minimum), each asked for exactly.
+    assert_eq!(pieces.len(), 9, "{pieces:?}");
+    assert!(pieces.contains(&"bytes=0-1048575".to_string()), "{pieces:?}");
+    assert!(pieces.contains(&format!("bytes={}-{}", 8 << 20, (9 << 20) - 1)), "{pieces:?}");
+    assert!(log.iter().all(|(_, _, c)| c == "session=abc"), "every connection sends the cookies");
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn fast_mode_leaves_small_files_and_plain_downloads_alone() {
+    let small = big_body(300_000);
+    let ts = big_body(5 << 20);
+    let mut routes = Routes::new();
+    routes.insert("/small.bin".into(), ("application/octet-stream".into(), small.clone()));
+    routes.insert("/rec.ts".into(), ("video/mp2t".into(), ts.clone()));
+    routes.insert("/README".into(), ("text/plain".into(), small.clone()));
+    let server = serve(routes);
+
+    let plan = Plan { main: Source::File { url: format!("{}/small.bin", server.base), ext: "bin".into() }, audio: None, live: false };
+    let (result, fast, root) = run_fast(plan, "fast-small", 8);
+    assert!(fs::read(&result.unwrap().files[0]).unwrap() == small);
+    assert!(!fast, "too small to split");
+    let ranges: Vec<_> = lock(&server.log).iter().map(|(_, r, _)| r.clone()).collect();
+    assert_eq!(ranges, vec!["bytes=0-0".to_string(), String::new()], "probe, then one plain request");
+    let _ = fs::remove_dir_all(root);
+
+    // A page's .ts download stays a .ts file, and a name without an extension keeps none.
+    let plan = Plan { main: Source::Download { url: format!("{}/rec.ts", server.base), ext: "ts".into() }, audio: None, live: false };
+    let (result, _, root) = run_fast(plan, "fast-ts", 8);
+    let out = result.unwrap();
+    assert_eq!(out.files[0].file_name().unwrap(), "setup.ts");
+    assert!(fs::read(&out.files[0]).unwrap() == ts);
+    let _ = fs::remove_dir_all(root);
+    let plan = Plan { main: Source::Download { url: format!("{}/README", server.base), ext: String::new() }, audio: None, live: false };
+    let (result, _, root) = run_fast(plan, "fast-noext", 8);
+    assert_eq!(result.unwrap().files[0].file_name().unwrap(), "setup");
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn fast_mode_pieces_cover_the_file() {
+    for (total, connections) in [(4u64 << 20, 8usize), ((10 << 30) + 7, 8), ((5 << 20) + 3, 2), (1, 8)] {
+        let pieces = super::ranged::split(total, connections);
+        assert_eq!(pieces.first().unwrap().start, 0);
+        assert_eq!(pieces.last().unwrap().end, total);
+        assert!(pieces.windows(2).all(|w| w[0].end == w[1].start));
+        assert!(pieces.iter().all(|p| p.end - p.start <= 64 << 20));
+    }
+    assert_eq!(super::ranged::split(10 << 30, 8).len(), 160, "64 MiB pieces for a 10 GiB file");
+}

@@ -17,6 +17,8 @@ export interface RuntimeConfig {
   torrentDownKib: number;
   torrentUpKib: number;
   torrentChooseFiles: boolean;
+  /** Hidden fast mode (several connections per download). */
+  fastDownload: boolean;
   /** Password manager and autofill (see settings.svelte.ts). */
   passwordsEnabled: boolean;
   passwordsOfferSave: boolean;

@@ -23,7 +23,7 @@ The layout and its rules are described in [Project structure](../project-structu
 | Startup, windows, single instance, maintenance flags | `src-tauri/src/main.rs`, `src-tauri/src/app/` (`mod.rs` the Tauri builder, `startup.rs` maintenance flags and second launches, `window.rs` windows and geometry); UI entry `src/main.ts`, `src/app/startup.ts` |
 | Tab host: windows, layout, z-order, focus, shortcuts, stray targets | `src-tauri/src/host/`: `mod.rs` (host state, `post`), `chrome.rs`, `window_proc.rs`, `placement.rs`, `focus.rs`, `accelerators.rs`, `devtools.rs` |
 | Page webviews and their WebView2 events | `src-tauri/src/host/tab/` (`mod.rs`, `events.rs`, `requests.rs`, `new_window.rs`, `permissions.rs`, `find.rs`, `context_menu.rs`, `scripts.rs`) |
-| Downloads | `src-tauri/src/host/downloads.rs` (WebView2 side), `src-tauri/src/downloads/` (records); UI in `src/features/downloads/` |
+| Downloads | `src-tauri/src/host/downloads.rs` (WebView2 side), `src-tauri/src/host/fast_download.rs` (hidden fast mode), `src-tauri/src/downloads/` (records); UI in `src/features/downloads/` |
 | Extensions | `src-tauri/src/extensions/` (`install.rs`, `crx.rs`, `updates.rs`); UI in `src/features/extensions/` |
 | Video downloader | `src-tauri/src/media/`: `sniff.rs` (WebView2 side), `detect.rs`, `hls.rs`, `dash/`, `job/`, `http.rs`, `mp4/`; UI in `src/features/downloads/MediaPanel.svelte` |
 | Torrents | `src-tauri/src/torrents/`: `engine.rs` (librqbit session), `adding.rs`, `list.rs`, `status.rs`, `store.rs`, `stream.rs`; UI in `src/features/downloads/` (`torrents.svelte.ts`, `TorrentFiles.svelte`, `AddTorrent.svelte`) |
@@ -87,6 +87,15 @@ Downloading happens in `media/job/`, one thread per job, outside WebView2's down
 Pages are untrusted input, so their manifests are bounded. Playlists and MPDs are parsed on worker threads. HLS is capped at 200,000 segments per playlist; DASH at 100 representations and 400,000 segments in total. A page gets at most 200 manifest reads, 8 at a time. FFmpeg reads only local files with a forced demuxer (`-protocol_whitelist file -f …`), so a hostile "segment" can't make it fetch anything. Cancel kills FFmpeg mid-run.
 
 DRM is never circumvented. Items are refused when the player uses Encrypted Media Extensions, an HLS key method other than NONE is present, a DASH ContentProtection is declared, or an MP4 init segment carries `encv`/`enca` sample entries or `pssh`.
+
+### Fast downloads (hidden)
+
+Fast mode is not in the user guides on purpose. To find the switch, click the **Downloads** heading in Settings seven times within three seconds (`src/features/downloads/secret.ts`). Doing it again hides the switch and turns fast mode off. It is stored as `fastDownload` and `fastDownloadUnlocked` in `settings.json`, and the runtime config only gets `fastDownload`.
+
+- **Whole files** (`media/job/ranged.rs`). A request for the first byte (`Range: bytes=0-0`) checks for a `206` and the full size. Files of 4 MiB or more are then preallocated and cut into pieces of 1 to 64 MiB, about four per connection. Eight workers take pieces in order and write each one at its offset. Every piece tracks its bytes written, so Pause and Retry pick up where each piece stopped. Without range support, for a small file, or when a single-stream download has already started, the file downloads in one stream as before.
+- **Streams.** HLS and DASH segment workers go from 6 to 8.
+- **Page downloads** (`host/fast_download.rs`). `DownloadStarting` is deferred for downloads that are large, `http(s)`, not from an incognito window, and not `.torrent` files. A worker thread then asks for the first byte, with the profile's cookies and a default-policy Referer. WebView2's download is canceled, and a `Source::Download` job started, only when the answer is a `206` for exactly `TotalBytesToReceive` bytes. This keeps form posts, one-time links and pages that answer a second request differently with WebView2. Any other answer, or none within 4 s, hands the download back to WebView2 unchanged. The job is saved under the name and folder WebView2 picked, is listed as `kind: "file"`, and skips the media checks and the FFmpeg conversion. Taken-over files get the Mark of the Web like media jobs, but WebView2's SmartScreen check before saving doesn't apply to them.
+- **Badge.** `DownloadEvent.fast` is set while fast mode is actually working on a download, and the row shows a bolt next to its status.
 
 ### Torrents
 

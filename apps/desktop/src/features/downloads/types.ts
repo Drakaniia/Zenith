@@ -27,6 +27,8 @@ export interface DownloadItem {
   origin?: { x: number; y: number; window: string };
   /** Peers, speeds, ratio and stage of a torrent. */
   torrent?: TorrentInfo;
+  /** Fast mode is at work on it (several connections at once). */
+  fast?: boolean;
 }
 
 /** Where a torrent is: getting its info, waiting for the file choice, checking data on disk,

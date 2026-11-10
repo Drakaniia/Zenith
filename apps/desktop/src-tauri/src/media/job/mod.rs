@@ -7,6 +7,7 @@
 
 mod fetch;
 mod output;
+mod ranged;
 mod record;
 mod state;
 #[cfg(test)]
@@ -31,6 +32,10 @@ use track::{download, Track};
 pub const PROTECTED: &str = "This video is DRM-protected, so it can't be saved";
 const RETRIES: u32 = 5;
 const PARALLEL: usize = 6;
+/// Fast mode: connections per file, and stream segments fetched at once.
+pub const FAST_CONNECTIONS: usize = 8;
+/// Smaller files are not worth splitting (nor taking over from the browser).
+pub const FAST_MIN_BYTES: u64 = 4 << 20;
 /// Consecutive playlist or segment failures after which a live recording counts as ended.
 const LIVE_FAILURES: u32 = 6;
 
@@ -49,6 +54,9 @@ pub enum Source {
     Segments { init: Option<SegRef>, media: Vec<SegRef>, ext: String },
     /// One whole file (progressive media, DASH SegmentBase).
     File { url: String, ext: String },
+    /// A file a page downloaded (taken over by fast mode): saved as served, with no media checks
+    /// or conversion.
+    Download { url: String, ext: String },
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -214,16 +222,25 @@ pub fn cleanup_temp() {
     let _ = fs::remove_dir_all(work_root());
 }
 
-/// Starts a job and returns its download id.
+/// Starts a media job and returns its download id.
 pub fn start(req: Request) -> Result<i64, String> {
+    launch(req, download_dir(), "media", None)
+}
+
+/// Starts a page download taken over by fast mode: saved in `dir`, listed as an ordinary file.
+pub fn start_download(req: Request, dir: PathBuf, origin: Option<crate::host::downloads::Origin>) -> Result<i64, String> {
+    launch(req, dir, "file", origin)
+}
+
+fn launch(req: Request, dir: PathBuf, kind: &'static str, origin: Option<crate::host::downloads::Origin>) -> Result<i64, String> {
     let id = crate::host::downloads::next_id();
-    let dir = download_dir();
     let control = Arc::new(Control::default());
     let progress = Arc::new(Progress::default());
+    let dot = if req.ext.is_empty() { "" } else { "." };
     let record = DownloadRecord {
         id,
         url: req.source_url.clone(),
-        path: dir.join(format!("{}.{}", req.stem, req.ext)).display().to_string(),
+        path: dir.join(format!("{}{dot}{}", req.stem, req.ext)).display().to_string(),
         mime: req.mime.clone(),
         total: 0,
         received: 0,
@@ -245,6 +262,8 @@ pub fn start(req: Request) -> Result<i64, String> {
             last_emit: Instant::now(),
             resumable: true,
             persisted: String::new(),
+            kind,
+            origin,
         },
     );
     publish(id, true);
@@ -290,7 +309,16 @@ fn run(id: i64, req: Request, dir: PathBuf, control: Arc<Control>, progress: Arc
             return;
         }
     };
-    let ctx = Ctx::new(&client, &req.headers, &env, &control, &progress, &work);
+    let mut ctx = Ctx::new(&client, &req.headers, &env, &control, &progress, &work);
+    if crate::host::config().fast_download {
+        ctx.parallel = FAST_CONNECTIONS;
+        ctx.connections = FAST_CONNECTIONS;
+        // Streams are boosted right away; a whole file only once it is really split.
+        let stream = |s: &Source| matches!(s, Source::Hls(_) | Source::Segments { .. });
+        if stream(&req.plan.main) || req.plan.audio.as_ref().is_some_and(stream) {
+            progress.fast.store(true, Ordering::Relaxed);
+        }
+    }
     let mut job = Job::new(req.plan.clone(), &work);
     loop {
         let result = job.run(&ctx).and_then(|()| job.finish(&ctx, &dir, &req.stem));

@@ -60,6 +60,13 @@ export function mediaTitle(item: MediaItem): string {
   return kindLabel(item);
 }
 
+/** A file download that failed (and can't pick up where it stopped) or was canceled, from a web
+ *  address: it can be fetched once more from scratch ("Download again"). */
+export function canDownloadAgain(d: DownloadItem): boolean {
+  if ((d.kind ?? "file") !== "file" || !/^https?:\/\//i.test(d.url)) return false;
+  return (d.state === "interrupted" && !d.canResume) || d.state === "canceled";
+}
+
 /** The status line of a row in the downloads list. */
 export function downloadStatus(
   d: DownloadItem,
