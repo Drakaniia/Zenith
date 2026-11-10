@@ -7,6 +7,7 @@
   import { openInternal } from '$features/browser/target';
   import { displayHost, prettyUrl } from '$shared/url';
   import type { HistoryEntry } from './types';
+  import { applyClick, selectAll } from './selection';
 
   const PAGE = 80;
   let query = $state('');
@@ -14,6 +15,7 @@
   let done = $state(false);
   let loading = $state(false);
   let selected = $state(new Set<number>());
+  let anchor: number | null = null;
   let timer: ReturnType<typeof setTimeout> | undefined;
 
   async function load(reset: boolean) {
@@ -23,7 +25,7 @@
       const batch = await historyApi.historySearch(query, PAGE, reset ? 0 : rows.length);
       rows = reset ? batch : [...rows, ...batch];
       done = batch.length < PAGE;
-      if (reset) selected = new Set();
+      if (reset) clearSelection();
     } finally {
       loading = false;
     }
@@ -57,15 +59,39 @@
   async function remove(ids: number[]) {
     await historyApi.historyDelete(ids);
     rows = rows.filter((r) => !ids.includes(r.id));
-    selected = new Set();
+    clearSelection();
     ui.toast(ids.length === 1 ? 'Removed from history' : `Removed ${ids.length} entries`, { icon: 'trash' });
   }
 
-  function toggle(id: number) {
-    const next = new Set(selected);
-    if (next.has(id)) next.delete(id);
-    else next.add(id);
-    selected = next;
+  function clearSelection() {
+    selected = new Set();
+    anchor = null;
+  }
+
+  function pick(id: number, mod: { ctrl: boolean; shift: boolean }) {
+    const s = applyClick(rows.map((r) => r.id), { selected, anchor }, id, mod);
+    selected = s.selected;
+    anchor = s.anchor;
+  }
+
+  // Ctrl/Cmd-click toggles a row and Shift-click selects a range instead of opening the page.
+  function openRow(e: MouseEvent, r: HistoryEntry) {
+    if (e.ctrlKey || e.metaKey || e.shiftKey) pick(r.id, { ctrl: e.ctrlKey || e.metaKey, shift: e.shiftKey });
+    else browser.openTab(r.url);
+  }
+
+  function onKey(e: KeyboardEvent) {
+    const t = e.target as HTMLElement | null;
+    if (t?.closest('input[type="text"], input:not([type]), textarea, [contenteditable]')) return;
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 'a') {
+      e.preventDefault();
+      const s = selectAll(rows.map((r) => r.id));
+      selected = s.selected;
+      anchor = s.anchor;
+    } else if (e.key === 'Delete' && selected.size) {
+      e.preventDefault();
+      void remove([...selected]);
+    } else if (e.key === 'Escape' && selected.size) clearSelection();
   }
 
   function onScroll(e: Event) {
@@ -75,6 +101,8 @@
 
   onMount(() => void load(true));
 </script>
+
+<svelte:window onkeydown={onKey} />
 
 <div class="page" onscroll={onScroll}>
   <div class="inner">
@@ -96,10 +124,10 @@
       <h2>{g.label}</h2>
       <div class="list">
         {#each g.items as r (r.id)}
-          <div class="row" class:sel={selected.has(r.id)}>
-            <input type="checkbox" checked={selected.has(r.id)} onchange={() => toggle(r.id)} aria-label="Select" />
+          <div class="row" role="presentation" class:sel={selected.has(r.id)} onmousedown={(e) => e.shiftKey && e.preventDefault()}>
+            <input type="checkbox" checked={selected.has(r.id)} onclick={(e) => pick(r.id, { ctrl: true, shift: e.shiftKey })} aria-label="Select" />
             <span class="time">{new Date(r.lastVisit).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}</span>
-            <button class="link" onclick={(e) => browser.openTab(r.url, { activate: !(e.ctrlKey || e.metaKey) })} title={r.url}>
+            <button class="link" onclick={(e) => openRow(e, r)} onauxclick={(e) => e.button === 1 && browser.openTab(r.url, { activate: false })} title={r.url}>
               <span class="letter">{displayHost(r.url)[0]?.toUpperCase()}</span>
               <span class="title ellipsis">{r.title || prettyUrl(r.url)}</span>
               <span class="host ellipsis">{displayHost(r.url)}</span>

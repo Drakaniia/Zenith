@@ -1,5 +1,8 @@
 <script lang="ts">
   import Favicon from '$shared/ui/Favicon.svelte';
+  import Icon from '$shared/ui/Icon.svelte';
+  import { ui } from '$shared/ui/ui.svelte';
+  import { applyClick, prune, selectAll } from '$features/history/selection';
   import { historyApi } from '$features/history/api';
   import { faviconFor } from '$shared/favicons';
   import { mouseHow, openBookmark } from './bookmark-actions';
@@ -20,6 +23,10 @@
     list?: HTMLDivElement;
   } = $props();
 
+  // Ctrl/Cmd-click toggles rows, Shift-click selects a range, Delete removes the selection.
+  let selected = $state(new Set<number>());
+  let anchor: number | null = null;
+
   let timer: ReturnType<typeof setTimeout> | undefined;
   let seq = 0;
   $effect(() => {
@@ -29,7 +36,11 @@
     timer = setTimeout(
       async () => {
         const r = await historyApi.historySearch(text.trim(), 80).catch(() => []);
-        if (mine === seq) history = r;
+        if (mine !== seq) return;
+        history = r;
+        const kept = prune({ selected, anchor }, r.map((h) => h.id));
+        selected = kept.selected;
+        anchor = kept.anchor;
       },
       text ? 120 : 0,
     );
@@ -41,6 +52,42 @@
     if (d.toDateString() === new Date(Date.now() - 86_400_000).toDateString()) return 'Yesterday';
     return d.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
   }
+  const ids = () => history.map((h) => h.id);
+
+  function click(e: MouseEvent, h: HistoryEntry) {
+    if (e.ctrlKey || e.metaKey || e.shiftKey) {
+      const s = applyClick(ids(), { selected, anchor }, h.id, { ctrl: e.ctrlKey || e.metaKey, shift: e.shiftKey });
+      selected = s.selected;
+      anchor = s.anchor;
+    } else openBookmark(h.url, mouseHow(e));
+  }
+
+  async function removeSelected() {
+    const gone = [...selected];
+    if (!gone.length) return;
+    await historyApi.historyDelete(gone);
+    history = history.filter((h) => !selected.has(h.id));
+    selected = new Set();
+    anchor = null;
+    ui.toast(gone.length === 1 ? 'Removed from history' : `Removed ${gone.length} entries`, { icon: 'trash' });
+  }
+
+  function onkeydown(e: KeyboardEvent) {
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 'a') {
+      e.preventDefault();
+      const s = selectAll(ids());
+      selected = s.selected;
+      anchor = s.anchor;
+    } else if (e.key === 'Delete' && selected.size) {
+      e.preventDefault();
+      void removeSelected();
+    } else if (e.key === 'Escape' && selected.size) {
+      e.stopPropagation();
+      selected = new Set();
+      anchor = null;
+    }
+  }
+
   const days = $derived.by(() => {
     const out: { label: string; items: HistoryEntry[] }[] = [];
     for (const h of history) {
@@ -53,14 +100,24 @@
   });
 </script>
 
-<div class="list" bind:this={list}>
+<!-- The keys reach the list from the focused row; the list itself is not a control. -->
+<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+<div class="list" bind:this={list} role="group" tabindex="-1" {onkeydown}>
+  {#if selected.size}
+    <div class="bar">
+      <span>{selected.size} selected</span>
+      <button class="btn danger" onclick={removeSelected}><Icon name="trash" size={14} />Delete</button>
+    </div>
+  {/if}
   {#each days as d (d.label)}
     <div class="group">{d.label}</div>
     {#each d.items as h (h.id)}
       <button
         class="row leaf"
+        class:sel={selected.has(h.id)}
+        onmousedown={(e) => e.shiftKey && e.preventDefault()}
         title={h.url}
-        onclick={(e) => openBookmark(h.url, mouseHow(e))}
+        onclick={(e) => click(e, h)}
         onauxclick={(e) => e.button === 1 && openBookmark(h.url, 'background')}
       >
         <span class="tw"></span>
@@ -105,6 +162,24 @@
   }
   .row.leaf {
     padding-left: 4px;
+  }
+  .row.sel {
+    background: color-mix(in srgb, var(--accent) 22%, transparent);
+  }
+  .bar {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 2px;
+    padding: 4px 6px 4px 8px;
+    border-radius: var(--r-item);
+    background: var(--field);
+    font-size: 12px;
+    color: var(--text-2);
   }
   .row:hover {
     background: var(--hover);
