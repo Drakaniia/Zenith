@@ -34,9 +34,9 @@
       aria-label="Extensions"
     >
       <h3>Extensions</h3>
-      {#if extensions.user.length}
+      {#if extensions.usable.length}
         <div class="list">
-          {#each extensions.user as ext (ext.id)}
+          {#each extensions.usable as ext (ext.id)}
             {@const pinned = extensions.isPinned(ext.id)}
             <div class="row" class:off={!ext.enabled}>
               <button class="open" disabled={!ext.enabled} title={ext.popupUrl ? 'Open' : ext.optionsUrl ? 'Options' : ''} onclick={() => extensions.open(ext, at)}>

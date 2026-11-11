@@ -70,7 +70,14 @@
         <h1>Extensions</h1>
         <p class="lead">Install Chrome extensions from the Chrome Web Store: open the catalogue and click <strong>Add to Chrome</strong>, or open any downloaded <code>.crx</code>. They run on WebView2's Chromium extension support: content scripts, background service workers, storage and network rules work; a few Chrome-only APIs (some tab, window and identity APIs) are limited by WebView2.</p>
         {#if incognito}
-          <p class="lead"><strong>Extensions don't run in incognito windows.</strong> Manage them from a normal Zenith window.</p>
+          <p class="lead">
+            {#if settings.value.extensionsInIncognito}
+              <strong>Extensions you allow run in this incognito window.</strong>
+            {:else}
+              <strong>Extensions don't run in incognito windows.</strong>
+            {/if}
+            Manage them from a normal Zenith window.
+          </p>
         {/if}
       </div>
       <button class="btn primary catalogue" onclick={() => extensions.openStore()}><Icon name="globe" size={15} />Extension catalogue</button>
@@ -100,6 +107,17 @@
         <input type="checkbox" checked={settings.value.extensionUpdates} onchange={(e) => settings.update({ extensionUpdates: e.currentTarget.checked })} />
         Check the Chrome Web Store for extension updates when Zenith starts
       </label>
+      <label class="auto">
+        <input
+          type="checkbox"
+          disabled={incognito}
+          checked={settings.value.extensionsInIncognito}
+          onchange={(e) => {
+            if (!extensions.setAllowedInIncognito(e.currentTarget.checked)) e.currentTarget.checked = false;
+          }}
+        />
+        Allow extensions in incognito windows (they can see what you browse there)
+      </label>
     </div>
 
     {#if error}
@@ -125,6 +143,14 @@
                   <Icon name="arrowDownToLine" size={13} />{extensions.updating.includes(ext.id) ? 'Updating…' : `Update to ${upd.latest}`}
                 </button>
               {/if}
+              <button
+                class="btn ghost sm"
+                disabled={incognito || !settings.value.extensionsInIncognito}
+                title={settings.value.extensionsInIncognito ? 'Whether this extension runs in incognito windows' : 'Extensions are turned off in incognito windows above'}
+                onclick={() => void extensions.setIncognito(ext, !ext.incognito)}
+              >
+                <Icon name="incognito" size={13} />{ext.incognito ? 'Allowed in incognito' : 'Not in incognito'}
+              </button>
               {#if ext.popupUrl}<button class="btn ghost sm" onclick={() => browser.openGlance(ext.popupUrl!, browser.activeTab?.id)}><Icon name="eye" size={13} />Open popup</button>{/if}
               {#if ext.optionsUrl}<button class="btn ghost sm" onclick={() => browser.openTab(ext.optionsUrl!)}><Icon name="settings" size={13} />Options</button>{/if}
               <button class="btn ghost sm" onclick={() => extensions.togglePin(ext.id)}>

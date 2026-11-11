@@ -32,6 +32,7 @@ export interface RuntimeConfig {
   passwordGenerator: boolean;
   vaultAskEveryTime: boolean;
   vaultLockMinutes: number;
+  extensionsInIncognito: boolean;
 }
 
 export interface Appearance {

@@ -16,12 +16,13 @@
 pub mod commands;
 pub mod crx;
 mod install;
+pub mod private_profile;
 mod updates;
 
 pub use install::{accept, discard, download_from_store, install_folder, offer, refuse, stage_crx, stage_folder, Fetch};
 pub use updates::{check_updates, store_source, ExtensionUpdate};
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -50,6 +51,8 @@ pub struct ExtensionInfo {
     pub builtin: bool,
     /// Chrome Web Store id, for extensions that came from the store (updates, store link).
     pub store_id: Option<String>,
+    /// May run in incognito windows (when extensions are allowed there at all).
+    pub incognito: bool,
 }
 
 #[derive(Serialize, Deserialize, Default)]
@@ -59,6 +62,9 @@ struct Registry {
     /// extension id -> Chrome Web Store id
     #[serde(default)]
     sources: HashMap<String, String>,
+    /// Extensions the user kept out of incognito windows (allowed by default).
+    #[serde(default)]
+    incognito_off: HashSet<String>,
 }
 
 fn registry_path() -> PathBuf {
@@ -175,6 +181,7 @@ fn info_for(id: String, name: String, enabled: bool, registry: &Registry) -> Ext
         icon: manifest.and_then(|m| m.icon),
         builtin: !registry.folders.contains_key(&id),
         store_id: registry.sources.get(&id).cloned(),
+        incognito: !registry.incognito_off.contains(&id),
         id,
     }
 }
@@ -192,10 +199,15 @@ fn ext_fields(ext: &ICoreWebView2BrowserExtension) -> (String, String, bool) {
 }
 
 fn with_extensions(done: impl FnOnce(Result<Vec<ICoreWebView2BrowserExtension>, String>) + 'static) {
-    let profile = match profile() {
-        Ok(p) => p,
-        Err(e) => return done(Err(e)),
-    };
+    match profile() {
+        Ok(p) => list_in(p, done),
+        Err(e) => done(Err(e)),
+    }
+}
+
+/// The extensions of one WebView2 profile (the user's, or the incognito one).
+fn list_in(profile: ICoreWebView2Profile7, done: impl FnOnce(Result<Vec<ICoreWebView2BrowserExtension>, String>) + 'static) {
+
     let handler = ProfileGetBrowserExtensionsCompletedHandler::create(Box::new(move |result, list| {
         let mut out = Vec::new();
         if let (Ok(()), Some(list)) = (result.as_ref(), list) {
@@ -268,6 +280,19 @@ pub fn remove(id: String, done: impl FnOnce(Result<(), String>) + 'static) {
             }
         }
     });
+}
+
+/// Lets an extension run in incognito windows or keeps it out of them.
+pub fn set_incognito_allowed(id: &str, allowed: bool) -> Result<(), String> {
+    ensure_user_extension(id)?;
+    let mut registry = load_registry();
+    if allowed {
+        registry.incognito_off.remove(id);
+    } else {
+        registry.incognito_off.insert(id.to_string());
+    }
+    save_registry(&registry);
+    Ok(())
 }
 
 pub fn set_enabled(id: String, enabled: bool, done: impl FnOnce(Result<(), String>) + 'static) {

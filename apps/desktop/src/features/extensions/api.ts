@@ -17,6 +17,8 @@ export const extensionsApi = {
   extCheckUpdates: () => invoke<ExtensionUpdate[]>("ext_check_updates"),
   extUpdate: (id: string) => invoke<ExtensionInfo>("ext_update", { id }),
   extRemove: (id: string) => invoke<void>("ext_remove", { id }),
+  extSetIncognito: (id: string, allowed: boolean) =>
+    invoke<void>("ext_set_incognito", { id, allowed }),
   extSetEnabled: (id: string, enabled: boolean) =>
     invoke<void>("ext_set_enabled", { id, enabled }),
 };

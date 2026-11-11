@@ -8,6 +8,8 @@ export interface ExtensionInfo {
   popupUrl?: string | null;
   icon?: string | null;
   builtin: boolean;
+  /** Allowed to run in incognito windows (when they are allowed at all). */
+  incognito: boolean;
   /** Chrome Web Store id, for extensions installed from the store. */
   storeId?: string | null;
 }

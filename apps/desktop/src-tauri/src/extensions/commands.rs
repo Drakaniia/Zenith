@@ -16,7 +16,9 @@ pub async fn ext_list(app: AppHandle) -> CmdResult<Vec<ExtensionInfo>> {
 }
 
 async fn install_staged(app: &AppHandle, dir: PathBuf, store_id: Option<String>) -> CmdResult<ExtensionInfo> {
-    on_main_cb(app, move |done| extensions::install_folder(dir, store_id, move |r| done(r))).await?
+    let ext = on_main_cb(app, move |done| extensions::install_folder(dir, store_id, move |r| done(r))).await?;
+    extensions::private_profile::sync();
+    ext
 }
 
 #[tauri::command]
@@ -87,7 +89,9 @@ pub async fn ext_offer_accept(app: AppHandle, window: WebviewWindow, token: u64)
         extensions::discard(token);
         return Err("Installing extensions is not available in an incognito window".into());
     }
-    on_main_cb(&app, move |done| extensions::accept(token, move |r| done(r))).await?
+    let ext = on_main_cb(&app, move |done| extensions::accept(token, move |r| done(r))).await?;
+    extensions::private_profile::sync();
+    ext
 }
 
 #[tauri::command]
@@ -111,10 +115,22 @@ pub async fn ext_update(app: AppHandle, window: WebviewWindow, id: String) -> Cm
 
 #[tauri::command]
 pub async fn ext_remove(app: AppHandle, id: String) -> CmdResult<()> {
-    on_main_cb(&app, move |done| extensions::remove(id, move |r| done(r))).await?
+    let r = on_main_cb(&app, move |done| extensions::remove(id, move |r| done(r))).await?;
+    extensions::private_profile::sync();
+    r
+}
+
+#[tauri::command]
+pub async fn ext_set_incognito(window: WebviewWindow, id: String, allowed: bool) -> CmdResult<()> {
+    refuse_in_incognito(&window, "Changing where an extension runs")?;
+    blocking(move || extensions::set_incognito_allowed(&id, allowed)).await??;
+    extensions::private_profile::sync();
+    Ok(())
 }
 
 #[tauri::command]
 pub async fn ext_set_enabled(app: AppHandle, id: String, enabled: bool) -> CmdResult<()> {
-    on_main_cb(&app, move |done| extensions::set_enabled(id, enabled, move |r| done(r))).await?
+    let r = on_main_cb(&app, move |done| extensions::set_enabled(id, enabled, move |r| done(r))).await?;
+    extensions::private_profile::sync();
+    r
 }

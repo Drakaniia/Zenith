@@ -39,7 +39,7 @@ mod window_proc;
 
 pub use accelerators::{attach_accelerators, emit_shortcut, set_bindings};
 pub use chrome::{attach_chrome, detach_window, init_services, profile_override, shutdown, STARTED};
-pub use config::{apply_config, blocker_enabled, config, RuntimeConfig, BLOCKER};
+pub use config::{apply_config, blocker_enabled, config, set_extensions_in_incognito, RuntimeConfig, BLOCKER};
 pub use debug::{debug_layout, DebugLayout};
 pub(crate) use devtools::target_id_of;
 pub use devtools::{cdp_call, chrome_cdp};

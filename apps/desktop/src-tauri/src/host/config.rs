@@ -59,6 +59,8 @@ pub struct RuntimeConfig {
     pub vault_ask_every_time: bool,
     /// Lock after this many minutes without using a password (0: only when Zenith closes).
     pub vault_lock_minutes: u32,
+    /// Installed extensions may run in incognito windows (each one can still be kept out).
+    pub extensions_in_incognito: bool,
 }
 
 impl Default for RuntimeConfig {
@@ -90,6 +92,7 @@ impl Default for RuntimeConfig {
             password_generator: true,
             vault_ask_every_time: false,
             vault_lock_minutes: 15,
+            extensions_in_incognito: true,
         }
     }
 }
@@ -117,9 +120,12 @@ pub fn apply_config(cfg: RuntimeConfig) {
     }
     crate::torrents::apply_limits(&cfg);
     let button = cfg.media_button;
+    let ext_private = cfg.extensions_in_incognito;
+    let mut ext_private_changed = false;
     let changed = match CONFIG.write() {
         Ok(mut c) => {
             let changed = c.media_button != button;
+            ext_private_changed = c.extensions_in_incognito != ext_private;
             *c = cfg;
             changed
         }
@@ -129,6 +135,21 @@ pub fn apply_config(cfg: RuntimeConfig) {
         if let Some(app) = APP.get() {
             let _ = app.run_on_main_thread(move || crate::media::sniff::apply_button_setting(button));
         }
+    }
+    if ext_private_changed {
+        crate::extensions::private_profile::sync();
+    }
+}
+
+/// An incognito window pushes only this one setting: it decides what that window itself loads,
+/// and a window opened alone (`--incognito`) has had no normal window to push it.
+pub fn set_extensions_in_incognito(on: bool) {
+    let changed = match CONFIG.write() {
+        Ok(mut c) => std::mem::replace(&mut c.extensions_in_incognito, on) != on,
+        Err(_) => false,
+    };
+    if changed && APP.get().is_some() {
+        crate::extensions::private_profile::sync();
     }
 }
 

@@ -93,6 +93,7 @@ pub fn handler() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + Syn
         crate::extensions::commands::ext_update,
         crate::extensions::commands::ext_remove,
         crate::extensions::commands::ext_set_enabled,
+        crate::extensions::commands::ext_set_incognito,
         crate::platform::win::commands::default_browser_status,
         crate::platform::win::commands::default_browser_register,
         crate::platform::win::commands::default_browser_unregister,

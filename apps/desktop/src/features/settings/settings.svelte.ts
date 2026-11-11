@@ -91,6 +91,8 @@ export interface Settings {
   pinnedExtensions: string[];
   /** Check the Chrome Web Store for extension updates at startup. */
   extensionUpdates: boolean;
+  /** Installed extensions may run in incognito windows (each can still be kept out). */
+  extensionsInIncognito: boolean;
   /** When the startup extension update check last ran. */
   extensionUpdatesChecked?: number;
   shortcuts: Record<string, string[]>;
@@ -223,6 +225,7 @@ export function defaultSettings(): Settings {
     fastDownloadUnlocked: false,
     pinnedExtensions: [],
     extensionUpdates: true,
+    extensionsInIncognito: true,
     shortcuts: defaultShortcuts(),
     notesGlobalShortcut: true,
     notesSidebar: true,
@@ -398,6 +401,7 @@ class SettingsStore {
         passwordGenerator: s.passwordGenerator,
         vaultAskEveryTime: s.vaultAskEveryTime,
         vaultLockMinutes: s.vaultLockMinutes,
+        extensionsInIncognito: s.extensionsInIncognito !== false,
       },
       {
         theme: s.theme,

@@ -3,6 +3,7 @@ import { extensionsApi } from "./api";
 import { browser } from "$features/browser/browser.svelte";
 import { settings } from "$features/settings/settings.svelte";
 import { ui } from "$shared/ui/ui.svelte";
+import { incognito } from "$features/window/window.svelte";
 import type { ExtensionInfo, ExtensionUpdate, InstallEvent, InstallOffer } from "./types";
 import type { PopupAnchor } from "$features/browser/types";
 
@@ -13,6 +14,13 @@ export function storeUrl(storeId: string) {
 }
 
 export type PendingOffer = InstallOffer & { source: string; tabId: string };
+
+/** Extensions can read the pages of incognito windows they run in: the user confirms. */
+function confirmIncognito(name?: string) {
+  return window.confirm(
+    `${name ?? "Extensions"} will be able to see what you browse in incognito windows. Only allow extensions you trust. Allow?`,
+  );
+}
 
 class ExtensionStore {
   items = $state<ExtensionInfo[]>([]);
@@ -29,12 +37,36 @@ class ExtensionStore {
   private closedAt = 0;
 
   user = $derived(this.items.filter((e) => !e.builtin));
+  /** The extensions this window runs: all of them in a normal window, in an incognito one
+   *  only those allowed there. */
+  usable = $derived(this.user.filter((e) => this.runsHere(e)));
   builtin = $derived(this.items.filter((e) => e.builtin));
   pinned = $derived(
     settings.value.pinnedExtensions
       .map((id) => this.items.find((e) => e.id === id && !e.builtin))
-      .filter((e): e is ExtensionInfo => !!e && e.enabled),
+      .filter((e): e is ExtensionInfo => !!e && e.enabled && this.runsHere(e)),
   );
+
+  runsHere(e: ExtensionInfo) {
+    return !incognito || (settings.value.extensionsInIncognito && e.incognito);
+  }
+
+  async setIncognito(e: ExtensionInfo, allowed: boolean) {
+    if (allowed && !confirmIncognito(e.name)) return;
+    try {
+      await extensionsApi.extSetIncognito(e.id, allowed);
+    } catch (err) {
+      ui.toast(String(err), { icon: "alert" });
+    }
+    await this.refresh();
+  }
+
+  /** The global switch; turning it on asks first, since extensions can see incognito pages. */
+  setAllowedInIncognito(on: boolean) {
+    if (on && !confirmIncognito()) return false;
+    settings.update({ extensionsInIncognito: on });
+    return true;
+  }
 
   async refresh() {
     try {

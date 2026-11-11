@@ -30,6 +30,8 @@ pub async fn apply_settings(
     // (its settings changes last only as long as it is open).
     if !private(&window) {
         host::apply_config(config);
+    } else {
+        host::set_extensions_in_incognito(config.extensions_in_incognito);
     }
     let theme = match appearance.theme.as_str() {
         "light" => Some(tauri::Theme::Light),

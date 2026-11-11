@@ -268,6 +268,12 @@ pub fn create(opts: CreateOptions) -> Result<ICoreWebView2, String> {
         if let Ok(settings) = core.Settings() {
             let _ = settings.SetIsStatusBarEnabled(true);
             let _ = settings.SetIsWebMessageEnabled(false);
+            // The in-app vault is the only autofill source: WebView2's own password and
+            // general (address/form) autofill would show a second, duplicate dropdown.
+            if let Ok(s4) = settings.cast::<ICoreWebView2Settings4>() {
+                let _ = s4.SetIsPasswordAutosaveEnabled(false);
+                let _ = s4.SetIsGeneralAutofillEnabled(false);
+            }
         }
         if opts.muted {
             if let Ok(c8) = core.cast::<ICoreWebView2_8>() {
@@ -277,6 +283,8 @@ pub fn create(opts: CreateOptions) -> Result<ICoreWebView2, String> {
         if private {
             if let Ok(profile) = core.cast::<ICoreWebView2_13>().and_then(|c| c.Profile()) {
                 let _ = profile.SetPreferredColorScheme(scheme);
+                // Extensions the user allows in incognito windows load into this profile.
+                crate::extensions::private_profile::sync();
             }
         }
     }
