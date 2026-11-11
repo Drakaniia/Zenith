@@ -232,7 +232,7 @@ async function flush() {
       continue;
     }
     try {
-      await webviewApi.setLayout(layout.spec);
+      await withTimeout(webviewApi.setLayout(layout.spec), SET_LAYOUT_TIMEOUT_MS, "set_layout");
       lastSent = layout.key;
     } catch (e) {
       console.warn("set_layout failed", e);
@@ -252,8 +252,27 @@ async function flush() {
   }
 }
 
+/** A stalled backend call or a missing frame (a starved or occluded window) must not wedge the
+ *  layout loop: `applying` would stay set for good, the held layout clocks would never resume,
+ *  and the shell would stay frozen until the app restarts. */
+const SET_LAYOUT_TIMEOUT_MS = 5000;
+const PAINT_TIMEOUT_MS = 250;
+
+function withTimeout<T>(work: Promise<T>, ms: number, what: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`${what} timed out after ${ms} ms`)), ms);
+    work.then(
+      (v) => { clearTimeout(timer); resolve(v); },
+      (e) => { clearTimeout(timer); reject(e); },
+    );
+  });
+}
+
 function nextPaint() {
-  return new Promise<void>((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0)));
+  return new Promise<void>((resolve) => {
+    const fallback = setTimeout(resolve, PAINT_TIMEOUT_MS);
+    requestAnimationFrame(() => setTimeout(() => { clearTimeout(fallback); resolve(); }, 0));
+  });
 }
 
 export function paneRectOf(id: string): Rect | null {
