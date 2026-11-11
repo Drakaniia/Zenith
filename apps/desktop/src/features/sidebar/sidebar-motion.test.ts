@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { sidebarMotion, SIDEBAR_LAYOUT_MS } from './sidebar-motion.ts';
+import { sidebarMotion, SIDEBAR_ENTER_MS, SIDEBAR_ENTER_OFFSET, SIDEBAR_LAYOUT_MS } from './sidebar-motion.ts';
 
 function fixture(t: { after(fn: () => void): void }, reduced = false) {
   function global(name: string, value: unknown) {
@@ -49,6 +49,7 @@ function fixture(t: { after(fn: () => void): void }, reduced = false) {
     moveRoot(left: number, top: number) { origin = { left, top }; },
     replace() { nodes = [{ ...icon }]; },
     remove() { nodes = []; },
+    appear() { nodes = [icon]; },
   };
 }
 
@@ -98,6 +99,20 @@ test('stable keys connect replaced icons and ignore removed icons', (t) => {
   assert.equal(f.calls.length, 1);
   f.remove();
   assert.doesNotThrow(() => f.motion.capture());
+});
+
+test('an icon with no old position slides in from the sidebar edge instead of popping in', (t) => {
+  for (const [edge, from] of [[-1, -SIDEBAR_ENTER_OFFSET], [1, SIDEBAR_ENTER_OFFSET]] as const) {
+    const f = fixture(t);
+    f.remove();
+    const before = f.motion.capture();
+    f.appear();
+    f.motion.play(before, edge);
+    assert.equal(f.calls.length, 1);
+    assert.deepEqual(f.calls[0].frames, [{ translate: `${from}px 0px`, opacity: 0 }, { translate: '0px 0px', opacity: '1' }]);
+    assert.equal(f.calls[0].options.duration, SIDEBAR_ENTER_MS);
+    assert.equal(f.icon.style.opacity, '0');
+  }
 });
 
 test('reduced motion skips position animation', (t) => {

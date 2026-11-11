@@ -1,7 +1,8 @@
 <script lang="ts">
   import { flip } from 'svelte/animate';
   import { fly, slide } from 'svelte/transition';
-  import { tick } from 'svelte';
+  import { onMount, tick } from 'svelte';
+  import { rowEnter } from './row-enter';
   import Icon from '$shared/ui/Icon.svelte';
   import Favicon from '$shared/ui/Favicon.svelte';
   import TabItem from './TabItem.svelte';
@@ -40,6 +41,9 @@
   const pinnedRows = $derived(rows(looseIds));
   const tabRows = $derived(rows(regular));
   const loneSplit = (id: TabId) => !!split?.ids.includes(id);
+  // Rows of the first render appear as they are; only rows added later slide in.
+  let settled = $state(false);
+  onMount(() => { settled = true; });
 
   // ---------------------------------------------------------------- indicator and renaming
   let renaming = $state(false);
@@ -232,7 +236,7 @@
 
     <div class="list tabs" data-zone="tabs" role="tablist" aria-label="Tabs">
       {#each tabRows as row (row.key)}
-        <div animate:flip={{ duration: 160 }} in:fly={{ y: -6, duration: 160 }}>{@render tabRow(row)}</div>
+        <div animate:flip={{ duration: 160 }} use:rowEnter={settled}>{@render tabRow(row)}</div>
       {/each}
       <div class="list-tail" role="presentation" ondblclick={() => ui.openPalette('newTab')}></div>
     </div>

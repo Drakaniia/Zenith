@@ -1,6 +1,10 @@
 // Alt+B commits row geometry once; an unclipped icon layer connects the old and new positions.
 // Only translation animates, so favicons never stretch or rewrap with the sidebar's width.
+// An icon with no old position (it was not on screen before) slides in from the sidebar's own
+// edge while fading in, instead of popping into place.
 export const SIDEBAR_LAYOUT_MS = 300;
+export const SIDEBAR_ENTER_MS = 200;
+export const SIDEBAR_ENTER_OFFSET = 14;
 const EASING = 'linear(0, 0.139 10%, 0.373 20%, 0.58 30%, 0.733 40%, 0.835 50%, 0.901 60%, 0.941 70%, 0.966 80%, 0.98 90%, 1)';
 type Icon = HTMLElement | SVGElement;
 type Point = { x: number; y: number };
@@ -38,16 +42,18 @@ export function sidebarMotion(root: HTMLElement) {
       cancel();
       return before;
     },
-    play(before: Map<string, Point>) {
+    /** `edge`: -1 when the sidebar sits on the left, 1 on the right; new icons enter from there. */
+    play(before: Map<string, Point>, edge: -1 | 1 = -1) {
       if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
       const origin = root.getBoundingClientRect();
       const moves = Array.from(icons(), (icon) => {
         const r = icon.getBoundingClientRect();
-        const previous = visible(icon, r) ? before.get(icon.dataset.sidebarIcon!) : undefined;
-        return { icon, r, style: getComputedStyle(icon), x: previous ? previous.x - (r.left - origin.left) : 0, y: previous ? previous.y - (r.top - origin.top) : 0 };
+        const shown = visible(icon, r);
+        const previous = shown ? before.get(icon.dataset.sidebarIcon!) : undefined;
+        return { icon, r, style: getComputedStyle(icon), enter: shown && !previous, x: previous ? previous.x - (r.left - origin.left) : 0, y: previous ? previous.y - (r.top - origin.top) : 0 };
       });
-      for (const { icon, r, style, x, y } of moves) {
-        if (Math.abs(x) < 0.1 && Math.abs(y) < 0.1) continue;
+      for (const { icon, r, style, enter, x, y } of moves) {
+        if (!enter && Math.abs(x) < 0.1 && Math.abs(y) < 0.1) continue;
         const id = icon.dataset.sidebarIcon!;
         const ghost = icon.cloneNode(true) as Icon;
         ghost.removeAttribute('data-sidebar-icon');
@@ -55,10 +61,15 @@ export function sidebarMotion(root: HTMLElement) {
         const opacity = icon.style.opacity;
         icon.style.opacity = '0';
         layer.append(ghost);
-        const animation = ghost.animate(
-          [{ translate: `${x}px ${y}px` }, { translate: '0px 0px' }],
-          { duration: SIDEBAR_LAYOUT_MS, easing: EASING },
-        );
+        const animation = enter
+          ? ghost.animate(
+              [{ translate: `${edge * SIDEBAR_ENTER_OFFSET}px 0px`, opacity: 0 }, { translate: '0px 0px', opacity: style.opacity }],
+              { duration: SIDEBAR_ENTER_MS, easing: 'cubic-bezier(0.23, 1, 0.32, 1)', fill: 'backwards' },
+            )
+          : ghost.animate(
+              [{ translate: `${x}px ${y}px` }, { translate: '0px 0px' }],
+              { duration: SIDEBAR_LAYOUT_MS, easing: EASING },
+            );
         const restore = () => { icon.style.opacity = opacity; ghost.remove(); };
         running.set(id, { ghost, animation, restore });
         animation.onfinish = () => { restore(); running.delete(id); };

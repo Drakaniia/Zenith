@@ -40,7 +40,7 @@
         const current = ++revision;
         const before = motion.capture();
         void tick().then(() => {
-          if (current === revision) motion.play(before);
+          if (current === revision) motion.play(before, right ? 1 : -1);
         });
       });
     });
