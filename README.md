@@ -1,6 +1,6 @@
 # Zenith
 
-A lightweight, Zen-style web browser for Windows 11, built with Tauri 2 (Rust) and a Svelte 5 interface on top of the system's Microsoft Edge WebView2 engine.
+A lightweight, Zen-style web browser for Windows 11, powered by a bundled Chromium Embedded Framework (CEF) runtime, a Rust backend, and a Svelte 5 interface.
 
 Documentation: https://drakaniia.github.io/Zenith/
 
@@ -15,7 +15,7 @@ Documentation: https://drakaniia.github.io/Zenith/
 - **Tab sleeping**: background tabs are suspended, then unloaded after a timeout and woken at their scroll position. Tabs playing audio, downloading or in split view are exempt.
 - **Ad and tracker blocking** built in (EasyList, EasyPrivacy, custom lists), with a per-site toggle and a blocked-request counter.
 - **Video downloader** built in: saves the videos and audio that pages play, whether plain files or HLS and DASH streams, with a choice of quality and audio language and recording of live HLS streams. Start it from the button over a video, the download button in the address pill, the page menu or by right-clicking a video. Separate audio and video tracks are merged into one .mp4. DRM-protected video is never downloaded.
-- **Extensions** from the Chrome Web Store, `.crx` files or unpacked folders, where WebView2 supports them, with a toolbar menu, pinned extension icons and update checks for Web Store extensions (see [extension support](apps/docs/src/content/docs/contributing/extensions.md)).
+- **Extensions** from the Chrome Web Store, `.crx` files or unpacked folders, with action badges, native messaging consent controls, a toolbar menu, pinned icons and update checks (see [extension support](apps/docs/src/content/docs/contributing/extensions.md)).
 - **Password manager and wallet**: passwords and payment cards in an encrypted vault on your PC, unlocked with a master password (with a recovery key). Zenith offers to save logins and cards, fills them in on sign-in and checkout forms, and imports and exports passwords as CSV. See [passwords and payment cards](apps/docs/src/content/docs/guides/passwords.md).
 - **Profiles**: separate sets of settings, tabs, history, bookmarks, passwords, cookies and extensions, which can run side by side ([profiles](apps/docs/src/content/docs/guides/profiles.md)).
 - **Incognito windows** (Ctrl+Shift+P): no history, downloads or session are saved, and cookies and site data stay in memory until the last incognito tab closes.
@@ -27,19 +27,19 @@ Documentation: https://drakaniia.github.io/Zenith/
 
 ## Numbers
 
-|                                                                   | Measured on Zenith 0.1.0             | Target   |
-| ----------------------------------------------------------------- | ------------------------------------ | -------- |
-| Installer                                                         | 1.78 MB                              | < 10 MB  |
-| Startup to visible UI                                             | 650–900 ms                           | < 1 s    |
-| App overhead, 1 tab (Rust + chrome UI + WebView2 browser process) | 93 MB                                | < 120 MB |
-| Everything, 1 tab (including GPU and renderers)                   | 284 MB (Edge, fresh profile: 548 MB) |          |
-| Requests reaching the network on 6 news sites, blocking on        | −75 %                                |          |
+|                                                                   | Measured (CEF 156 release)             | Budget   |
+| ----------------------------------------------------------------- | -------------------------------------- | -------- |
+| Unpacked app + CEF runtime (`en-US.pak`)                          | 369.2 MB                               | ≤ 400 MB |
+| Warm startup to visible UI                                        | 489–579 ms                             | < 1 s    |
+| App overhead, 1 tab (Rust/CEF browser host + trusted UI renderer) | ~83 MB                                 | ≤ 120 MB |
+| Everything, 1 tab (including GPU and renderers)                   | 319.8 MB (Edge, fresh profile: 453.9 MB) | < Chrome/Edge/Firefox/Zen |
+| Requests reaching the network on 6 news sites, blocking on        | −75 %                                  |          |
 
-Details and method: [measurements](apps/docs/src/content/docs/contributing/measurements.md).
+Details and method: [measurements](apps/docs/src/content/docs/contributing/measurements.md) and [CEF Phase 4 report](apps/docs/src/content/docs/contributing/cef-phase-4.md).
 
 ## Requirements
 
-Windows 11, or Windows 10 22H2, plus the Microsoft Edge WebView2 runtime. It ships with Windows 11; the installer downloads it if it is missing.
+Windows 11 x64. No system WebView2 or external browser runtime is required; Zenith bundles its pinned CEF Chromium runtime.
 
 ## Install
 
@@ -53,7 +53,7 @@ The user guide and contributor docs are published at https://drakaniia.github.io
 
 ## Build from source
 
-Prerequisites: Rust 1.85+ with the MSVC toolchain, Node.js 22+, pnpm. Zenith is a pnpm monorepo (the browser in `apps/desktop`, the website in `apps/docs`); run these from the repository root. See [project structure](apps/docs/src/content/docs/contributing/project-structure.md) for where code lives.
+Prerequisites: Rust 1.90+ with the MSVC toolchain, Node.js 22+, pnpm, NSIS (`makensis` for packaging), and a pinned CEF binary directory (`CEF_PATH` via `export-cef-dir --force`). Zenith is a pnpm monorepo (the browser in `apps/desktop`, the website in `apps/docs`); run these from the repository root. See [project structure](apps/docs/src/content/docs/contributing/project-structure.md) for where code lives.
 
 ```powershell
 pnpm install
@@ -109,12 +109,11 @@ No telemetry and no accounts. Zenith itself only goes online to refresh filter l
 
 ## How it works
 
-See [architecture](apps/docs/src/content/docs/contributing/architecture.md): one WebView2 process tree shared by all tabs, tab webviews without any app IPC, floating UI by raising a transparent chrome window over the pages, shortcuts through WebView2's accelerator events, and blocking in `WebResourceRequested`.
+See [architecture](apps/docs/src/content/docs/contributing/architecture.md): a bundled, Windows-sandboxed CEF Chromium process tree, trusted Svelte UI on `zenith://app/` with an authenticated bridge isolated from untrusted pages, native child page surfaces, Rust-owned SQLite/JSON storage, and async ad/cosmetic blocking + local Safe Browsing on CEF's IO thread.
 
 ## Known limitations
 
-- Windows only (Linux/macOS would need a different webview layout).
-- Extension support is limited to what WebView2 implements: no action badges, limited tab APIs, and only Web Store extensions are checked for updates ([details](apps/docs/src/content/docs/contributing/extensions.md)).
-- Ad blocking works on domains (no cosmetic element hiding yet).
+- Windows 11 x64 only.
+- Extension compatibility is documented per CEF version in [CEF Phase 4 report](apps/docs/src/content/docs/contributing/cef-phase-4.md); full native `chrome.tabs.*` delegation requires building the custom CEF runtime in `cef-build/`.
 - The video downloader saves what a page streams over plain HTTP: files, HLS and DASH. DRM-protected video (Encrypted Media Extensions, encrypted HLS, DASH ContentProtection) is refused by design. Sites that use their own streaming protocols (YouTube, for example) can't be saved. Live DASH can't be recorded. Without FFmpeg, MPEG-TS streams stay .ts, and WebM audio and video that need merging are saved as two files. Download jobs don't survive a restart of the browser.
 - No sync between PCs. Form autofill covers logins and payment cards only; names, addresses and phone numbers can't be saved yet.

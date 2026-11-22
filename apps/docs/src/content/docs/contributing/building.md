@@ -7,10 +7,11 @@ Zenith is a pnpm monorepo. The browser lives in `apps/desktop` (Svelte UI in `sr
 
 ## Prerequisites
 
-- Windows 11, or Windows 10 22H2
-- Rust 1.85 or newer with the MSVC toolchain
+- Windows 11 x64
+- Rust 1.90 or newer with the MSVC toolchain
 - Node.js 22 or newer and pnpm
-- The Microsoft Edge WebView2 runtime (it ships with Windows 11)
+- Pinned CEF runtime directory (`export-cef-dir --force "$env:LOCALAPPDATA\zenith-cef\156.0.31"`, or set `CEF_PATH`)
+- NSIS (`makensis`) if building the installer with `pnpm app:build`
 
 ## Build
 
