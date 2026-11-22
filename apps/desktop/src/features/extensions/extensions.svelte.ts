@@ -4,7 +4,15 @@ import { browser } from "$features/browser/browser.svelte";
 import { settings } from "$features/settings/settings.svelte";
 import { ui } from "$shared/ui/ui.svelte";
 import { incognito } from "$features/window/window.svelte";
-import type { ExtensionInfo, ExtensionUpdate, InstallEvent, InstallOffer } from "./types";
+import type {
+  ActionBadge,
+  BadgeEvent,
+  ExtensionInfo,
+  ExtensionUpdate,
+  InstallEvent,
+  InstallOffer,
+  NativeHostInfo,
+} from "./types";
 import type { PopupAnchor } from "$features/browser/types";
 
 export const WEB_STORE_URL = "https://chromewebstore.google.com/category/extensions";
@@ -30,6 +38,10 @@ class ExtensionStore {
   checking = $state(false);
   updating = $state<string[]>([]);
   offers = $state<PendingOffer[]>([]);
+  /** Action badge states keyed by `<extId>` (global) or `<extId>:<tabId>` (per-tab). */
+  badges = $state<Record<string, ActionBadge>>({});
+  /** Discovered Windows native messaging hosts and their per-profile consent state. */
+  nativeHosts = $state<NativeHostInfo[]>([]);
   /** The toolbar's extensions popover, anchored at a point. */
   popover = $state<PopupAnchor | null>(null);
   /** When the popover last closed (not reactive): lets its toolbar button tell a closing
@@ -70,12 +82,53 @@ class ExtensionStore {
 
   async refresh() {
     try {
-      this.items = await extensionsApi.extList();
+      const [items, badgeList] = await Promise.all([
+        extensionsApi.extList(),
+        extensionsApi.extBadges().catch(() => [] as BadgeEvent[]),
+      ]);
+      this.items = items;
+      const map: Record<string, ActionBadge> = {};
+      for (const b of badgeList) {
+        map[b.tabId ? `${b.extensionId}:${b.tabId}` : b.extensionId] = b.badge;
+      }
+      this.badges = map;
       this.error = "";
     } catch (e) {
       this.error = String(e);
     } finally {
       this.loading = false;
+    }
+  }
+
+  handleBadge(e: BadgeEvent) {
+    const key = e.tabId ? `${e.extensionId}:${e.tabId}` : e.extensionId;
+    const next = { ...this.badges };
+    if (!e.badge.text && !e.badge.backgroundColor && !e.badge.textColor) {
+      delete next[key];
+    } else {
+      next[key] = e.badge;
+    }
+    this.badges = next;
+  }
+
+  badgeFor(extId: string, tabId?: string | null): ActionBadge | null {
+    return (tabId ? this.badges[`${extId}:${tabId}`] : undefined) ?? this.badges[extId] ?? null;
+  }
+
+  async refreshNativeHosts() {
+    try {
+      this.nativeHosts = await extensionsApi.extNativeHosts();
+    } catch {
+      this.nativeHosts = [];
+    }
+  }
+
+  async setNativeHostConsent(hostName: string, allowed: boolean) {
+    try {
+      await extensionsApi.extNativeHostConsent(hostName, allowed);
+      await this.refreshNativeHosts();
+    } catch (e) {
+      ui.toast(String(e), { icon: "alert" });
     }
   }
 

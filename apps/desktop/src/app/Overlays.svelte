@@ -2,6 +2,8 @@
 <script lang="ts">
   import Glance from '$features/browser/Glance.svelte';
   import PermissionPrompt from '$features/page/PermissionPrompt.svelte';
+  import SecurityPrompt from '$features/page/SecurityPrompt.svelte';
+  import MigrationNotice from '$features/window/MigrationNotice.svelte';
   import PasswordSavePrompt from '$features/passwords/PasswordSavePrompt.svelte';
   import CardSavePrompt from '$features/passwords/cards/CardSavePrompt.svelte';
   import PasswordSuggest from '$features/passwords/PasswordSuggest.svelte';
@@ -24,6 +26,8 @@
 
 <Glance />
 <PermissionPrompt />
+<SecurityPrompt />
+<MigrationNotice />
 <PasswordSavePrompt />
 <CardSavePrompt />
 <PasswordSuggest />

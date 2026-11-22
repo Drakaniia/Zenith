@@ -74,6 +74,8 @@ export interface Settings {
   ffmpegPath: string | null;
   /** Download updates in the background and install them when Zenith closes. */
   autoUpdate: boolean;
+  /** Opt in to pre-release preview builds (`preview.json`) before stable rollout. */
+  previewUpdates: boolean;
   /** Torrents: magnet links and downloaded .torrent files are downloaded by Zenith. */
   torrentsEnabled: boolean;
   /** Seed a finished torrent until it uploaded this many times its size (0: don't seed). */
@@ -216,6 +218,7 @@ export function defaultSettings(): Settings {
     useFfmpeg: true,
     ffmpegPath: null,
     autoUpdate: true,
+    previewUpdates: false,
     torrentsEnabled: true,
     torrentSeedRatio: 1,
     torrentDownKib: 0,
@@ -383,6 +386,7 @@ class SettingsStore {
         useFfmpeg: s.useFfmpeg,
         ffmpegPath: s.ffmpegPath,
         autoUpdate: s.autoUpdate,
+        previewUpdates: s.previewUpdates === true,
         torrentsEnabled: s.torrentsEnabled,
         torrentSeedRatio: Math.max(0, Number(s.torrentSeedRatio) || 0),
         torrentDownKib: Math.max(0, Math.round(Number(s.torrentDownKib) || 0)),

@@ -6,11 +6,15 @@
   import { ui } from '$shared/ui/ui.svelte';
   import { blockerApi } from '$features/blocker/api';
   import { historyApi } from '$features/history/api';
+  import { pageApi } from '$features/page/api';
   import { settingsApi } from '../api';
   import type { BlockerStats } from '$features/blocker/types';
+  import type { SafeBrowsingStatus } from '$features/page/types';
 
   const s = $derived(settings.value);
   let stats = $state<BlockerStats | null>(null);
+  let sbStatus = $state<SafeBrowsingStatus | null>(null);
+  let sbUpdating = $state(false);
   let updating = $state(false);
   let customList = $state('');
   let clearKinds = $state({ history: true, cookies: false, cache: true, downloads: false, permissions: false });
@@ -63,8 +67,21 @@
     }
   }
 
+  async function updateSafeBrowsing() {
+    sbUpdating = true;
+    try {
+      sbStatus = await pageApi.safebrowsingUpdate();
+      ui.toast(`Safe Browsing updated (${sbStatus.entries.toLocaleString()} entries)`, { icon: 'check' });
+    } catch (e) {
+      ui.toast(`Could not update Safe Browsing: ${e}`, { icon: 'alert' });
+    } finally {
+      sbUpdating = false;
+    }
+  }
+
   onMount(() => {
     void refreshBlocker(false);
+    void pageApi.safebrowsingStatus().then((r) => (sbStatus = r)).catch(() => {});
   });
 </script>
 
@@ -147,6 +164,15 @@
         {/each}
       </div>
     {/if}
+    <div class="row">
+      <div class="text">
+        <b>Local Safe Browsing</b>
+        <span>
+          {#if sbStatus}{sbStatus.entries.toLocaleString()} offline threat hashes ({sbStatus.feeds.join(', ')}). Browsed URLs never leave your device.{:else}Offline hash-prefix protection against malware and phishing sites.{/if}
+        </span>
+      </div>
+      <button class="btn sm" disabled={sbUpdating} onclick={updateSafeBrowsing}>{sbUpdating ? 'Updating…' : 'Update lists'}</button>
+    </div>
     <div class="row">
       <div class="text"><b>Block pop-ups</b><span>Windows a page opens without you clicking anything.</span></div>
       <Toggle checked={s.blockPopups} onchange={(v) => set('blockPopups', v)} label="Block pop-ups" />

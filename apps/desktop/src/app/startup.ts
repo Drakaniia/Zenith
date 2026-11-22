@@ -32,12 +32,14 @@ export async function startup(onMotionReady: () => void) {
   // does, so returning users never see it flash by.
   if (shouldOnboard(s, incognito)) onboarding.begin();
   const weekly = Date.now() - s.filterListsUpdated > 7 * 86_400_000;
-  void blockerApi
-    .blockerConfigure(settings.enabledLists(), weekly && s.blockerEnabled, s.blockerDisabledSites)
-    .then(() => {
-      if (weekly) settings.update({ filterListsUpdated: Date.now() });
-    })
-    .catch(() => {});
+  if (s.blockerEnabled) {
+    void blockerApi
+      .blockerConfigure(settings.enabledLists(), weekly, s.blockerDisabledSites)
+      .then(() => {
+        if (weekly) settings.update({ filterListsUpdated: Date.now() });
+      })
+      .catch(() => {});
+  }
   if (s.historyDays > 0) void historyApi.historyPrune(s.historyDays).catch(() => {});
 
   requestAnimationFrame(() => onMotionReady());

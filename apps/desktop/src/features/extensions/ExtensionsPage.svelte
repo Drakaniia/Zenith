@@ -60,7 +60,10 @@
     await refresh();
   }
 
-  onMount(() => void refresh());
+  onMount(() => {
+    void refresh();
+    void extensions.refreshNativeHosts();
+  });
 </script>
 
 <div class="page">
@@ -68,7 +71,7 @@
     <header>
       <div>
         <h1>Extensions</h1>
-        <p class="lead">Install Chrome extensions from the Chrome Web Store: open the catalogue and click <strong>Add to Chrome</strong>, or open any downloaded <code>.crx</code>. They run on WebView2's Chromium extension support: content scripts, background service workers, storage and network rules work; a few Chrome-only APIs (some tab, window and identity APIs) are limited by WebView2.</p>
+        <p class="lead">Install Chrome extensions from the Chrome Web Store: open the catalogue and click <strong>Add to Chrome</strong>, or open any downloaded <code>.crx</code>. They run on Zenith's bundled CEF Chromium runtime with action badges, isolated worlds, background service workers, and explicit native messaging consent.</p>
         {#if incognito}
           <p class="lead">
             {#if settings.value.extensionsInIncognito}
@@ -173,8 +176,29 @@
       {/each}
     </div>
 
+    {#if extensions.nativeHosts.length}
+      <h2>Native messaging hosts</h2>
+      <div class="list">
+        {#each extensions.nativeHosts as host (host.name)}
+          <div class="card">
+            <div class="icon"><Icon name="code" size={20} /></div>
+            <div class="meta">
+              <div class="name"><strong>{host.name}</strong><span class="ver">{host.source}</span></div>
+              <p class="desc">{host.description || host.path}</p>
+            </div>
+            <Toggle
+              checked={host.consented}
+              disabled={incognito}
+              label={`Allow native host ${host.name}`}
+              onchange={(v) => void extensions.setNativeHostConsent(host.name, v)}
+            />
+          </div>
+        {/each}
+      </div>
+    {/if}
+
     {#if builtinItems.length}
-      <h2>Built into WebView2</h2>
+      <h2>Built into browser</h2>
       <div class="builtins">
         {#each builtinItems as ext (ext.id)}
           <div class="builtin"><Icon name="puzzle" size={14} /><span>{ext.name}</span></div>

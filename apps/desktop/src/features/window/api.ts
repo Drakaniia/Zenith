@@ -20,6 +20,8 @@ export const windowApi = {
   windowsRestore: (keep: boolean) => invoke<void>("windows_restore", { keep }),
   /** Opens the developer tools of this window's own UI (Firefox's Browser Toolbox). */
   chromeDevtools: () => invoke<void>("chrome_devtools"),
+  /** Marks the one-time CEF upgrade notice as acknowledged. */
+  migrationNoticeDismiss: () => invoke<void>("migration_notice_dismiss"),
 };
 
 declare module "../../platform/ipc" {

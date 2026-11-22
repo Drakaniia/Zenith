@@ -22,8 +22,31 @@ export function handleOther(cmd: string, a: Record<string, unknown>): unknown {
     case "downloads_history":
     case "ext_list":
     case "ext_check_updates":
+    case "ext_badges":
+    case "ext_native_hosts":
     case "search_suggest":
       return [];
+    case "ext_sync_state":
+    case "ext_native_host_consent":
+    case "security_respond_cert":
+    case "security_respond_protocol":
+    case "security_respond_download":
+    case "security_safebrowsing_bypass":
+    case "migration_notice_dismiss":
+      return null;
+    case "security_safebrowsing_status":
+    case "security_safebrowsing_update":
+      return { enabled: true, entries: 4, updated: null, feeds: ["urlhaus", "openphish"] };
+    case "engine_info":
+      return {
+        cefVersion: "156.0.31+ge603d97",
+        chromiumVersion: "156.0.8078.100",
+        sandboxEnabled: true,
+        customCefBuild: false,
+        proprietaryCodecs: false,
+        widevineEnabled: false,
+        patches: [],
+      };
     case "blocker_configure":
     case "blocker_stats":
       return { rules: 93000, totalBlocked: 0, lists: [] };
