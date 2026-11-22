@@ -1,0 +1,30 @@
+From: Zenith Browser <dev@zenith.local>
+Subject: [PATCH 4/4] Suppress unsolicited Chromium vendor background traffic
+
+Eliminates the three unsolicited Google background requests observed during the
+Phase 4 fresh-profile idle network audit on stock CEF 156.0.31:
+  - https://update.googleapis.com/service/update2/json (ComponentUpdater)
+  - http://edgedl.me.gvt1.com/edgedl/diffgen-puffin/* (ComponentUpdater binary fetch)
+  - https://www.google.com/async/folae (Search AIM eligibility probe)
+
+diff --git a/chrome/browser/component_updater/registration.cc b/chrome/browser/component_updater/registration.cc
+index 1111112..2222223 100644
+--- a/chrome/browser/component_updater/registration.cc
++++ b/chrome/browser/component_updater/registration.cc
+@@ -80,6 +80,10 @@ void RegisterComponentsForUpdate() {
++  // Zenith privacy policy (Section 10.3): never auto-fetch Google components in background.
++  // Widevine CDM registration is explicit and user-consented via Patch 0002.
++  return;
++
+   auto* const cus = g_browser_process->component_updater();
+diff --git a/components/omnibox/browser/aim_eligibility_service.cc b/components/omnibox/browser/aim_eligibility_service.cc
+index 3333334..4444445 100644
+--- a/components/omnibox/browser/aim_eligibility_service.cc
++++ b/components/omnibox/browser/aim_eligibility_service.cc
+@@ -120,6 +120,9 @@ void AimEligibilityService::StartServerEligibilityRequest() {
++  // Zenith privacy policy (Section 10.3): disable unsolicited Google /async/folae probes.
++  return;
++
+   if (!IsServerEligibilityEnabled()) {
+     return;
+   }

@@ -1,0 +1,72 @@
+From: Zenith Browser <dev@zenith.local>
+Subject: [PATCH 1/3] Expose non-muting OnAudioStateChanged on CefDisplayHandler
+
+Replaces the Phase 3 per-frame JavaScript audio-hook shortcut with Chromium's
+authoritative WebContentsObserver::OnAudioStateChanged signal on the UI thread.
+
+diff --git a/include/cef_display_handler.h b/include/cef_display_handler.h
+index 1111111..2222222 100644
+--- a/include/cef_display_handler.h
++++ b/include/cef_display_handler.h
+@@ -260,6 +260,12 @@ class CefDisplayHandler : public virtual CefBaseRefCounted {
+                                       CefRefPtr<CefFrame> frame,
+                                       const CefSize& new_size) {}
+ 
++  ///
++  /// Called when the browser starts or stops emitting audible sound.
++  /// Does not intercept or mute audio playback.
++  ///
++  /*--cef()--*/
++  virtual void OnAudioStateChanged(CefRefPtr<CefBrowser> browser, bool audible) {}
+ };
+ 
+ #endif  // CEF_INCLUDE_CEF_DISPLAY_HANDLER_H_
+diff --git a/libcef/browser/browser_host_base.cc b/libcef/browser/browser_host_base.cc
+index 3333333..4444444 100644
+--- a/libcef/browser/browser_host_base.cc
++++ b/libcef/browser/browser_host_base.cc
+@@ -1210,6 +1210,16 @@ void CefBrowserHostBase::OnWebContentsDestroyed(
+   }
+ }
+ 
++void CefBrowserHostBase::OnAudioStateChanged(bool audible) {
++  CEF_REQUIRE_UIT();
++  if (auto client = GetClient()) {
++    if (auto handler = client->GetDisplayHandler()) {
++      handler->OnAudioStateChanged(this, audible);
++    }
++  }
++}
++
+ void CefBrowserHostBase::NotifyMoveOrResizeStarted() {
+   CEF_REQUIRE_UIT();
+   if (platform_delegate_) {
+diff --git a/libcef/browser/browser_host_base.h b/libcef/browser/browser_host_base.h
+index 5555555..6666666 100644
+--- a/libcef/browser/browser_host_base.h
++++ b/libcef/browser/browser_host_base.h
+@@ -285,6 +285,7 @@ class CefBrowserHostBase : public CefBrowserHost,
+   virtual void OnSetFocus(cef_focus_source_t source);
+   virtual void OnWebContentsCreated(content::WebContents* new_contents);
+   virtual void OnWebContentsDestroyed(content::WebContents* web_contents);
++  void OnAudioStateChanged(bool audible);
+ 
+   // Returns the frame associated with the specified |identifier|.
+   CefRefPtr<CefFrame> GetFrameForIdentifier(const std::string& identifier);
+diff --git a/libcef/browser/browser_contents_delegate.cc b/libcef/browser/browser_contents_delegate.cc
+index 7777777..8888888 100644
+--- a/libcef/browser/browser_contents_delegate.cc
++++ b/libcef/browser/browser_contents_delegate.cc
+@@ -410,6 +410,12 @@ void CefBrowserContentsDelegate::TitleWasSet(content::NavigationEntry* entry) {
+   }
+ }
+ 
++void CefBrowserContentsDelegate::OnAudioStateChanged(bool audible) {
++  if (auto browser = GetBrowser()) {
++    browser->OnAudioStateChanged(audible);
++  }
++}
++
+ void CefBrowserContentsDelegate::DidUpdateFaviconURL(
+     content::RenderFrameHost* render_frame_host,
+     const std::vector<blink::mojom::FaviconURLPtr>& candidates) {

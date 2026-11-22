@@ -1,0 +1,70 @@
+{
+  "schemaVersion": 1,
+  "zenithVersion": "0.1.13",
+  "target": "windows-x64",
+  "cef": {
+    "version": "156.0.31+ge603d97+chromium-156.0.8078.100",
+    "branch": "8078",
+    "commit": "e603d97",
+    "rustCrate": "cef = \"=156.7.0\"",
+    "supportStatus": "current"
+  },
+  "chromium": {
+    "version": "156.0.8078.100",
+    "securityBaseline": "156.0.8078.100"
+  },
+  "toolchain": {
+    "os": "Windows 11 x64",
+    "visualStudio": "2022 (17.10+) or Build Tools 18 with Desktop C++ + ATL/MFC",
+    "windowsSdk": "10.0.26100.0",
+    "depotTools": "required",
+    "minFreeDiskGb": 180,
+    "minRamGb": 32
+  },
+  "mediaAndDrm": {
+    "proprietaryCodecs": true,
+    "ffmpegBranding": "Chrome",
+    "codecs": ["H.264", "AAC"],
+    "widevineEnabled": true,
+    "widevineDistribution": "User-consented external CDM directory registration; no proprietary Google CDM binaries committed to this repository. Redistribution requires a Google Widevine license agreement and patent-pool review."
+  },
+  "budgets": {
+    "unpackedRuntimeMaxMb": 400,
+    "installerMaxMb": 150,
+    "prunedLocales": ["en-US.pak"]
+  },
+  "patches": [
+    {
+      "file": "patches/0001-zenith-audio-state-changed.patch",
+      "repo": "cef",
+      "purpose": "Expose WebContentsObserver::OnAudioStateChanged on CefDisplayHandler without muting audio.",
+      "securityImpact": "None; read-only boolean state callback on UI thread.",
+      "owner": "host-domain",
+      "removalCondition": "Remove when upstream CEF exposes non-muting OnAudioStateChanged on CefDisplayHandler."
+    },
+    {
+      "file": "patches/0002-zenith-widevine-cdm-registration.patch",
+      "repo": "cef",
+      "purpose": "Allow explicit user-consented Widevine CDM path registration without Google component updater background traffic.",
+      "securityImpact": "Low; validates manifest signature/path before passing to content::CdmRegistry; keeps sandboxed CDM utility process.",
+      "owner": "media-domain",
+      "removalCondition": "Remove if upstream CEF provides a standalone Widevine registration API independent of component updater."
+    },
+    {
+      "file": "patches/0003-zenith-extensions-tabs-windows-bridge.patch",
+      "repo": "chromium",
+      "purpose": "Bind chrome.tabs.*, chrome.windows.*, and chrome.action badge updates natively to Zenith's Space, split-view, Glance, Essentials, and sleeping tab model.",
+      "securityImpact": "Medium; enforces permission redaction and per-profile/incognito isolation at the extension API boundary; reviewed at every CEF upgrade.",
+      "owner": "extensions-domain",
+      "removalCondition": "Retain while Chromium's extension TabStripModel assumes a Chrome browser window rather than Zenith's host."
+    },
+    {
+      "file": "patches/0004-zenith-disable-vendor-background-traffic.patch",
+      "repo": "chromium",
+      "purpose": "Disable unsolicited Chromium ComponentUpdater (update.googleapis.com / edgedl.me.gvt1.com) and Search AIM eligibility (/async/folae) background requests identified by the Phase 4 idle network audit.",
+      "securityImpact": "None; removes unwanted background HTTP/HTTPS traffic without affecting sandbox, TLS, or user-initiated requests.",
+      "owner": "security-domain",
+      "removalCondition": "Remove if upstream CEF exposes a runtime switch that completely disables shared_url_loader_factory component and omnibox background probes."
+    }
+  ]
+}
