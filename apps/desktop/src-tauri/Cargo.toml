@@ -14,6 +14,12 @@ crate-type = ["cdylib", "rlib"]
 [features]
 # Honour ZENITH_REMOTE_DEBUG_PORT in release builds (always honoured in debug builds).
 remote-debug = []
+signer = ["dep:minisign"]
+
+[[bin]]
+name = "zenith-sign"
+path = "src/bin/zenith-sign.rs"
+required-features = ["signer"]
 
 [dependencies]
 # Pinned official prebuilt CEF binary distribution (Chromium 156.0.31).
@@ -23,6 +29,7 @@ cef = "=156.7.0"
 adblock = { version = "0.13", default-features = false, features = ["embedded-domain-resolver", "full-regex-handling"] }
 url = "2"
 minisign-verify = "0.3"
+minisign = { version = "0.10", optional = true }
 semver = "1"
 png = "0.18"
 

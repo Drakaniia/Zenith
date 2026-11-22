@@ -62,11 +62,10 @@ jobs:
             exit 1
           }
 
-      - name: Install NSIS and minisign
+      - name: Install NSIS
         shell: pwsh
         run: |
           if (-not (Get-Command makensis -ErrorAction SilentlyContinue)) { choco install -y nsis }
-          if (-not (Get-Command minisign -ErrorAction SilentlyContinue)) { choco install -y minisign }
 
       - name: Export pinned CEF runtime
         shell: pwsh
