@@ -163,7 +163,7 @@ fn report(tab_id: &str) -> Result<Report, String> {
     let shared = crate::host::with_host(|h| h.tabs.get(tab_id).map(|t| t.shared.clone()))
         .flatten()
         .ok_or("This tab is not loaded")?;
-    let media = shared.media.borrow();
+    let media = shared.media.lock().map_err(|_| "media state unavailable")?;
     Ok(Report { items: media.items(), blobs: media.blobs, drm: media.drm, ffmpeg: job::find_ffmpeg().is_some() })
 }
 
@@ -179,11 +179,15 @@ pub fn list(tab_id: &str, scan: bool, done: impl FnOnce(Result<Report, String>) 
 
 /// Starts downloading an item. Runs on the UI thread.
 pub fn download(tab_id: &str, item_id: u32, variant: Option<String>, audio: Option<String>) -> Result<i64, String> {
-    let (shared, core) = crate::host::with_host(|h| h.tabs.get(tab_id).map(|t| (t.shared.clone(), t.core())))
+    let shared = crate::host::with_host(|h| h.tabs.get(tab_id).map(|t| t.shared.clone()))
         .flatten()
         .ok_or("This tab is not loaded")?;
-    let ua = sniff::user_agent(&core);
-    let request = shared.media.borrow().request(tab_id, item_id, variant.as_deref(), audio.as_deref(), &ua)?;
+    let ua = sniff::default_user_agent();
+    let request = shared
+        .media
+        .lock()
+        .map_err(|_| "media state unavailable")?
+        .request(tab_id, item_id, variant.as_deref(), audio.as_deref(), &ua)?;
     if !shared.private {
         if let Some(name) = crate::downloads::already_downloaded(&request.source_url) {
             return Err(crate::downloads::already_message(&name));

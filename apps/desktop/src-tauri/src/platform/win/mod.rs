@@ -1,7 +1,9 @@
 //! Windows platform services: default-browser registration, shell integration, memory stats.
 
 pub mod commands;
+pub mod dialog;
 pub mod drag;
+pub mod window_icon;
 
 use std::collections::{HashMap, HashSet};
 use std::path::Path;

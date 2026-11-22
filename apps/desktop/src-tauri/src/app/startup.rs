@@ -1,18 +1,16 @@
-//! Startup: installer/maintenance flags handled before anything else, the web addresses a
-//! command line asks for, and a second launch handing its request to the running instance.
+//! Startup: maintenance flags handled before single-instance check, command-line URLs, and
+//! handing a second launch's arguments to the running profile instance.
 
 use std::collections::HashMap;
 use std::sync::Mutex;
 
-use tauri::{AppHandle, Manager};
-
+use super::runtime::AppHandle;
 use super::window::create_window;
 use crate::platform::{urls, win};
 use crate::{host, incognito, profiles};
 
 /// Web addresses on a command line (skipping the program itself and `--profile <id>`).
 pub(crate) fn url_args(argv: &[String]) -> Vec<String> {
-    // Torrents (magnet links, .torrent files) are `torrents::open_args`'s.
     let torrents = crate::torrents::torrent_args(argv);
     profiles::without_flag(argv)
         .iter()
@@ -22,8 +20,7 @@ pub(crate) fn url_args(argv: &[String]) -> Vec<String> {
         .collect()
 }
 
-/// A second launch (e.g. a link clicked in another app, or the jump list's incognito entry)
-/// hands its command line to the running instance of the same profile.
+/// A second launch hands its command line to the running instance of the same profile.
 pub(crate) fn on_second_instance(app: &AppHandle, argv: Vec<String>) {
     let urls = url_args(&argv);
     crate::torrents::open_args(&argv);
@@ -31,27 +28,24 @@ pub(crate) fn on_second_instance(app: &AppHandle, argv: Vec<String>) {
         incognito::open_window(urls);
         return;
     }
-    match app.get_webview_window(&host::primary_window()) {
+    let app2 = app.clone();
+    let _ = app.run_on_main_thread(move || match app2.get_window(&host::primary_window()) {
         Some(w) => {
             let _ = w.unminimize();
             let _ = w.show();
             let _ = w.set_focus();
             host::emit_to_window(w.label(), "open-urls", urls);
         }
-        // Only incognito windows are open: bring the normal window back.
         None => {
             set_startup_urls(host::MAIN, urls);
-            let app = app.clone();
-            std::thread::spawn(move || {
-                if let Err(e) = create_window(&app, host::MAIN) {
-                    eprintln!("[zenith] could not reopen the window: {e}");
-                }
-            });
+            if let Err(e) = create_window(&app2, host::MAIN) {
+                eprintln!("[zenith] could not reopen the window: {e}");
+            }
         }
-    }
+    });
 }
 
-/// Installer/maintenance entry points that must run before the single-instance check.
+/// Installer/maintenance entry points that run before single-instance locking or CEF startup.
 pub(crate) fn maintenance_command() -> Option<i32> {
     let arg = std::env::args().nth(1)?;
     let code = match arg.as_str() {
@@ -72,7 +66,6 @@ pub(crate) fn maintenance_command() -> Option<i32> {
     Some(code)
 }
 
-/// Addresses each window opens once its UI is ready, by window label.
 static STARTUP_URLS: Mutex<Option<HashMap<String, Vec<String>>>> = Mutex::new(None);
 
 pub fn set_startup_urls(label: &str, urls: Vec<String>) {

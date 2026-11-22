@@ -145,10 +145,7 @@ pub fn store_id(input: &str) -> Option<String> {
 
 /// Chromium version reported to the store (extensions may require a minimum version).
 pub fn prodversion() -> String {
-    wry::webview_version()
-        .ok()
-        .filter(|v| v.chars().next().is_some_and(|c| c.is_ascii_digit()))
-        .unwrap_or_else(|| "140.0.0.0".into())
+    "156.0.8078.100".into()
 }
 
 pub fn download_url(id: &str, prodversion: &str) -> String {

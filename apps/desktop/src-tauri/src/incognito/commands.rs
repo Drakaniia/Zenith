@@ -4,7 +4,6 @@ use crate::app::command::CmdResult;
 use crate::platform::urls;
 
 /// Opens a new incognito window in this process, optionally with web addresses to load.
-#[tauri::command]
 pub async fn incognito_open(urls: Option<Vec<String>>) -> CmdResult<()> {
     let urls: Vec<String> = urls
         .unwrap_or_default()

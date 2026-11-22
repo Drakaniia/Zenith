@@ -1,366 +1,573 @@
-//! WebView2 event wiring for a tab. `wire` attaches the handlers group by group, in a fixed
-//! order; new-window requests, permissions, web requests and the context menu live in their
-//! own files.
+//! CEF `Client` and per-tab handlers: lifecycle, navigation, display/favicons/fullscreen,
+//! focus, keyboard accelerators, request/resource interception, permissions, downloads, find,
+//! and context menus.
 
-use std::rc::Rc;
+use std::sync::atomic::Ordering;
+use std::sync::Arc;
 
 use base64::Engine as _;
-use webview2_com::Microsoft::Web::WebView2::Win32::*;
-use webview2_com::*;
-use windows::core::{Interface, BOOL, HSTRING, PWSTR};
-use windows::Win32::System::Com::IStream;
-use wry::WebViewExtWindows;
+use cef::*;
+use windows::Win32::Foundation::HWND;
 
-use super::context_menu::attach_context_menu;
-use super::new_window::wire_new_window;
-use super::permissions::wire_permissions;
-use super::requests::attach_blocker;
-use super::{is_web, take, TabPatch, TabRef, TabShared};
-use crate::host::{config, db, emit_tab, post, with_win, Focus};
+use super::context_menu::TabContextMenuHandler;
+use super::find::TabFindHandler;
+use super::new_window::handle_before_popup;
+use super::permissions::TabPermissionHandler;
+use super::requests::TabResourceRequestHandler;
+use super::{is_web, zoom_factor_to_level, TabPatch, TabRef, TabShared};
+use crate::app::bridge::GENERATIONS;
+use crate::app::security::BrowserRole;
+use crate::host::cef_app::{cef_str, opt_cef_str};
+use crate::host::{
+    cdp_call, config, db, emit_tab, handle_pre_key_event, maybe_drop_incognito_context, post,
+    set_fullscreen_tab, target_id_of, track_browser, untrack_browser, with_host, with_win, Focus,
+};
 use crate::platform::urls::host_of;
 
-/// Wires every WebView2 event Zenith cares about. Handlers capture `TabShared` instead of the
-/// host so they keep working while the host is borrowed elsewhere.
-pub(super) fn wire(view: &wry::WebView, core: &ICoreWebView2, env: &ICoreWebView2Environment, s: Rc<TabShared>) {
-    let controller = view.controller();
-    crate::host::attach_accelerators(&controller, Some(s.clone()), &s.window);
-    unsafe {
-        wire_focus_zoom(&controller, &s);
-        wire_navigation(core, &s);
-        wire_page_state(core, &s);
-        wire_new_window(core, &s);
-        wire_lifecycle(core, &s);
-        wire_permissions(core, &s);
-        attach_blocker(core, env, s.clone());
-        attach_context_menu(core, env, s.clone());
+wrap_download_image_callback! {
+    struct FaviconDownloadCb {
+        tab_id: String,
     }
-}
 
-/// Controller events: focus and zoom.
-unsafe fn wire_focus_zoom(controller: &ICoreWebView2Controller, s: &Rc<TabShared>) {
-    let mut token = 0i64;
-    unsafe {
-        // Focus tracking (to restore the page focus after Alt+Tab).
-        let sh = s.clone();
-        let _ = controller.add_GotFocus(
-            &FocusChangedEventHandler::create(Box::new(move |_, _| {
-                let id = sh.id.clone();
-                // May fire synchronously inside a layout pass; record it afterwards.
-                let focused = id.clone();
-                let window = sh.window.clone();
-                post(move || {
-                    with_win(&window, |w| w.focus = Focus::Tab(focused));
-                });
-                emit_tab(&id.clone(), "tab-focused", TabRef { id });
-                Ok(())
-            })),
-            &mut token,
-        );
-
-        // Zoom changes made inside WebView2 (Ctrl+wheel, pinch). Zoom set by Zenith is reported
-        // by `command("zoom")` itself.
-        let sh = s.clone();
-        if let Err(e) = controller.add_ZoomFactorChanged(
-            &ZoomFactorChangedEventHandler::create(Box::new(move |sender, _| {
-                if let Some(c) = sender {
-                    let mut z = 1.0;
-                    c.ZoomFactor(&mut z)?;
-                    TabPatch { zoom: Some(z), ..TabPatch::new(&sh.id) }.send();
-                }
-                Ok(())
-            })),
-            &mut token,
+    impl DownloadImageCallback {
+        fn on_download_image_finished(
+            &self,
+            _image_url: Option<&CefString>,
+            http_status_code: ::std::os::raw::c_int,
+            image: Option<&mut Image>,
         ) {
-            eprintln!("[zenith] ZoomFactorChanged unavailable: {e}");
+            if http_status_code != 200 {
+                return;
+            }
+            let Some(img) = image else { return };
+            let mut pw = 0;
+            let mut ph = 0;
+            if let Some(bin) = img.as_png(1.0, 1, Some(&mut pw), Some(&mut ph)) {
+                let len = bin.size();
+                if len > 0 && len <= 512 * 1024 {
+                    let mut buf = vec![0u8; len];
+                    let copied = bin.data(Some(&mut buf), 0);
+                    if copied > 0 {
+                        let b64 = base64::engine::general_purpose::STANDARD.encode(&buf[..copied]);
+                        TabPatch {
+                            favicon: Some(format!("data:image/png;base64,{b64}")),
+                            ..TabPatch::new(&self.tab_id)
+                        }
+                        .send();
+                    }
+                }
+            }
         }
     }
 }
 
-/// Navigation, address, history and title changes (history is recorded here).
-unsafe fn wire_navigation(core: &ICoreWebView2, s: &Rc<TabShared>) {
-    let mut token = 0i64;
-    unsafe {
-        let sh = s.clone();
-        let _ = core.add_NavigationStarting(
-            &NavigationStartingEventHandler::create(Box::new(move |_, args| {
-                let Some(args) = args else { return Ok(()) };
-                let mut uri = PWSTR::null();
-                args.Uri(&mut uri)?;
-                let uri = take(uri);
-                // A magnet link: a torrent download, not a page.
-                if crate::torrents::open_from_page(&uri, &sh.id, sh.private, &sh.window) {
-                    args.SetCancel(true)?;
-                    return Ok(());
-                }
-                *sh.page_host.borrow_mut() = host_of(&uri).unwrap_or("").to_ascii_lowercase();
-                *sh.nav_uri.borrow_mut() = uri;
-                sh.blocked.set(0);
-                sh.requests.set(0);
-                sh.media.borrow_mut().reset();
-                crate::media::sniff::notify(&sh);
-                crate::host::autofill::on_navigation(&sh.id);
-                TabPatch {
-                    loading: Some(true),
-                    blocked: Some(0),
-                    crashed: Some(String::new()),
-                    error: Some(String::new()),
-                    ..TabPatch::new(&sh.id)
-                }
-                .send();
-                Ok(())
-            })),
-            &mut token,
-        );
+wrap_life_span_handler! {
+    struct TabLifeSpanHandler {
+        shared: Arc<TabShared>,
+    }
 
-        let sh = s.clone();
-        // Links to other apps' schemes: magnet links stay in Zenith (for when WebView2 reports
-        // them here rather than to NavigationStarting).
-        if let Ok(c18) = core.cast::<ICoreWebView2_18>() {
-            let sm = s.clone();
-            let _ = c18.add_LaunchingExternalUriScheme(
-                &LaunchingExternalUriSchemeEventHandler::create(Box::new(move |_, args| {
-                    let Some(args) = args else { return Ok(()) };
-                    let mut uri = PWSTR::null();
-                    args.Uri(&mut uri)?;
-                    if crate::torrents::open_from_page(&take(uri), &sm.id, sm.private, &sm.window) {
-                        args.SetCancel(true)?;
-                    }
-                    Ok(())
-                })),
-                &mut token,
-            );
+    impl LifeSpanHandler {
+        fn on_before_popup(
+            &self,
+            browser: Option<&mut Browser>,
+            frame: Option<&mut Frame>,
+            _popup_id: ::std::os::raw::c_int,
+            target_url: Option<&CefString>,
+            target_frame_name: Option<&CefString>,
+            target_disposition: WindowOpenDisposition,
+            user_gesture: ::std::os::raw::c_int,
+            popup_features: Option<&PopupFeatures>,
+            window_info: Option<&mut WindowInfo>,
+            client: Option<&mut Option<Client>>,
+            settings: Option<&mut BrowserSettings>,
+            extra_info: Option<&mut Option<DictionaryValue>>,
+            _no_javascript_access: Option<&mut ::std::os::raw::c_int>,
+        ) -> ::std::os::raw::c_int {
+            handle_before_popup(
+                &self.shared,
+                browser,
+                frame,
+                &opt_cef_str(target_url),
+                &opt_cef_str(target_frame_name),
+                target_disposition,
+                user_gesture != 0,
+                popup_features,
+                window_info,
+                client,
+                settings,
+                extra_info,
+            )
         }
-        let _ = core.add_SourceChanged(
-            &SourceChangedEventHandler::create(Box::new(move |sender, _| {
-                let Some(core) = sender else { return Ok(()) };
-                let mut uri = PWSTR::null();
-                core.Source(&mut uri)?;
-                let uri = take(uri);
-                *sh.url.borrow_mut() = uri.clone();
-                TabPatch { url: Some(uri), ..TabPatch::new(&sh.id) }.send();
-                Ok(())
-            })),
-            &mut token,
-        );
 
-        let sh = s.clone();
-        let _ = core.add_HistoryChanged(
-            &HistoryChangedEventHandler::create(Box::new(move |sender, _| {
-                let Some(core) = sender else { return Ok(()) };
-                let (mut back, mut fwd) = (BOOL::default(), BOOL::default());
-                core.CanGoBack(&mut back)?;
-                core.CanGoForward(&mut fwd)?;
-                TabPatch {
-                    can_go_back: Some(back.as_bool()),
-                    can_go_forward: Some(fwd.as_bool()),
-                    ..TabPatch::new(&sh.id)
-                }
-                .send();
-                Ok(())
-            })),
-            &mut token,
-        );
+        fn on_after_created(&self, browser: Option<&mut Browser>) {
+            let Some(browser) = browser else { return };
+            let bid = browser.identifier();
+            track_browser(browser);
+            let gen = GENERATIONS
+                .lock()
+                .map(|mut g| {
+                    g.register(
+                        bid,
+                        BrowserRole::UntrustedPage {
+                            tab_id: self.shared.id.clone(),
+                            window: self.shared.window.clone(),
+                        },
+                    )
+                })
+                .unwrap_or(0);
+            self.shared.generation.store(gen, Ordering::SeqCst);
 
-        let sh = s.clone();
-        let _ = core.add_NavigationCompleted(
-            &NavigationCompletedEventHandler::create(Box::new(move |sender, args| {
-                let (Some(core), Some(args)) = (sender, args) else { return Ok(()) };
-                let mut ok = BOOL::default();
-                args.IsSuccess(&mut ok)?;
-                let mut status = COREWEBVIEW2_WEB_ERROR_STATUS::default();
-                let _ = args.WebErrorStatus(&mut status);
-                let mut title = PWSTR::null();
-                core.DocumentTitle(&mut title)?;
-                let title = take(title);
-                let url = sh.url.borrow().clone();
-                let error = if ok.as_bool() || status == COREWEBVIEW2_WEB_ERROR_STATUS_OPERATION_CANCELED {
-                    String::new()
-                } else {
-                    format!("{}", status.0)
-                };
-                TabPatch {
-                    loading: Some(false),
-                    blocked: Some(sh.blocked.get()),
-                    title: (!title.is_empty()).then(|| title.clone()),
-                    error: Some(error),
-                    ..TabPatch::new(&sh.id)
+            let browser_hwnd = browser
+                .host()
+                .map(|h| HWND(h.window_handle().0.cast()))
+                .unwrap_or_default();
+            let id = self.shared.id.clone();
+            let window = self.shared.window.clone();
+            let scheme = with_host(|h| {
+                let scheme = h.content_scheme.clone();
+                if let Some(tab) = h.tabs.get_mut(&id) {
+                    tab.browser = Some(browser.clone());
+                    tab.browser_hwnd = browser_hwnd;
+                    if let Some(host) = browser.host() {
+                        if tab.pending_muted {
+                            host.set_audio_muted(1);
+                        }
+                        if let Some(z) = tab.pending_zoom.take() {
+                            host.set_zoom_level(zoom_factor_to_level(z));
+                        }
+                    }
+                    if let Some(url) = tab.pending_url.take() {
+                        if let Some(frame) = browser.main_frame() {
+                            frame.load_url(Some(&CefString::from(url.as_str())));
+                        }
+                    }
+                    // Force resize of the newly created browser HWND into its container.
+                    tab.content_px = None;
+                    h.apply_layout(&window);
                 }
-                .send();
-                if ok.as_bool() && is_web(&url) && config().record_history && !sh.private {
+                scheme
+            });
+
+            if let Some(s) = scheme {
+                if s == "light" || s == "dark" {
+                    let params = format!(
+                        r#"{{"features":[{{"name":"prefers-color-scheme","value":"{s}"}}]}}"#
+                    );
+                    cdp_call(browser, "Emulation.setEmulatedMedia", &params, |_| {});
+                }
+            }
+
+            let sh = self.shared.clone();
+            cdp_call(browser, "Target.getTargetInfo", "{}", move |r| {
+                if let Some(tid) = r.ok().as_deref().and_then(target_id_of) {
+                    if let Ok(mut slot) = sh.target_id.write() {
+                        *slot = tid;
+                    }
+                }
+            });
+        }
+
+        fn do_close(&self, browser: Option<&mut Browser>) -> ::std::os::raw::c_int {
+            if !self.shared.closed.load(Ordering::SeqCst) {
+                // Page requested `window.close()` itself: ask the chrome UI to close the tab.
+                // Return 1 so CEF does NOT send WM_CLOSE to the top-level Zenith window.
+                emit_tab(&self.shared.id, "tab-close-request", TabRef { id: self.shared.id.clone() });
+                return 1;
+            }
+            // Tab close initiated by Zenith: destroy only this child browser's HWND on the next
+            // UI tick and return 1 so CEF does NOT send WM_CLOSE to our top-level parent window.
+            if let Some(raw) = browser
+                .and_then(|b| b.host())
+                .map(|h| h.window_handle().0 as isize)
+                .filter(|&p| p != 0)
+            {
+                post(move || {
+                    let hwnd = HWND(raw as *mut _);
+                    if !hwnd.is_invalid() {
+                        unsafe {
+                            let _ = windows::Win32::UI::WindowsAndMessaging::DestroyWindow(hwnd);
+                        }
+                    }
+                });
+            }
+            1
+        }
+
+        fn on_before_close(&self, browser: Option<&mut Browser>) {
+            if let Some(browser) = browser {
+                let bid = browser.identifier();
+                if let Ok(mut g) = GENERATIONS.lock() {
+                    g.tombstone(bid);
+                }
+                untrack_browser(bid);
+            }
+            let raw = self.shared.container_hwnd.swap(0, Ordering::SeqCst);
+            if raw != 0 {
+                post(move || {
+                    let hwnd = HWND(raw as *mut _);
+                    if !hwnd.is_invalid() {
+                        unsafe {
+                            let _ = windows::Win32::UI::WindowsAndMessaging::DestroyWindow(hwnd);
+                        }
+                    }
+                    maybe_drop_incognito_context();
+                });
+            } else {
+                maybe_drop_incognito_context();
+            }
+        }
+    }
+}
+
+wrap_load_handler! {
+    struct TabLoadHandler {
+        shared: Arc<TabShared>,
+    }
+
+    impl LoadHandler {
+        fn on_loading_state_change(
+            &self,
+            browser: Option<&mut Browser>,
+            is_loading: ::std::os::raw::c_int,
+            can_go_back: ::std::os::raw::c_int,
+            can_go_forward: ::std::os::raw::c_int,
+        ) {
+            if self.shared.closed.load(Ordering::SeqCst) {
+                return;
+            }
+            let loading = is_loading != 0;
+            let url = self.shared.url();
+            let title = self.shared.title();
+            TabPatch {
+                loading: Some(loading),
+                can_go_back: Some(can_go_back != 0),
+                can_go_forward: Some(can_go_forward != 0),
+                blocked: (!loading).then(|| self.shared.blocked()),
+                ..TabPatch::new(&self.shared.id)
+            }
+            .send();
+
+            if !loading {
+                if is_web(&url) && config().record_history && !self.shared.private {
+                    let u = url.clone();
+                    let t = title.clone();
                     db().exec(move |c| {
-                        let _ = crate::history::history_add_visit(c, &url, &title);
+                        let _ = crate::history::history_add_visit(c, &u, &t);
                     });
                 }
-                if ok.as_bool() {
-                    if let Some((x, y)) = sh.restore_scroll.take() {
+                if let Some((x, y)) = self.shared.restore_scroll.lock().ok().and_then(|mut s| s.take()) {
+                    if let Some(frame) = browser.and_then(|b| b.main_frame()) {
                         let js = format!("window.scrollTo({x}, {y})");
-                        let _ = core.ExecuteScript(
-                            &HSTRING::from(js),
-                            &ExecuteScriptCompletedHandler::create(Box::new(|_, _| Ok(()))),
+                        frame.execute_java_script(
+                            Some(&CefString::from(js.as_str())),
+                            Some(&CefString::from("zenith://internal/scroll.js")),
+                            1,
                         );
                     }
                 }
-                Ok(())
-            })),
-            &mut token,
-        );
+            }
+        }
 
-        let sh = s.clone();
-        let _ = core.add_DocumentTitleChanged(
-            &DocumentTitleChangedEventHandler::create(Box::new(move |sender, _| {
-                let Some(core) = sender else { return Ok(()) };
-                let mut title = PWSTR::null();
-                core.DocumentTitle(&mut title)?;
-                let title = take(title);
-                *sh.title.borrow_mut() = title.clone();
-                let url = sh.url.borrow().clone();
-                if is_web(&url) && !title.is_empty() && config().record_history && !sh.private {
-                    let t = title.clone();
-                    db().exec(move |c| {
-                        let _ = crate::history::history_set_title(c, &url, &t);
-                    });
+        fn on_load_end(
+            &self,
+            _browser: Option<&mut Browser>,
+            frame: Option<&mut Frame>,
+            _http_status_code: ::std::os::raw::c_int,
+        ) {
+            if self.shared.closed.load(Ordering::SeqCst) {
+                return;
+            }
+            if let Some(frame) = frame {
+                if frame.is_main() != 0 {
+                    let url = cef_str(frame.url());
+                    super::requests::inject_cosmetic_css(frame, &url);
                 }
-                TabPatch { title: Some(title), ..TabPatch::new(&sh.id) }.send();
-                Ok(())
-            })),
-            &mut token,
-        );
+            }
+        }
+
+        fn on_load_error(
+            &self,
+            _browser: Option<&mut Browser>,
+            frame: Option<&mut Frame>,
+            error_code: Errorcode,
+            error_text: Option<&CefString>,
+            _failed_url: Option<&CefString>,
+        ) {
+            if self.shared.closed.load(Ordering::SeqCst) {
+                return;
+            }
+            if frame.is_some_and(|f| f.is_main() == 0) {
+                return;
+            }
+            if error_code == Errorcode::ABORTED {
+                return;
+            }
+            let err = opt_cef_str(error_text);
+            TabPatch {
+                loading: Some(false),
+                error: Some(if err.is_empty() { format!("{error_code:?}") } else { err }),
+                ..TabPatch::new(&self.shared.id)
+            }
+            .send();
+        }
     }
 }
 
-/// Page state shown on the tab: favicon, audio, mute and fullscreen.
-unsafe fn wire_page_state(core: &ICoreWebView2, s: &Rc<TabShared>) {
-    let mut token = 0i64;
-    unsafe {
-        if let Ok(c15) = core.cast::<ICoreWebView2_15>() {
-            let sh = s.clone();
-            let _ = c15.add_FaviconChanged(
-                &FaviconChangedEventHandler::create(Box::new(move |sender, _| {
-                    let Some(core) = sender else { return Ok(()) };
-                    let c15: ICoreWebView2_15 = core.cast()?;
-                    let mut uri = PWSTR::null();
-                    c15.FaviconUri(&mut uri)?;
-                    if take(uri).is_empty() {
-                        TabPatch { favicon: Some(String::new()), ..TabPatch::new(&sh.id) }.send();
-                        return Ok(());
+wrap_display_handler! {
+    struct TabDisplayHandler {
+        shared: Arc<TabShared>,
+    }
+
+    impl DisplayHandler {
+        fn on_address_change(
+            &self,
+            _browser: Option<&mut Browser>,
+            frame: Option<&mut Frame>,
+            url: Option<&CefString>,
+        ) {
+            if self.shared.closed.load(Ordering::SeqCst) || frame.is_some_and(|f| f.is_main() == 0) {
+                return;
+            }
+            let uri = opt_cef_str(url);
+            if let Ok(mut u) = self.shared.url.write() {
+                *u = uri.clone();
+            }
+            TabPatch { url: Some(uri), ..TabPatch::new(&self.shared.id) }.send();
+        }
+
+        fn on_title_change(&self, _browser: Option<&mut Browser>, title: Option<&CefString>) {
+            if self.shared.closed.load(Ordering::SeqCst) {
+                return;
+            }
+            let title = opt_cef_str(title);
+            if let Ok(mut t) = self.shared.title.write() {
+                *t = title.clone();
+            }
+            let url = self.shared.url();
+            if is_web(&url) && !title.is_empty() && config().record_history && !self.shared.private {
+                let t = title.clone();
+                db().exec(move |c| {
+                    let _ = crate::history::history_set_title(c, &url, &t);
+                });
+            }
+            TabPatch { title: Some(title), ..TabPatch::new(&self.shared.id) }.send();
+        }
+
+        fn on_favicon_urlchange(
+            &self,
+            browser: Option<&mut Browser>,
+            icon_urls: Option<&mut CefStringList>,
+        ) {
+            if self.shared.closed.load(Ordering::SeqCst) {
+                return;
+            }
+            let first = icon_urls
+                .and_then(|list| list.clone().into_iter().next())
+                .unwrap_or_default();
+            if first.is_empty() {
+                TabPatch { favicon: Some(String::new()), ..TabPatch::new(&self.shared.id) }.send();
+                return;
+            }
+            if let Some(host) = browser.and_then(|b| b.host()) {
+                let mut cb = FaviconDownloadCb::new(self.shared.id.clone());
+                host.download_image(Some(&CefString::from(first.as_str())), 1, 64, 0, Some(&mut cb));
+            }
+        }
+
+        fn on_fullscreen_mode_change(
+            &self,
+            _browser: Option<&mut Browser>,
+            fullscreen: ::std::os::raw::c_int,
+        ) {
+            let on = fullscreen != 0;
+            let id = self.shared.id.clone();
+            post(move || set_fullscreen_tab(&id, on));
+            TabPatch { fullscreen: Some(on), ..TabPatch::new(&self.shared.id) }.send();
+        }
+    }
+}
+
+wrap_focus_handler! {
+    struct TabFocusHandler {
+        shared: Arc<TabShared>,
+    }
+
+    impl FocusHandler {
+        fn on_got_focus(&self, _browser: Option<&mut Browser>) {
+            let id = self.shared.id.clone();
+            let focused = id.clone();
+            let window = self.shared.window.clone();
+            post(move || {
+                with_win(&window, |w| w.focus = Focus::Tab(focused));
+            });
+            emit_tab(&id.clone(), "tab-focused", TabRef { id });
+        }
+    }
+}
+
+wrap_keyboard_handler! {
+    struct TabKeyboardHandler {
+        shared: Arc<TabShared>,
+    }
+
+    impl KeyboardHandler {
+        fn on_pre_key_event(
+            &self,
+            _browser: Option<&mut Browser>,
+            event: Option<&KeyEvent>,
+            _os_event: Option<&mut cef::sys::MSG>,
+            _is_keyboard_shortcut: Option<&mut ::std::os::raw::c_int>,
+        ) -> ::std::os::raw::c_int {
+            let Some(ev) = event else { return 0 };
+            if handle_pre_key_event(ev, Some(&self.shared), &self.shared.window) { 1 } else { 0 }
+        }
+    }
+}
+
+wrap_request_handler! {
+    struct TabRequestHandler {
+        shared: Arc<TabShared>,
+    }
+
+    impl RequestHandler {
+        fn on_before_browse(
+            &self,
+            _browser: Option<&mut Browser>,
+            frame: Option<&mut Frame>,
+            request: Option<&mut Request>,
+            _user_gesture: ::std::os::raw::c_int,
+            _is_redirect: ::std::os::raw::c_int,
+        ) -> ::std::os::raw::c_int {
+            let is_main = frame.is_some_and(|f| f.is_main() != 0);
+            if !is_main {
+                return 0;
+            }
+            let uri = request.map(|r| cef_str(r.url())).unwrap_or_default();
+            if crate::torrents::open_from_page(&uri, &self.shared.id, self.shared.private, &self.shared.window)
+                || crate::security::intercept_navigation(&self.shared.id, &uri)
+            {
+                return 1;
+            }
+            if let Ok(mut h) = self.shared.page_host.write() {
+                *h = host_of(&uri).unwrap_or("").to_ascii_lowercase();
+            }
+            if let Ok(mut n) = self.shared.nav_uri.write() {
+                *n = uri;
+            }
+            self.shared.blocked.store(0, Ordering::Relaxed);
+            self.shared.requests.store(0, Ordering::Relaxed);
+            if let Ok(mut media) = self.shared.media.lock() {
+                media.reset();
+            }
+            crate::media::sniff::notify(&self.shared);
+            let tab_id = self.shared.id.clone();
+            post(move || crate::host::autofill::on_navigation(&tab_id));
+            TabPatch {
+                loading: Some(true),
+                audible: Some(false),
+                blocked: Some(0),
+                crashed: Some(String::new()),
+                error: Some(String::new()),
+                ..TabPatch::new(&self.shared.id)
+            }
+            .send();
+            0
+        }
+
+        fn resource_request_handler(
+            &self,
+            _browser: Option<&mut Browser>,
+            _frame: Option<&mut Frame>,
+            _request: Option<&mut Request>,
+            _is_navigation: ::std::os::raw::c_int,
+            _is_download: ::std::os::raw::c_int,
+            _request_initiator: Option<&CefString>,
+            _disable_default_handling: Option<&mut ::std::os::raw::c_int>,
+        ) -> Option<ResourceRequestHandler> {
+            Some(TabResourceRequestHandler::new(self.shared.clone()))
+        }
+
+        fn on_certificate_error(
+            &self,
+            _browser: Option<&mut Browser>,
+            cert_error: Errorcode,
+            request_url: Option<&CefString>,
+            _ssl_info: Option<&mut Sslinfo>,
+            callback: Option<&mut Callback>,
+        ) -> ::std::os::raw::c_int {
+            match callback {
+                Some(cb) if crate::security::queue_cert_error(&self.shared.id, cert_error, opt_cef_str(request_url), cb.clone()) => 1,
+                _ => 0,
+            }
+        }
+
+        fn on_render_process_terminated(
+            &self,
+            browser: Option<&mut Browser>,
+            status: TerminationStatus,
+            _error_code: ::std::os::raw::c_int,
+            _error_string: Option<&CefString>,
+        ) {
+            if let Some(browser) = browser {
+                if let Ok(mut g) = GENERATIONS.lock() {
+                    if let Some(gen) = g.bump_generation(browser.identifier()) {
+                        self.shared.generation.store(gen, Ordering::SeqCst);
                     }
-                    let id = sh.id.clone();
-                    c15.GetFavicon(
-                        COREWEBVIEW2_FAVICON_IMAGE_FORMAT_PNG,
-                        &GetFaviconCompletedHandler::create(Box::new(move |result, stream| {
-                            if result.is_ok() {
-                                if let Some(bytes) = stream.as_ref().and_then(read_stream) {
-                                    if !bytes.is_empty() {
-                                        let data = base64::engine::general_purpose::STANDARD.encode(bytes);
-                                        TabPatch {
-                                            favicon: Some(format!("data:image/png;base64,{data}")),
-                                            ..TabPatch::new(&id)
-                                        }
-                                        .send();
-                                    }
-                                }
-                            }
-                            Ok(())
-                        })),
-                    )?;
-                    Ok(())
-                })),
-                &mut token,
-            );
+                }
+            }
+            let state = match status {
+                TerminationStatus::PROCESS_WAS_KILLED | TerminationStatus::PROCESS_CRASHED | TerminationStatus::PROCESS_OOM => "crashed",
+                _ => "crashed",
+            };
+            TabPatch {
+                crashed: Some(state.into()),
+                loading: Some(false),
+                ..TabPatch::new(&self.shared.id)
+            }
+            .send();
         }
-
-        if let Ok(c8) = core.cast::<ICoreWebView2_8>() {
-            let sh = s.clone();
-            let _ = c8.add_IsDocumentPlayingAudioChanged(
-                &IsDocumentPlayingAudioChangedEventHandler::create(Box::new(move |sender, _| {
-                    let Some(core) = sender else { return Ok(()) };
-                    let c8: ICoreWebView2_8 = core.cast()?;
-                    let mut playing = BOOL::default();
-                    c8.IsDocumentPlayingAudio(&mut playing)?;
-                    TabPatch { audible: Some(playing.as_bool()), ..TabPatch::new(&sh.id) }.send();
-                    Ok(())
-                })),
-                &mut token,
-            );
-            let sh = s.clone();
-            let _ = c8.add_IsMutedChanged(
-                &IsMutedChangedEventHandler::create(Box::new(move |sender, _| {
-                    let Some(core) = sender else { return Ok(()) };
-                    let c8: ICoreWebView2_8 = core.cast()?;
-                    let mut muted = BOOL::default();
-                    c8.IsMuted(&mut muted)?;
-                    TabPatch { muted: Some(muted.as_bool()), ..TabPatch::new(&sh.id) }.send();
-                    Ok(())
-                })),
-                &mut token,
-            );
-        }
-
-        let sh = s.clone();
-        let _ = core.add_ContainsFullScreenElementChanged(
-            &ContainsFullScreenElementChangedEventHandler::create(Box::new(move |sender, _| {
-                let Some(core) = sender else { return Ok(()) };
-                let mut full = BOOL::default();
-                core.ContainsFullScreenElement(&mut full)?;
-                let id = sh.id.clone();
-                let on = full.as_bool();
-                post(move || crate::host::set_fullscreen_tab(&id, on));
-                TabPatch { fullscreen: Some(on), ..TabPatch::new(&sh.id) }.send();
-                Ok(())
-            })),
-            &mut token,
-        );
     }
 }
 
-/// The page closing itself, and renderer crashes or hangs.
-unsafe fn wire_lifecycle(core: &ICoreWebView2, s: &Rc<TabShared>) {
-    let mut token = 0i64;
-    unsafe {
-        let sh = s.clone();
-        let _ = core.add_WindowCloseRequested(
-            &WindowCloseRequestedEventHandler::create(Box::new(move |_, _| {
-                emit_tab(&sh.id, "tab-close-request", TabRef { id: sh.id.clone() });
-                Ok(())
-            })),
-            &mut token,
-        );
+wrap_client! {
+    struct TabClient {
+        shared: Arc<TabShared>,
+    }
 
-        let sh = s.clone();
-        let _ = core.add_ProcessFailed(
-            &ProcessFailedEventHandler::create(Box::new(move |_, args| {
-                let Some(args) = args else { return Ok(()) };
-                let mut kind = COREWEBVIEW2_PROCESS_FAILED_KIND::default();
-                args.ProcessFailedKind(&mut kind)?;
-                let state = match kind {
-                    COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_EXITED => "crashed",
-                    COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_UNRESPONSIVE => "unresponsive",
-                    _ => return Ok(()),
-                };
-                TabPatch { crashed: Some(state.into()), loading: Some(false), ..TabPatch::new(&sh.id) }.send();
-                Ok(())
-            })),
-            &mut token,
-        );
+    impl Client {
+        fn life_span_handler(&self) -> Option<LifeSpanHandler> {
+            Some(TabLifeSpanHandler::new(self.shared.clone()))
+        }
+        fn load_handler(&self) -> Option<LoadHandler> {
+            Some(TabLoadHandler::new(self.shared.clone()))
+        }
+        fn display_handler(&self) -> Option<DisplayHandler> {
+            Some(TabDisplayHandler::new(self.shared.clone()))
+        }
+        fn focus_handler(&self) -> Option<FocusHandler> {
+            Some(TabFocusHandler::new(self.shared.clone()))
+        }
+        fn keyboard_handler(&self) -> Option<KeyboardHandler> {
+            Some(TabKeyboardHandler::new(self.shared.clone()))
+        }
+        fn request_handler(&self) -> Option<RequestHandler> {
+            Some(TabRequestHandler::new(self.shared.clone()))
+        }
+        fn permission_handler(&self) -> Option<PermissionHandler> {
+            Some(TabPermissionHandler::new(self.shared.clone()))
+        }
+        fn download_handler(&self) -> Option<DownloadHandler> {
+            Some(crate::host::downloads::create_download_handler(self.shared.clone()))
+        }
+        fn find_handler(&self) -> Option<FindHandler> {
+            Some(TabFindHandler::new(self.shared.clone()))
+        }
+        fn context_menu_handler(&self) -> Option<ContextMenuHandler> {
+            Some(TabContextMenuHandler::new(self.shared.clone()))
+        }
     }
 }
 
-fn read_stream(stream: &IStream) -> Option<Vec<u8>> {
-    let mut out = Vec::new();
-    let mut buf = [0u8; 4096];
-    loop {
-        let mut read = 0u32;
-        let hr = unsafe { stream.Read(buf.as_mut_ptr() as *mut _, buf.len() as u32, Some(&mut read)) };
-        if hr.is_err() {
-            return None;
-        }
-        if read == 0 {
-            break;
-        }
-        out.extend_from_slice(&buf[..read as usize]);
-        if out.len() > 512 * 1024 {
-            return None;
-        }
-    }
-    Some(out)
+pub(crate) fn create_tab_client(shared: Arc<TabShared>) -> Client {
+    TabClient::new(shared)
 }

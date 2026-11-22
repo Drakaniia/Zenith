@@ -8,6 +8,8 @@
 //! The schema is created here; each domain keeps its own queries (`history`, `downloads`,
 //! `notes`, `bookmarks`).
 
+pub mod migration;
+
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -37,6 +39,14 @@ impl Paths {
     }
     pub fn webview_data(&self) -> PathBuf {
         self.local.join("WebView2")
+    }
+    /// Versioned CEF profile cache/storage root, distinct from legacy `WebView2/`.
+    pub fn cef_data(&self) -> PathBuf {
+        self.local.join("CEF").join("v1")
+    }
+    /// Verified snapshot of application-owned data taken before first CEF startup.
+    pub fn migration_backups(&self) -> PathBuf {
+        self.roaming.join("pre-cef-backup")
     }
     pub fn extensions(&self) -> PathBuf {
         self.local.join("extensions")

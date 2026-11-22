@@ -3,7 +3,7 @@
 //! through `notes-changed`.
 
 use serde::Serialize;
-use tauri::WebviewWindow;
+use crate::app::runtime::WindowHandle;
 
 use super::Note;
 use crate::app::command::CmdResult;
@@ -18,13 +18,11 @@ struct NotesChanged {
     deleted: bool,
 }
 
-#[tauri::command]
 pub async fn notes_list() -> CmdResult<Vec<Note>> {
     bookmarks_db().call(super::notes_list).await
 }
 
-#[tauri::command]
-pub async fn note_save(window: WebviewWindow, note: Note) -> CmdResult<bool> {
+pub async fn note_save(window: WindowHandle, note: Note) -> CmdResult<bool> {
     if note.id.is_empty() || note.id.len() > 64 {
         return Err("invalid note id".into());
     }
@@ -36,8 +34,7 @@ pub async fn note_save(window: WebviewWindow, note: Note) -> CmdResult<bool> {
     Ok(written)
 }
 
-#[tauri::command]
-pub async fn note_delete(window: WebviewWindow, id: String) -> CmdResult<()> {
+pub async fn note_delete(window: WindowHandle, id: String) -> CmdResult<()> {
     let key = id.clone();
     bookmarks_db().call(move |c| super::note_delete(c, &key)).await?;
     host::emit("notes-changed", NotesChanged { origin: window.label().to_string(), id, deleted: true });

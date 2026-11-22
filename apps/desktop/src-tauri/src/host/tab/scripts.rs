@@ -4,7 +4,7 @@
 /// Injected into every frame of every page. It cannot reach the app (tabs have no IPC bridge):
 /// it only rewrites Alt+click into a Glance request and Ctrl/middle-click into a background-tab
 /// request, using named `window.open` calls that NewWindowRequested recognises and cancels.
-pub(super) const PAGE_SCRIPT: &str = r#"(() => {
+pub const PAGE_SCRIPT: &str = r#"(() => {
   const open = window.open.bind(window);
   const link = (e) => {
     for (const n of e.composedPath()) {
@@ -28,6 +28,57 @@ pub(super) const PAGE_SCRIPT: &str = r#"(() => {
     if (e.defaultPrevented || e.button !== 1 || !e.isTrusted) return;
     route(e, '_zenith_bg');
   });
+  // shortcut: per-frame audio tracking via media/AudioContext hooks because CEF 156 has no
+  // non-muting OnAudioStateChanged callback; replace with a CEF patch in Phase 4.
+  const media = new Set();
+  const ctxs = new Set();
+  let lastAudio = false;
+  const syncAudio = () => {
+    for (const m of media) if (m.paused || m.ended || m.muted || m.volume === 0) media.delete(m);
+    for (const c of ctxs) if (c.state === 'closed') ctxs.delete(c);
+    let playing = media.size > 0;
+    if (!playing) for (const c of ctxs) if (c.state === 'running') { playing = true; break; }
+    if (playing !== lastAudio) {
+      lastAudio = playing;
+      open('about:blank#' + (playing ? '1' : '0'), '_zenith_audio');
+    }
+  };
+  const trackMedia = (el) => {
+    if (!(el instanceof HTMLMediaElement)) return;
+    if (!el.paused && !el.ended && !el.muted && el.volume > 0) media.add(el);
+    else media.delete(el);
+    syncAudio();
+  };
+  for (const ev of ['play', 'playing', 'pause', 'ended', 'volumechange', 'emptied']) {
+    addEventListener(ev, (e) => trackMedia(e.target), true);
+  }
+  if (typeof HTMLMediaElement !== 'undefined' && HTMLMediaElement.prototype.play) {
+    const origPlay = HTMLMediaElement.prototype.play;
+    HTMLMediaElement.prototype.play = function (...a) {
+      const p = origPlay.apply(this, a);
+      const watch = () => trackMedia(this);
+      this.addEventListener('pause', watch);
+      this.addEventListener('ended', watch);
+      this.addEventListener('volumechange', watch);
+      if (p && typeof p.then === 'function') p.then(watch, () => {});
+      else watch();
+      return p;
+    };
+  }
+  for (const key of ['AudioContext', 'webkitAudioContext']) {
+    const Orig = globalThis[key];
+    if (typeof Orig !== 'function') continue;
+    globalThis[key] = new Proxy(Orig, {
+      construct(T, args, nt) {
+        const ctx = Reflect.construct(T, args, nt);
+        ctxs.add(ctx);
+        ctx.addEventListener('statechange', syncAudio);
+        syncAudio();
+        setTimeout(syncAudio, 60);
+        return ctx;
+      },
+    });
+  }
 })();"#;
 
 /// Chrome Web Store pages (main frame only, normal windows): the store's own "Add to Chrome"
@@ -35,7 +86,7 @@ pub(super) const PAGE_SCRIPT: &str = r#"(() => {
 /// a floating "Add to Chrome" button appears. A real click calls `window.open` with the reserved `_zenith_ext`
 /// name, which NewWindowRequested accepts only from the store and turns into an install prompt.
 /// Built with DOM calls only and CSSOM styles (the store uses Trusted Types and a strict CSP).
-pub(super) const STORE_SCRIPT: &str = r#"(() => {
+pub const STORE_SCRIPT: &str = r#"(() => {
   if (location.hostname !== 'chromewebstore.google.com') return;
   const open = window.open.bind(window);
   const idOf = () => {
@@ -94,7 +145,7 @@ pub(super) const STORE_SCRIPT: &str = r#"(() => {
 /// `tabs.query({ active: true, currentWindow: true })` finds the page under it. Every WebView2
 /// view is its own browser window, so that query would return the popup itself ("not a
 /// website"). Window-scoped queries are answered with the page the popup was opened over.
-pub(super) const EXT_POPUP_SCRIPT: &str = r#"(() => {
+pub const EXT_POPUP_SCRIPT: &str = r#"(() => {
   const OPENER = __OPENER__;
   const tabs = globalThis.chrome && chrome.tabs;
   if (!tabs || typeof tabs.query !== 'function' || window.top !== window) return;

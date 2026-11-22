@@ -1,7 +1,7 @@
 //! HLS playlists (RFC 8216): master playlists (variants and alternative renditions) and media
 //! playlists (segments). Parsing only; fetching happens in `job`.
 
-use tauri::Url;
+use url::Url;
 
 /// Limits for hostile playlists (real ones stay far below): a 32 MB playlist could otherwise
 /// describe millions of segments.

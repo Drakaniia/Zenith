@@ -4,7 +4,7 @@
 //! password typed again, even when the vault is unlocked. A card number reaches the chrome UI only
 //! when the user reveals it in the manager; copying and filling happen here, in Rust.
 
-use tauri::AppHandle;
+use crate::app::runtime::AppHandle;
 use zeroize::Zeroizing;
 
 use crate::host::{self, autofill};
@@ -21,12 +21,10 @@ fn fresh_master(v: &mut vault::Vault, master: Option<&Zeroizing<String>>) -> Cmd
     }
 }
 
-#[tauri::command]
 pub async fn cards_list() -> CmdResult<Vec<vault::cards::CardInfo>> {
     vault_call(|v| v.cards_list()).await
 }
 
-#[tauri::command]
 pub async fn card_reveal(id: String, master: Option<String>) -> CmdResult<vault::cards::CardRevealed> {
     let master = secret(master);
     let r = vault_call(move |v| {
@@ -40,7 +38,6 @@ pub async fn card_reveal(id: String, master: Option<String>) -> CmdResult<vault:
 
 /// Copies the cardholder name, or the number or security code (kept out of clipboard history and
 /// cleared after 30 seconds).
-#[tauri::command]
 pub async fn card_copy(id: String, field: String, master: Option<String>) -> CmdResult<()> {
     let master = secret(master);
     let r = vault_call(move |v| {
@@ -62,21 +59,18 @@ pub async fn card_copy(id: String, field: String, master: Option<String>) -> Cmd
     r
 }
 
-#[tauri::command]
 pub async fn card_add(card: vault::cards::CardInput) -> CmdResult<String> {
     let r = vault_call(move |v| v.card_add(&card)).await;
     vault::broadcast();
     r
 }
 
-#[tauri::command]
 pub async fn card_update(id: String, card: vault::cards::CardInput) -> CmdResult<()> {
     let r = vault_call(move |v| v.card_update(&id, &card)).await;
     vault::broadcast();
     r
 }
 
-#[tauri::command]
 pub async fn cards_delete(ids: Vec<String>) -> CmdResult<usize> {
     let r = vault_call(move |v| v.cards_delete(&ids)).await;
     vault::broadcast();
@@ -86,7 +80,6 @@ pub async fn cards_delete(ids: Vec<String>) -> CmdResult<usize> {
 /// Answers a "Save card?" prompt: "save", "never" (for this site) or "dismiss". Saving may need the
 /// master password; on any error the offer stays so the user can try again. The security code is
 /// only kept when `save_cvc` is set.
-#[tauri::command]
 pub async fn card_offer_respond(offer_id: u64, action: String, save_cvc: Option<bool>, master: Option<String>) -> CmdResult<Option<String>> {
     let master = secret(master);
     match action.as_str() {
@@ -130,7 +123,6 @@ pub async fn card_offer_respond(offer_id: u64, action: String, save_cvc: Option<
 
 /// Fills a saved card into the tab's payment form, after checking the page is HTTPS and the master
 /// password was typed for this fill.
-#[tauri::command]
 pub async fn autofill_fill_card(app: AppHandle, tab_id: String, card_id: String, master: Option<String>) -> CmdResult<()> {
     let cfg = host::config();
     if !cfg.passwords_enabled || !cfg.autofill_cards {

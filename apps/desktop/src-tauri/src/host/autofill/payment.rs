@@ -1,6 +1,6 @@
 //! Payment forms: the saved-card list under a card field and offers to save a submitted card.
 
-use std::rc::Rc;
+use std::sync::Arc;
 use std::time::Duration;
 
 use serde::Serialize;
@@ -29,7 +29,7 @@ struct CardSaveOffer {
 
 /// A card number, name or expiry field was clicked: the saved cards are listed under it. Cards
 /// are only offered on HTTPS pages.
-pub(super) fn on_card_field(sh: &Rc<TabShared>, origin: &str, m: &Msg) {
+pub(super) fn on_card_field(sh: &Arc<TabShared>, origin: &str, m: &Msg) {
     with_tab(&sh.id, |t| t.muted = false);
     let cfg = config();
     if !cfg.autofill_cards || !origin.starts_with("https://") {
@@ -64,7 +64,7 @@ pub(super) fn on_card_field(sh: &Rc<TabShared>, origin: &str, m: &Msg) {
 
 /// A card was submitted on a payment form: offer to save it (or its new expiry). The number never
 /// reaches the chrome UI; the offer tells it only the brand, last four digits and expiry.
-pub(super) fn on_card_capture(sh: &Rc<TabShared>, origin: &str, m: &Msg) {
+pub(super) fn on_card_capture(sh: &Arc<TabShared>, origin: &str, m: &Msg) {
     let cfg = config();
     if !cfg.cards_offer_save || sh.private || !origin.starts_with("https://") {
         return;

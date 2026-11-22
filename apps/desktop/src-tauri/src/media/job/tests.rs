@@ -123,7 +123,7 @@ fn temp_dir(name: &str) -> PathBuf {
 struct OriginCookies;
 impl Env for OriginCookies {
     fn cookies(&self, url: &str) -> Option<String> {
-        Some(format!("site={}", tauri::Url::parse(url).ok()?.port()?))
+        Some(format!("site={}", url::Url::parse(url).ok()?.port()?))
     }
     fn ffmpeg(&self) -> Option<PathBuf> {
         None

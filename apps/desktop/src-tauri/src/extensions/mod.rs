@@ -1,21 +1,15 @@
-//! Browser extensions through WebView2's (limited) Chromium extension support.
+//! Browser extensions for CEF Chrome-style profiles.
 //!
-//! Unpacked extensions are copied into Zenith's own data folder before being added, because
-//! WebView2 removes an extension when its source folder changes. `.crx` packages and Chrome Web
-//! Store links are unpacked with Windows' built-in `tar.exe` (bsdtar reads zip), so no archive
-//! library ships in the binary. Which extension APIs work is decided by WebView2.
-//!
-//! Packages keep their Chrome id: the developer key from the `.crx` header is written into the
-//! unpacked manifest (`key`), exactly as Chrome derives the id, so extensions that rely on their
-//! own id keep working and the Web Store can be asked for updates.
-//!
-//! Extensions found in a page (a `.crx` download, the Web Store's "Add to Chrome" button) are
-//! not installed straight away: they are staged under `extensions/pending` and offered to the
-//! user with their permissions (`ext-install` event), then installed or discarded.
+//! Extensions are unpacked into `%LOCALAPPDATA%\<id>\extensions\` and tracked in `registry.json`
+//! (preserving WebView2-era registry preferences). Enabled extensions are passed to CEF at
+//! startup via `--load-extension`; installs, removals and toggles also apply to the running
+//! engine through the DevTools `Extensions` domain.
 
+pub mod bridge;
 pub mod commands;
 pub mod crx;
 mod install;
+pub mod native_messaging;
 pub mod private_profile;
 mod updates;
 
@@ -28,12 +22,8 @@ use std::path::{Path, PathBuf};
 
 use base64::Engine as _;
 use serde::{Deserialize, Serialize};
-use std::result::Result;
-use webview2_com::Microsoft::Web::WebView2::Win32::*;
-use webview2_com::*;
-use windows::core::{Interface, BOOL, PWSTR};
 
-use crate::host::{paths, with_host};
+use crate::host::paths;
 use crate::storage::{read_text, write_atomic};
 
 #[derive(Serialize, Clone, Debug)]
@@ -47,63 +37,58 @@ pub struct ExtensionInfo {
     pub options_url: Option<String>,
     pub popup_url: Option<String>,
     pub icon: Option<String>,
-    /// Shipped inside WebView2 (e.g. the PDF viewer): listed, but never changed by Zenith.
     pub builtin: bool,
-    /// Chrome Web Store id, for extensions that came from the store (updates, store link).
     pub store_id: Option<String>,
-    /// May run in incognito windows (when extensions are allowed there at all).
     pub incognito: bool,
 }
 
 #[derive(Serialize, Deserialize, Default)]
-struct Registry {
-    /// extension id -> unpacked folder
-    folders: HashMap<String, PathBuf>,
-    /// extension id -> Chrome Web Store id
+pub(crate) struct Registry {
+    pub folders: HashMap<String, PathBuf>,
     #[serde(default)]
-    sources: HashMap<String, String>,
-    /// Extensions the user kept out of incognito windows (allowed by default).
+    pub sources: HashMap<String, String>,
     #[serde(default)]
-    incognito_off: HashSet<String>,
+    pub incognito_off: HashSet<String>,
+    #[serde(default)]
+    pub disabled: HashSet<String>,
 }
 
 fn registry_path() -> PathBuf {
     paths().extensions().join("registry.json")
 }
 
-fn load_registry() -> Registry {
+pub(crate) fn load_registry() -> Registry {
     read_text(&registry_path())
         .and_then(|s| serde_json::from_str(&s).ok())
         .unwrap_or_default()
 }
 
-fn save_registry(r: &Registry) {
+pub(crate) fn save_registry(r: &Registry) {
     if let Ok(json) = serde_json::to_vec_pretty(r) {
         let _ = write_atomic(&registry_path(), &json);
     }
 }
 
-fn profile() -> Result<ICoreWebView2Profile7, String> {
-    with_host(|h| {
-        let core = h.wins.values().next()?.chrome_core.clone();
-        Some(unsafe {
-            core.cast::<ICoreWebView2_13>()
-                .and_then(|c| c.Profile())
-                .and_then(|p| p.cast::<ICoreWebView2Profile7>())
-        })
-    })
-    .flatten()
-    .ok_or("browser is not ready")?
-    .map_err(|e| format!("extensions are not supported by this WebView2 runtime ({e})"))
+/// Returns unpacked directories of all enabled user extensions for CEF `--load-extension`.
+pub fn enabled_extension_dirs() -> Vec<PathBuf> {
+    let reg = load_registry();
+    let mut dirs: Vec<PathBuf> = reg
+        .folders
+        .iter()
+        .filter(|(id, dir)| !reg.disabled.contains(*id) && dir.join("manifest.json").is_file())
+        .map(|(_, dir)| dir.clone())
+        .collect();
+    dirs.sort();
+    dirs
 }
 
-struct Manifest {
-    name: String,
-    version: String,
-    description: String,
-    options: Option<String>,
-    popup: Option<String>,
-    icon: Option<String>,
+pub(crate) struct Manifest {
+    pub name: String,
+    pub version: String,
+    pub description: String,
+    pub options: Option<String>,
+    pub popup: Option<String>,
+    pub icon: Option<String>,
 }
 
 fn localized(dir: &Path, manifest: &serde_json::Value, raw: &str) -> String {
@@ -129,7 +114,7 @@ fn localized(dir: &Path, manifest: &serde_json::Value, raw: &str) -> String {
     raw.to_string()
 }
 
-fn read_manifest(dir: &Path) -> Option<Manifest> {
+pub(crate) fn read_manifest(dir: &Path) -> Option<Manifest> {
     let text = read_text(&dir.join("manifest.json"))?;
     let text = text.trim_start_matches('\u{feff}');
     let m: serde_json::Value = serde_json::from_str(text).ok()?;
@@ -161,7 +146,7 @@ fn read_manifest(dir: &Path) -> Option<Manifest> {
     })
 }
 
-fn info_for(id: String, name: String, enabled: bool, registry: &Registry) -> ExtensionInfo {
+pub(crate) fn info_for(id: String, name: String, enabled: bool, registry: &Registry) -> ExtensionInfo {
     let manifest = registry.folders.get(&id).and_then(|dir| read_manifest(dir));
     let page = |p: &Option<String>| {
         p.as_ref()
@@ -186,72 +171,43 @@ fn info_for(id: String, name: String, enabled: bool, registry: &Registry) -> Ext
     }
 }
 
-fn ext_fields(ext: &ICoreWebView2BrowserExtension) -> (String, String, bool) {
-    unsafe {
-        let mut id = PWSTR::null();
-        let _ = ext.Id(&mut id);
-        let mut name = PWSTR::null();
-        let _ = ext.Name(&mut name);
-        let mut enabled = BOOL::default();
-        let _ = ext.IsEnabled(&mut enabled);
-        (take_pwstr(id), take_pwstr(name), enabled.as_bool())
-    }
-}
-
-fn with_extensions(done: impl FnOnce(Result<Vec<ICoreWebView2BrowserExtension>, String>) + 'static) {
-    match profile() {
-        Ok(p) => list_in(p, done),
-        Err(e) => done(Err(e)),
-    }
-}
-
-/// The extensions of one WebView2 profile (the user's, or the incognito one).
-fn list_in(profile: ICoreWebView2Profile7, done: impl FnOnce(Result<Vec<ICoreWebView2BrowserExtension>, String>) + 'static) {
-
-    let handler = ProfileGetBrowserExtensionsCompletedHandler::create(Box::new(move |result, list| {
-        let mut out = Vec::new();
-        if let (Ok(()), Some(list)) = (result.as_ref(), list) {
-            let mut count = 0u32;
-            unsafe {
-                let _ = list.Count(&mut count);
-                for i in 0..count {
-                    if let Ok(ext) = list.GetValueAtIndex(i) {
-                        out.push(ext);
-                    }
-                }
-            }
-            done(Ok(out));
-        } else {
-            done(Err(result.err().map(|e| e.to_string()).unwrap_or_else(|| "no extension list".into())));
-        }
-        Ok(())
-    }));
-    unsafe {
-        if let Err(e) = profile.GetBrowserExtensions(&handler) {
-            eprintln!("[zenith] GetBrowserExtensions failed: {e}");
-        }
-    }
-}
-
 pub fn list(done: impl FnOnce(Result<Vec<ExtensionInfo>, String>) + 'static) {
-    with_extensions(move |r| {
-        done(r.map(|exts| {
-            let registry = load_registry();
-            exts.iter()
-                .map(|e| {
-                    let (id, name, enabled) = ext_fields(e);
-                    info_for(id, name, enabled, &registry)
-                })
-                .collect()
-        }))
+    let registry = load_registry();
+    let mut out: Vec<ExtensionInfo> = registry
+        .folders
+        .keys()
+        .map(|id| {
+            let enabled = !registry.disabled.contains(id);
+            info_for(id.clone(), String::new(), enabled, &registry)
+        })
+        .collect();
+    out.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    done(Ok(out));
+}
+
+/// Loads an unpacked folder into the running engine, then calls `done` either way: a failure
+/// only means the extension starts with the next launch.
+fn load_live(dir: &Path, done: impl FnOnce() + 'static) {
+    let params = serde_json::json!({ "path": dir }).to_string();
+    crate::host::browser_cdp("Extensions.loadUnpacked", &params, move |r| {
+        if let Err(e) = r {
+            eprintln!("[zenith] live extension load failed: {e}");
+        }
+        done();
     });
+}
+
+/// Unloads an extension from the running engine, then calls `done` either way.
+fn unload_live(id: &str, done: impl FnOnce() + 'static) {
+    let params = serde_json::json!({ "id": id }).to_string();
+    crate::host::browser_cdp("Extensions.uninstall", &params, move |_| done());
 }
 
 fn ensure_user_extension(id: &str) -> Result<(), String> {
     if load_registry().folders.contains_key(id) {
         Ok(())
     } else {
-        Err("this extension is part of WebView2 and cannot be changed".into())
+        Err("this extension is built in and cannot be changed".into())
     }
 }
 
@@ -259,30 +215,21 @@ pub fn remove(id: String, done: impl FnOnce(Result<(), String>) + 'static) {
     if let Err(e) = ensure_user_extension(&id) {
         return done(Err(e));
     }
-    with_extensions(move |r| match r {
-        Err(e) => done(Err(e)),
-        Ok(exts) => {
-            let Some(ext) = exts.into_iter().find(|e| ext_fields(e).0 == id) else {
-                return done(Err("extension not found".into()));
-            };
-            let handler = BrowserExtensionRemoveCompletedHandler::create(Box::new(move |result| {
-                let mut registry = load_registry();
-                if let Some(dir) = registry.folders.remove(&id) {
-                    let _ = fs::remove_dir_all(dir);
-                }
-                registry.sources.remove(&id);
-                save_registry(&registry);
-                done(result.map_err(|e| e.to_string()));
-                Ok(())
-            }));
-            unsafe {
-                let _ = ext.Remove(&handler);
-            }
+    let mut registry = load_registry();
+    let dir = registry.folders.remove(&id);
+    registry.sources.remove(&id);
+    registry.disabled.remove(&id);
+    registry.incognito_off.remove(&id);
+    save_registry(&registry);
+    // Unload first: the engine still reads the folder while the extension runs.
+    unload_live(&id, move || {
+        if let Some(dir) = dir {
+            let _ = fs::remove_dir_all(dir);
         }
+        done(Ok(()));
     });
 }
 
-/// Lets an extension run in incognito windows or keeps it out of them.
 pub fn set_incognito_allowed(id: &str, allowed: bool) -> Result<(), String> {
     ensure_user_extension(id)?;
     let mut registry = load_registry();
@@ -299,19 +246,17 @@ pub fn set_enabled(id: String, enabled: bool, done: impl FnOnce(Result<(), Strin
     if let Err(e) = ensure_user_extension(&id) {
         return done(Err(e));
     }
-    with_extensions(move |r| match r {
-        Err(e) => done(Err(e)),
-        Ok(exts) => {
-            let Some(ext) = exts.into_iter().find(|e| ext_fields(e).0 == id) else {
-                return done(Err("extension not found".into()));
-            };
-            let handler = BrowserExtensionEnableCompletedHandler::create(Box::new(move |result| {
-                done(result.map_err(|e| e.to_string()));
-                Ok(())
-            }));
-            unsafe {
-                let _ = ext.Enable(enabled, &handler);
-            }
-        }
-    });
+    let mut registry = load_registry();
+    let dir = registry.folders.get(&id).cloned();
+    if enabled {
+        registry.disabled.remove(&id);
+    } else {
+        registry.disabled.insert(id.clone());
+    }
+    save_registry(&registry);
+    match dir {
+        Some(dir) if enabled => load_live(&dir, move || done(Ok(()))),
+        _ if !enabled => unload_live(&id, move || done(Ok(()))),
+        _ => done(Ok(())),
+    }
 }

@@ -3,15 +3,15 @@
 
 use base64::Engine;
 use serde::Serialize;
-use tauri::image::Image;
-use tauri::{AppHandle, Manager, WebviewWindow};
+use windows::Win32::UI::WindowsAndMessaging::HICON;
 
 use crate::app::command::{blocking, CmdResult};
+use crate::app::runtime::{AppHandle, WindowHandle};
 use crate::host;
 use crate::profiles::{self, Look, Profile};
 
 /// Profile management changes data outside the window; incognito windows stay out of it.
-fn refuse_in_incognito(window: &WebviewWindow) -> CmdResult<()> {
+fn refuse_in_incognito(window: &WindowHandle) -> CmdResult<()> {
     if host::is_private_window(window.label()) {
         return Err("Profiles can't be managed from an incognito window.".into());
     }
@@ -51,20 +51,20 @@ pub fn current_info() -> ProfileInfo {
 }
 
 /// The window icon for this process's profile: its picture, or `None` for the app icon.
-pub fn window_icon() -> Option<Image<'static>> {
+pub fn window_icon() -> Option<HICON> {
     let active = profiles::active();
     let png = profiles::icon_png(&active.base, &active.profile())?;
-    Image::from_bytes(&png).ok().map(|i| i.to_owned())
+    crate::platform::win::window_icon::hicon_from_png(&png)
 }
 
 /// Puts the profile's picture (or the app icon) on this process's normal windows. Incognito
 /// windows keep the app icon.
 pub fn apply_window_icon(app: &AppHandle) {
-    let icon = window_icon().or_else(|| app.default_window_icon().cloned().map(|i| i.to_owned()));
+    let icon = window_icon().or_else(|| app.default_window_icon());
     let Some(icon) = icon else { return };
-    for (label, w) in app.webview_windows() {
+    for (label, w) in app.windows() {
         if !host::is_private_window(&label) {
-            let _ = w.set_icon(icon.clone());
+            let _ = w.set_icon(icon);
         }
     }
 }
@@ -116,21 +116,19 @@ fn view() -> ProfilesView {
 
 /// Retitles this process's windows after its profile was renamed.
 fn retitle(app: &AppHandle) {
-    for (label, w) in app.webview_windows() {
+    for (label, w) in app.windows() {
         let _ = w.set_title(&crate::app::window::window_title(host::is_private_window(&label)));
     }
 }
 
-#[tauri::command]
 pub async fn profiles_list() -> CmdResult<ProfilesView> {
     blocking(view).await
 }
 
 /// Adds a profile; with `shortcut`, also puts a desktop shortcut for it on the desktop.
 /// `avatar` and `icon` are the picture (see `profiles::Look`).
-#[tauri::command]
 pub async fn profile_create(
-    window: WebviewWindow,
+    window: WindowHandle,
     name: String,
     color: String,
     avatar: Option<String>,
@@ -153,10 +151,9 @@ pub async fn profile_create(
     .await?
 }
 
-#[tauri::command]
 pub async fn profile_update(
     app: AppHandle,
-    window: WebviewWindow,
+    window: WindowHandle,
     id: String,
     name: String,
     color: String,
@@ -185,11 +182,10 @@ pub async fn profile_update(
 
 /// Opens a profile: focuses this process's window for its own profile, otherwise starts (or
 /// focuses, through its single-instance redirect) the profile's process.
-#[tauri::command]
-pub async fn profile_open(app: AppHandle, window: WebviewWindow, id: String) -> CmdResult<()> {
+pub async fn profile_open(app: AppHandle, window: WindowHandle, id: String) -> CmdResult<()> {
     if id == profiles::active().id {
         let label = host::primary_window();
-        if let Some(w) = app.get_webview_window(&label) {
+        if let Some(w) = app.get_window(&label) {
             let _ = w.unminimize();
             let _ = w.show();
             let _ = w.set_focus();
@@ -202,8 +198,7 @@ pub async fn profile_open(app: AppHandle, window: WebviewWindow, id: String) -> 
 }
 
 /// Deletes a profile that is not open, with all of its data.
-#[tauri::command]
-pub async fn profile_delete(window: WebviewWindow, id: String) -> CmdResult<()> {
+pub async fn profile_delete(window: WindowHandle, id: String) -> CmdResult<()> {
     refuse_in_incognito(&window)?;
     blocking(move || {
         let active = profiles::active();
@@ -213,8 +208,7 @@ pub async fn profile_delete(window: WebviewWindow, id: String) -> CmdResult<()> 
 }
 
 /// Creates (or replaces) the profile's desktop shortcut; returns its path.
-#[tauri::command]
-pub async fn profile_shortcut(window: WebviewWindow, id: String) -> CmdResult<String> {
+pub async fn profile_shortcut(window: WindowHandle, id: String) -> CmdResult<String> {
     refuse_in_incognito(&window)?;
     blocking(move || profiles::create_shortcut(&id).map(|p| p.display().to_string())).await?
 }

@@ -1,125 +1,103 @@
-//! The page context menu: "Download video/audio with Zenith" and Zenith's link commands.
+//! Page context menu via CEF `ContextMenuHandler`: "Download video/audio with Zenith…" and
+//! Zenith's link actions (background tab, Glance, split view, incognito window).
 
-use std::rc::Rc;
+use std::sync::Arc;
 
-use webview2_com::Microsoft::Web::WebView2::Win32::*;
-use webview2_com::*;
-use windows::core::{Interface, BOOL, HSTRING, PWSTR};
-use windows::Win32::System::Com::IStream;
+use cef::*;
 
-use super::{is_web, take, OpenRequest, TabShared};
+use super::{is_web, OpenRequest, TabShared};
+use crate::host::cef_app::cef_str;
 use crate::host::emit_tab;
 
-pub(super) unsafe fn attach_context_menu(core: &ICoreWebView2, env: &ICoreWebView2Environment, s: Rc<TabShared>) {
-    unsafe {
-        let (Ok(c11), Ok(env9)) = (core.cast::<ICoreWebView2_11>(), env.cast::<ICoreWebView2Environment9>()) else {
-            return;
-        };
-        let mut token = 0i64;
-        let _ = c11.add_ContextMenuRequested(
-            &ContextMenuRequestedEventHandler::create(Box::new(move |_, args| {
-                let Some(args) = args else { return Ok(()) };
-                let target = args.ContextMenuTarget()?;
-                let items = args.MenuItems()?;
-                // Videos and audio: open the media downloader for this element (also works for
-                // streaming players whose source is a blob: address).
-                let mut kind = COREWEBVIEW2_CONTEXT_MENU_TARGET_KIND::default();
-                target.Kind(&mut kind)?;
-                if kind == COREWEBVIEW2_CONTEXT_MENU_TARGET_KIND_VIDEO || kind == COREWEBVIEW2_CONTEXT_MENU_TARGET_KIND_AUDIO {
-                    let mut has_source = BOOL::default();
-                    target.HasSourceUri(&mut has_source)?;
-                    let source = if has_source.as_bool() {
-                        let mut p = PWSTR::null();
-                        target.SourceUri(&mut p)?;
-                        take(p)
-                    } else {
-                        String::new()
-                    };
-                    let label = if kind == COREWEBVIEW2_CONTEXT_MENU_TARGET_KIND_VIDEO {
-                        "Download video with Zenith…"
-                    } else {
-                        "Download audio with Zenith…"
-                    };
-                    let item = env9.CreateContextMenuItem(
-                        &HSTRING::from(label),
-                        None::<&IStream>,
-                        COREWEBVIEW2_CONTEXT_MENU_ITEM_KIND_COMMAND,
-                    )?;
-                    let tab = s.id.clone();
-                    let mut t = 0i64;
-                    item.add_CustomItemSelected(
-                        &CustomItemSelectedEventHandler::create(Box::new(move |_, _| {
-                            crate::media::sniff::request_panel(&tab, &source);
-                            Ok(())
-                        })),
-                        &mut t,
-                    )?;
-                    let separator = env9.CreateContextMenuItem(
-                        &HSTRING::from(""),
-                        None::<&IStream>,
-                        COREWEBVIEW2_CONTEXT_MENU_ITEM_KIND_SEPARATOR,
-                    )?;
-                    items.InsertValueAtIndex(0, &item)?;
-                    items.InsertValueAtIndex(1, &separator)?;
-                }
-                let mut has_link = BOOL::default();
-                target.HasLinkUri(&mut has_link)?;
-                if !has_link.as_bool() {
-                    return Ok(());
-                }
-                let mut link = PWSTR::null();
-                target.LinkUri(&mut link)?;
-                let link = take(link);
-                if !is_web(&link) {
-                    return Ok(());
-                }
-                let mut count = 0u32;
-                items.Count(&mut count)?;
-                let mut index = 0u32;
-                for i in 0..count {
-                    let item = items.GetValueAtIndex(i)?;
-                    let mut name = PWSTR::null();
-                    item.Name(&mut name)?;
-                    if take(name) == "openLinkInNewWindow" {
-                        index = i + 1;
-                        break;
-                    }
-                }
-                for (label, kind) in [
-                    ("Open link in new tab", "background"),
-                    ("Open link in Glance", "glance"),
-                    ("Open link in split view", "split"),
-                    ("Open link in incognito window", "incognito"),
+const CMD_DOWNLOAD_MEDIA: i32 = 26500;
+const CMD_LINK_BACKGROUND: i32 = 26501;
+const CMD_LINK_GLANCE: i32 = 26502;
+const CMD_LINK_SPLIT: i32 = 26503;
+const CMD_LINK_INCOGNITO: i32 = 26504;
+
+wrap_context_menu_handler! {
+    pub(super) struct TabContextMenuHandler {
+        shared: Arc<TabShared>,
+    }
+
+    impl ContextMenuHandler {
+        fn on_before_context_menu(
+            &self,
+            _browser: Option<&mut Browser>,
+            _frame: Option<&mut Frame>,
+            params: Option<&mut ContextMenuParams>,
+            model: Option<&mut MenuModel>,
+        ) {
+            let (Some(params), Some(model)) = (params, model) else { return };
+            let mtype = params.media_type();
+            if mtype == ContextMenuMediaType::VIDEO || mtype == ContextMenuMediaType::AUDIO {
+                let label = if mtype == ContextMenuMediaType::VIDEO {
+                    "Download video with Zenith…"
+                } else {
+                    "Download audio with Zenith…"
+                };
+                model.insert_item_at(0, CMD_DOWNLOAD_MEDIA, Some(&CefString::from(label)));
+                model.insert_separator_at(1);
+            }
+
+            let link = cef_str(params.link_url());
+            if is_web(&link) {
+                let mut idx = 0usize;
+                for (cmd, label) in [
+                    (CMD_LINK_BACKGROUND, "Open link in new tab"),
+                    (CMD_LINK_GLANCE, "Open link in Glance"),
+                    (CMD_LINK_SPLIT, "Open link in split view"),
+                    (CMD_LINK_INCOGNITO, "Open link in incognito window"),
                 ] {
-                    let item = env9.CreateContextMenuItem(
-                        &HSTRING::from(label),
-                        None::<&IStream>,
-                        COREWEBVIEW2_CONTEXT_MENU_ITEM_KIND_COMMAND,
-                    )?;
-                    let url = link.clone();
-                    let opener = s.id.clone();
-                    let mut t = 0i64;
-                    item.add_CustomItemSelected(
-                        &CustomItemSelectedEventHandler::create(Box::new(move |_, _| {
-                            if kind == "incognito" {
-                                crate::incognito::open_window(vec![url.clone()]);
-                                return Ok(());
-                            }
-                            emit_tab(
-                                &opener,
-                                "tab-open-request",
-                                OpenRequest { url: url.clone(), opener_id: Some(opener.clone()), kind: kind.into() },
-                            );
-                            Ok(())
-                        })),
-                        &mut t,
-                    )?;
-                    items.InsertValueAtIndex(index, &item)?;
-                    index += 1;
+                    model.insert_item_at(idx, cmd, Some(&CefString::from(label)));
+                    idx += 1;
                 }
-                Ok(())
-            })),
-            &mut token,
-        );
+                model.insert_separator_at(idx);
+            }
+        }
+
+        fn on_context_menu_command(
+            &self,
+            _browser: Option<&mut Browser>,
+            _frame: Option<&mut Frame>,
+            params: Option<&mut ContextMenuParams>,
+            command_id: ::std::os::raw::c_int,
+            _event_flags: EventFlags,
+        ) -> ::std::os::raw::c_int {
+            let Some(params) = params else { return 0 };
+            match command_id {
+                CMD_DOWNLOAD_MEDIA => {
+                    let src = cef_str(params.source_url());
+                    crate::media::sniff::request_panel(&self.shared.id, &src);
+                    1
+                }
+                CMD_LINK_BACKGROUND | CMD_LINK_GLANCE | CMD_LINK_SPLIT | CMD_LINK_INCOGNITO => {
+                    let link = cef_str(params.link_url());
+                    if !is_web(&link) {
+                        return 0;
+                    }
+                    if command_id == CMD_LINK_INCOGNITO {
+                        crate::incognito::open_window(vec![link]);
+                        return 1;
+                    }
+                    let kind = match command_id {
+                        CMD_LINK_GLANCE => "glance",
+                        CMD_LINK_SPLIT => "split",
+                        _ => "background",
+                    };
+                    emit_tab(
+                        &self.shared.id,
+                        "tab-open-request",
+                        OpenRequest {
+                            url: link,
+                            opener_id: Some(self.shared.id.clone()),
+                            kind: kind.into(),
+                        },
+                    );
+                    1
+                }
+                _ => 0,
+            }
+        }
     }
 }

@@ -7,8 +7,7 @@
 use std::collections::HashMap;
 
 use serde::Serialize;
-use tauri::AppHandle;
-use tauri_plugin_dialog::DialogExt;
+use crate::app::runtime::AppHandle;
 use zeroize::Zeroizing;
 
 use crate::app::command::{blocking, on_main, on_main_cb, CmdResult};
@@ -45,13 +44,11 @@ fn today() -> String {
 // ---------------------------------------------------------------------------------------------
 // Master password
 
-#[tauri::command]
 pub async fn vault_status() -> CmdResult<vault::Status> {
     blocking(vault::status).await
 }
 
 /// Sets up the master password; returns the recovery key (shown once, never stored).
-#[tauri::command]
 pub async fn vault_setup(master: String) -> CmdResult<String> {
     let master = Zeroizing::new(master);
     let key = vault_call(move |v| v.setup(&master)).await?;
@@ -59,7 +56,6 @@ pub async fn vault_setup(master: String) -> CmdResult<String> {
     Ok(key.to_string())
 }
 
-#[tauri::command]
 pub async fn vault_unlock(master: String) -> CmdResult<vault::Status> {
     let master = Zeroizing::new(master);
     let result = vault_call(move |v| v.unlock(&master)).await;
@@ -68,14 +64,12 @@ pub async fn vault_unlock(master: String) -> CmdResult<vault::Status> {
     blocking(vault::status).await
 }
 
-#[tauri::command]
 pub async fn vault_lock() -> CmdResult<()> {
     blocking(vault::lock).await?;
     vault::broadcast();
     Ok(())
 }
 
-#[tauri::command]
 pub async fn vault_change_master(current: String, new: String) -> CmdResult<()> {
     let (current, new) = (Zeroizing::new(current), Zeroizing::new(new));
     vault_call(move |v| v.change_master(&current, &new)).await?;
@@ -84,7 +78,6 @@ pub async fn vault_change_master(current: String, new: String) -> CmdResult<()> 
 }
 
 /// Forgot master password: the recovery key sets a new one. Returns the new recovery key.
-#[tauri::command]
 pub async fn vault_recover(recovery_key: String, new_master: String) -> CmdResult<String> {
     let (recovery_key, new_master) = (Zeroizing::new(recovery_key), Zeroizing::new(new_master));
     let result = vault_call(move |v| v.recover(&recovery_key, &new_master)).await;
@@ -92,14 +85,12 @@ pub async fn vault_recover(recovery_key: String, new_master: String) -> CmdResul
     Ok(result?.to_string())
 }
 
-#[tauri::command]
 pub async fn vault_new_recovery_key(master: String) -> CmdResult<String> {
     let master = Zeroizing::new(master);
     Ok(vault_call(move |v| v.new_recovery_key(&master)).await?.to_string())
 }
 
 /// Deletes every saved password and the master password. The UI makes the user type DELETE.
-#[tauri::command]
 pub async fn vault_reset(confirm: String) -> CmdResult<()> {
     if confirm != "DELETE" {
         return Err("Type DELETE to confirm.".into());
@@ -113,12 +104,10 @@ pub async fn vault_reset(confirm: String) -> CmdResult<()> {
 // ---------------------------------------------------------------------------------------------
 // Saved passwords
 
-#[tauri::command]
 pub async fn passwords_list() -> CmdResult<Vec<vault::EntryInfo>> {
     vault_call(|v| v.list()).await
 }
 
-#[tauri::command]
 pub async fn password_reveal(id: String, master: Option<String>) -> CmdResult<vault::Revealed> {
     let master = secret(master);
     let r = vault_call(move |v| {
@@ -131,7 +120,6 @@ pub async fn password_reveal(id: String, master: Option<String>) -> CmdResult<va
 }
 
 /// Copies a username, or a password (kept out of clipboard history, cleared after 30 s).
-#[tauri::command]
 pub async fn password_copy(id: String, field: String, master: Option<String>) -> CmdResult<()> {
     let master = secret(master);
     let r = vault_call(move |v| {
@@ -148,32 +136,26 @@ pub async fn password_copy(id: String, field: String, master: Option<String>) ->
     r
 }
 
-#[tauri::command]
 pub async fn password_add(entry: vault::EntryInput) -> CmdResult<String> {
     vault_call(move |v| v.add(&entry)).await
 }
 
-#[tauri::command]
 pub async fn password_update(id: String, entry: vault::EntryInput) -> CmdResult<()> {
     vault_call(move |v| v.update(&id, &entry)).await
 }
 
-#[tauri::command]
 pub async fn passwords_delete(ids: Vec<String>) -> CmdResult<usize> {
     vault_call(move |v| v.delete(&ids)).await
 }
 
-#[tauri::command]
 pub async fn password_generate(length: Option<usize>) -> CmdResult<String> {
     Ok(vault::crypto::generate_password(length.unwrap_or(20)).to_string())
 }
 
-#[tauri::command]
 pub async fn passwords_never_list() -> CmdResult<Vec<String>> {
     vault_call(|v| Ok(v.never_list())).await
 }
 
-#[tauri::command]
 pub async fn passwords_never_remove(site: String) -> CmdResult<()> {
     vault_call(move |v| v.set_never(&site, false)).await
 }
@@ -183,8 +165,7 @@ pub async fn passwords_never_remove(site: String) -> CmdResult<()> {
 
 /// Writes every password, unencrypted, to a CSV file the user picks. Always asks for the master
 /// password.
-#[tauri::command]
-pub async fn passwords_export_csv(app: AppHandle, master: String) -> CmdResult<Option<String>> {
+pub async fn passwords_export_csv(_app: AppHandle, master: String) -> CmdResult<Option<String>> {
     let master = Zeroizing::new(master);
     let text = vault_call(move |v| {
         v.verify(&master)?;
@@ -194,17 +175,13 @@ pub async fn passwords_export_csv(app: AppHandle, master: String) -> CmdResult<O
     vault::broadcast();
     let text = text?;
     blocking(move || {
-        let Some(path) = app
-            .dialog()
-            .file()
-            .set_title("Export passwords (not encrypted)")
-            .set_file_name("Zenith Passwords.csv")
-            .add_filter("CSV", &["csv"])
-            .blocking_save_file()
-        else {
+        let Some(path) = crate::platform::win::dialog::save_file(
+            "Export passwords (not encrypted)",
+            Some("Zenith Passwords.csv"),
+            &[("CSV", &["csv"])],
+        ) else {
             return Ok(None);
         };
-        let path = path.into_path().map_err(|e| e.to_string())?;
         storage::write_atomic(&path, text.as_bytes()).map_err(|e| e.to_string())?;
         Ok(Some(path.display().to_string()))
     })
@@ -212,8 +189,7 @@ pub async fn passwords_export_csv(app: AppHandle, master: String) -> CmdResult<O
 }
 
 /// Saves an encrypted backup that opens with the current master password.
-#[tauri::command]
-pub async fn passwords_backup(app: AppHandle, master: String) -> CmdResult<Option<String>> {
+pub async fn passwords_backup(_app: AppHandle, master: String) -> CmdResult<Option<String>> {
     let master = Zeroizing::new(master);
     let bytes = vault_call(move |v| {
         v.verify(&master)?;
@@ -224,17 +200,13 @@ pub async fn passwords_backup(app: AppHandle, master: String) -> CmdResult<Optio
     let bytes = bytes?;
     let name = format!("Zenith Passwords {}.zenithpasswords", today());
     blocking(move || {
-        let Some(path) = app
-            .dialog()
-            .file()
-            .set_title("Back up passwords")
-            .set_file_name(name)
-            .add_filter("Zenith password backup", &["zenithpasswords"])
-            .blocking_save_file()
-        else {
+        let Some(path) = crate::platform::win::dialog::save_file(
+            "Back up passwords",
+            Some(&name),
+            &[("Zenith password backup", &["zenithpasswords"])],
+        ) else {
             return Ok(None);
         };
-        let path = path.into_path().map_err(|e| e.to_string())?;
         storage::write_atomic(&path, &bytes).map_err(|e| e.to_string())?;
         Ok(Some(path.display().to_string()))
     })
@@ -252,16 +224,13 @@ pub struct ImportOpened {
 }
 
 /// Picks a CSV export or a Zenith backup and previews it. Nothing is saved yet.
-#[tauri::command]
-pub async fn passwords_import_open(app: AppHandle) -> CmdResult<Option<ImportOpened>> {
+pub async fn passwords_import_open(_app: AppHandle) -> CmdResult<Option<ImportOpened>> {
     vault_call(|v| v.list().map(|_| ())).await?;
     let picked = blocking(move || {
-        app.dialog()
-            .file()
-            .set_title("Import passwords")
-            .add_filter("Password export (CSV) or Zenith backup", &["csv", "zenithpasswords"])
-            .blocking_pick_file()
-            .and_then(|p| p.into_path().ok())
+        crate::platform::win::dialog::pick_file(
+            "Import passwords",
+            &[("Password export (CSV) or Zenith backup", &["csv", "zenithpasswords"])],
+        )
     })
     .await?;
     let Some(path) = picked else { return Ok(None) };
@@ -287,7 +256,6 @@ pub async fn passwords_import_open(app: AppHandle) -> CmdResult<Option<ImportOpe
 
 /// Opens an encrypted backup picked with `passwords_import_open`. On a wrong password the
 /// file stays available under the same token.
-#[tauri::command]
 pub async fn passwords_import_unlock(token: u64, password: String) -> CmdResult<ImportOpened> {
     let password = Zeroizing::new(password);
     let Some(vault::PendingImport::Backup(bytes)) = vault::take_import(token) else {
@@ -308,7 +276,6 @@ pub async fn passwords_import_unlock(token: u64, password: String) -> CmdResult<
 }
 
 /// Saves a previewed import. `choices` by row index: "skip", "replace" or "both".
-#[tauri::command]
 pub async fn passwords_import_commit(token: u64, choices: HashMap<usize, String>) -> CmdResult<vault::ImportSummary> {
     let Some(vault::PendingImport::Rows(rows)) = vault::take_import(token) else {
         return Err("This import expired. Choose the file again.".into());
@@ -316,7 +283,6 @@ pub async fn passwords_import_commit(token: u64, choices: HashMap<usize, String>
     vault_call(move |v| v.import(&rows, &choices)).await
 }
 
-#[tauri::command]
 pub async fn passwords_import_cancel(token: u64) -> CmdResult<()> {
     vault::take_import(token);
     Ok(())
@@ -326,7 +292,6 @@ pub async fn passwords_import_cancel(token: u64) -> CmdResult<()> {
 // Autofill
 
 /// Fills a saved account into the tab's login form, after checking the page's site.
-#[tauri::command]
 pub async fn autofill_fill(app: AppHandle, tab_id: String, entry_id: String, master: Option<String>) -> CmdResult<()> {
     let cfg = host::config();
     if !cfg.passwords_enabled {
@@ -354,12 +319,10 @@ pub async fn autofill_fill(app: AppHandle, tab_id: String, entry_id: String, mas
 }
 
 /// Fills the strong password suggested in a sign-up form.
-#[tauri::command]
 pub async fn autofill_fill_generated(app: AppHandle, tab_id: String) -> CmdResult<()> {
     on_main_cb(&app, move |done| autofill::fill_generated(&tab_id, move |r| done(r))).await?
 }
 
-#[tauri::command]
 pub async fn autofill_dismiss(app: AppHandle, tab_id: String) -> CmdResult<()> {
     // The user closed the list: typing in the field leaves it closed.
     on_main(&app, move || {
@@ -371,7 +334,6 @@ pub async fn autofill_dismiss(app: AppHandle, tab_id: String) -> CmdResult<()> {
 
 /// Answers a "Save password?" prompt: "save", "never" (for this site) or "dismiss". Saving
 /// may need the master password; on any error the offer stays so the user can try again.
-#[tauri::command]
 pub async fn password_offer_respond(offer_id: u64, action: String, master: Option<String>) -> CmdResult<Option<String>> {
     let master = secret(master);
     match action.as_str() {

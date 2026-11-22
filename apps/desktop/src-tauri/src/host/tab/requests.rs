@@ -1,129 +1,292 @@
-//! Web requests of a tab: content blocking, request counts and media request notes.
-//!
-//! WebView2 holds every intercepted request until its handler has run on the UI thread, so
-//! interception is kept as narrow as possible: requests of pages and their frames only (never
-//! service or shared workers, whose requests would stall behind a busy UI thread or a slept
-//! tab), every resource type only while the blocker is on, and otherwise just media requests
-//! (the media downloader's hint).
+//! Web requests on the CEF IO thread: full ABP/EasyList network blocking (including service and
+//! shared workers via `RequestContextHandler`), CSS-only cosmetic hiding, request counting, and
+//! response observation for media sniffing.
 
-use std::rc::Rc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 
-use webview2_com::Microsoft::Web::WebView2::Win32::*;
-use webview2_com::*;
-use windows::core::{HSTRING, PWSTR};
-use windows::Win32::System::Com::IStream;
+use cef::*;
 
-use super::{is_web, take, TabPatch, TabShared};
-use crate::host::{app, with_host, BLOCKER};
+use super::{is_web, TabPatch, TabShared};
+use crate::app::runtime::post_ui_delayed;
+use crate::host::cef_app::{cef_str, opt_cef_str};
+use crate::host::{with_host, BLOCKER};
 use crate::platform::urls::{host_of, site_of};
 
 pub static TOTAL_BLOCKED: AtomicU64 = AtomicU64::new(0);
 
-/// Adds or removes the all-requests filter the blocker needs. Idempotent: the filter is removed
-/// first so it is never registered twice. The plain `AddWebResourceRequestedFilter` covers
-/// document requests only (pages and frames), not service or shared workers.
-unsafe fn set_block_filter(core: &ICoreWebView2, on: bool) {
-    unsafe {
-        let filter = HSTRING::from("*");
-        let _ = core.RemoveWebResourceRequestedFilter(&filter, COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL);
-        if on {
-            let _ = core.AddWebResourceRequestedFilter(&filter, COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL);
+/// No-op in CEF: `on_before_resource_load` checks `blocker_enabled()` atomically on every request.
+pub fn apply_blocking(_on: bool) {}
+
+fn resource_type_str(rtype: ResourceType) -> &'static str {
+    if rtype == ResourceType::MAIN_FRAME {
+        "document"
+    } else if rtype == ResourceType::SUB_FRAME {
+        "subdocument"
+    } else if rtype == ResourceType::STYLESHEET {
+        "stylesheet"
+    } else if rtype == ResourceType::SCRIPT
+        || rtype == ResourceType::WORKER
+        || rtype == ResourceType::SHARED_WORKER
+        || rtype == ResourceType::SERVICE_WORKER
+    {
+        "script"
+    } else if rtype == ResourceType::IMAGE {
+        "image"
+    } else if rtype == ResourceType::FONT_RESOURCE {
+        "font"
+    } else if rtype == ResourceType::OBJECT {
+        "object"
+    } else if rtype == ResourceType::MEDIA {
+        "media"
+    } else if rtype == ResourceType::XHR {
+        "xmlhttprequest"
+    } else if rtype == ResourceType::PING {
+        "ping"
+    } else {
+        "other"
+    }
+}
+
+fn should_block_url(uri: &str, source_url: &str, page_host: &str, rtype: ResourceType) -> bool {
+    if !crate::host::blocker_enabled() {
+        return false;
+    }
+    let Some(req_host) = host_of(uri) else {
+        return false;
+    };
+    let site = site_of(page_host);
+    // Same-site subresources and documents are never blocked by default policy.
+    if !page_host.is_empty() && site.eq_ignore_ascii_case(site_of(req_host)) {
+        return false;
+    }
+    let rtype_name = resource_type_str(rtype);
+    match BLOCKER.read() {
+        Ok(b) => {
+            if !site.is_empty() && b.disabled_sites.contains(site) {
+                return false;
+            }
+            b.engine.should_block_request(uri, source_url, rtype_name)
+        }
+        Err(_) => false,
+    }
+}
+
+/// Injects CSS-only cosmetic hiding rules into a frame without executing filter scriptlets.
+pub(super) fn inject_cosmetic_css(frame: &mut Frame, page_url: &str) {
+    if !crate::host::blocker_enabled() || !is_web(page_url) {
+        return;
+    }
+    let page_host = host_of(page_url).unwrap_or("").to_ascii_lowercase();
+    let site = site_of(&page_host);
+    let css = match BLOCKER.read() {
+        Ok(b) => {
+            if !site.is_empty() && b.disabled_sites.contains(site) {
+                None
+            } else {
+                b.engine.cosmetic_css(page_url)
+            }
+        }
+        Err(_) => None,
+    };
+    let Some(css) = css else { return };
+    let Ok(css_json) = serde_json::to_string(&css) else { return };
+    let js = format!(
+        "(() => {{ \
+            let s = document.querySelector('style[data-zenith-cosmetic]'); \
+            if (!s) {{ \
+                s = document.createElement('style'); \
+                s.setAttribute('data-zenith-cosmetic', '1'); \
+                (document.head || document.documentElement)?.appendChild(s); \
+            }} \
+            s.textContent = {css_json}; \
+        }})();"
+    );
+    frame.execute_java_script(
+        Some(&CefString::from(js.as_str())),
+        Some(&CefString::from("zenith://internal/cosmetic.js")),
+        1,
+    );
+}
+
+fn schedule_block_flush(s: &Arc<TabShared>) {
+    if s.flush_pending.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let id = s.id.clone();
+    post_ui_delayed(350, move || {
+        let count = with_host(|h| {
+            let t = h.tabs.get(&id)?;
+            t.shared.flush_pending.store(false, Ordering::SeqCst);
+            Some(t.shared.blocked())
+        })
+        .flatten();
+        if let Some(blocked) = count {
+            TabPatch { blocked: Some(blocked), ..TabPatch::new(&id) }.send();
+        }
+    });
+}
+
+wrap_resource_request_handler! {
+    pub(super) struct TabResourceRequestHandler {
+        shared: Arc<TabShared>,
+    }
+
+    impl ResourceRequestHandler {
+        fn on_before_resource_load(
+            &self,
+            _browser: Option<&mut Browser>,
+            _frame: Option<&mut Frame>,
+            request: Option<&mut Request>,
+            _callback: Option<&mut Callback>,
+        ) -> ReturnValue {
+            let Some(request) = request else {
+                return ReturnValue::CONTINUE;
+            };
+            let uri = cef_str(request.url());
+            if !is_web(&uri) {
+                return ReturnValue::CONTINUE;
+            }
+            self.shared.requests.fetch_add(1, Ordering::Relaxed);
+            let rtype = request.resource_type();
+            if rtype == ResourceType::MEDIA {
+                if let Ok(mut media) = self.shared.media.lock() {
+                    media.note_media_request(&uri);
+                }
+            }
+            let is_main_doc = rtype == ResourceType::MAIN_FRAME;
+            if is_main_doc && self.shared.nav_uri() == uri {
+                return ReturnValue::CONTINUE;
+            }
+            let page_host = self.shared.page_host();
+            let source_url = {
+                let u = self.shared.url();
+                if u.is_empty() { self.shared.nav_uri() } else { u }
+            };
+            if should_block_url(&uri, &source_url, &page_host, rtype) {
+                self.shared.blocked.fetch_add(1, Ordering::Relaxed);
+                TOTAL_BLOCKED.fetch_add(1, Ordering::Relaxed);
+                schedule_block_flush(&self.shared);
+                return ReturnValue::CANCEL;
+            }
+            ReturnValue::CONTINUE
+        }
+
+        fn on_resource_response(
+            &self,
+            _browser: Option<&mut Browser>,
+            _frame: Option<&mut Frame>,
+            request: Option<&mut Request>,
+            response: Option<&mut Response>,
+        ) -> ::std::os::raw::c_int {
+            if let (Some(req), Some(resp)) = (request, response) {
+                crate::media::sniff::on_cef_response(&self.shared, req, resp);
+            }
+            0
         }
     }
 }
 
-/// Applies a change of the blocker setting to every open tab. Runs on the UI thread.
-pub fn apply_blocking(on: bool) {
-    let cores: Vec<ICoreWebView2> =
-        with_host(|h| h.tabs.values().chain(h.zombies.values()).map(|t| t.core()).collect()).unwrap_or_default();
-    for core in cores {
-        unsafe { set_block_filter(&core, on) };
+/// Unsolicited Chromium vendor background endpoints blocked when no user page browser owns the
+/// request (Section 10.3). Ordinary user navigations in tabs are never affected.
+fn is_unsolicited_vendor_bg(uri: &str) -> bool {
+    let Some(host) = host_of(uri) else {
+        return false;
+    };
+    let h = host.to_ascii_lowercase();
+    matches!(
+        h.as_str(),
+        "update.googleapis.com"
+            | "edgedl.me.gvt1.com"
+            | "redirector.gvt1.com"
+            | "chrome.cloudflare-dns.com"
+            | "clients2.google.com"
+            | "optimizationguide-pa.googleapis.com"
+    ) || (h == "www.google.com" && uri.contains("/async/folae"))
+}
+
+// Request-context-level blocker covering service workers, shared workers, and background fetches
+// that have no associated `Browser` instance.
+wrap_resource_request_handler! {
+    struct WorkerResourceRequestHandler {
+        initiator: String,
+    }
+
+    impl ResourceRequestHandler {
+        fn on_before_resource_load(
+            &self,
+            _browser: Option<&mut Browser>,
+            _frame: Option<&mut Frame>,
+            request: Option<&mut Request>,
+            _callback: Option<&mut Callback>,
+        ) -> ReturnValue {
+            let Some(request) = request else {
+                return ReturnValue::CONTINUE;
+            };
+            let uri = cef_str(request.url());
+            if !is_web(&uri) {
+                return ReturnValue::CONTINUE;
+            }
+            if is_unsolicited_vendor_bg(&uri) {
+                return ReturnValue::CANCEL;
+            }
+            let page_host = host_of(&self.initiator).unwrap_or("").to_ascii_lowercase();
+            let rtype = request.resource_type();
+            if should_block_url(&uri, &self.initiator, &page_host, rtype) {
+                TOTAL_BLOCKED.fetch_add(1, Ordering::Relaxed);
+                return ReturnValue::CANCEL;
+            }
+            ReturnValue::CONTINUE
+        }
     }
 }
 
-pub(super) unsafe fn attach_blocker(core: &ICoreWebView2, env: &ICoreWebView2Environment, s: Rc<TabShared>) {
-    unsafe {
-        // Media requests are always watched (few and cheap); everything else only while blocking.
-        let _ = core.AddWebResourceRequestedFilter(&HSTRING::from("*"), COREWEBVIEW2_WEB_RESOURCE_CONTEXT_MEDIA);
-        set_block_filter(core, crate::host::blocker_enabled());
-        let env = env.clone();
-        let mut token = 0i64;
-        let _ = core.add_WebResourceRequested(
-            &WebResourceRequestedEventHandler::create(Box::new(move |_, args| {
-                let Some(args) = args else { return Ok(()) };
-                let request = args.Request()?;
-                let mut uri = PWSTR::null();
-                request.Uri(&mut uri)?;
-                let uri = take(uri);
-                if !is_web(&uri) {
-                    return Ok(());
-                }
-                s.requests.set(s.requests.get().saturating_add(1));
-                let mut context = COREWEBVIEW2_WEB_RESOURCE_CONTEXT::default();
-                args.ResourceContext(&mut context)?;
-                if context == COREWEBVIEW2_WEB_RESOURCE_CONTEXT_MEDIA {
-                    // Lets the media downloader tell <video>/<audio> files from stream segments.
-                    s.media.borrow_mut().note_media_request(&uri);
-                }
-                if !crate::host::blocker_enabled() {
-                    return Ok(());
-                }
-                if context == COREWEBVIEW2_WEB_RESOURCE_CONTEXT_DOCUMENT && *s.nav_uri.borrow() == uri {
-                    return Ok(()); // the top-level navigation itself
-                }
-                let Some(request_host) = host_of(&uri) else { return Ok(()) };
-                let blocked = {
-                    let page = s.page_host.borrow();
-                    let page_host = (!page.is_empty()).then_some(page.as_str());
-                    // Pages, frames and downloads (all document requests) only meet whole-host rules.
-                    let document = context == COREWEBVIEW2_WEB_RESOURCE_CONTEXT_DOCUMENT;
-                    match BLOCKER.read() {
-                        Ok(b) => {
-                            !b.disabled_sites.contains(site_of(&page))
-                                && if document {
-                                    b.engine.should_block_document(request_host, page_host)
-                                } else {
-                                    b.engine.should_block(request_host, page_host)
-                                }
-                        }
-                        Err(_) => false,
-                    }
-                };
-                if blocked {
-                    let response = env.CreateWebResourceResponse(
-                        None::<&IStream>,
-                        403,
-                        &HSTRING::from("Blocked by Zenith"),
-                        &HSTRING::from(""),
-                    )?;
-                    args.SetResponse(&response)?;
-                    s.blocked.set(s.blocked.get() + 1);
-                    TOTAL_BLOCKED.fetch_add(1, Ordering::Relaxed);
-                    schedule_block_flush(&s);
-                }
-                Ok(())
-            })),
-            &mut token,
-        );
-    }
-}
+wrap_request_context_handler! {
+    struct ZenithRequestContextHandler;
 
-/// Coalesces blocked-request counts into at most ~3 UI updates per second per tab.
-fn schedule_block_flush(s: &Rc<TabShared>) {
-    if s.flush_pending.replace(true) {
-        return;
-    }
-    let id = s.id.clone();
-    std::thread::spawn(move || {
-        std::thread::sleep(std::time::Duration::from_millis(350));
-        let _ = app().run_on_main_thread(move || {
-            with_host(|h| {
-                if let Some(t) = h.tabs.get(&id) {
-                    t.shared.flush_pending.set(false);
-                    TabPatch { blocked: Some(t.shared.blocked.get()), ..TabPatch::new(&id) }.send();
-                }
+    impl RequestContextHandler {
+        fn resource_request_handler(
+            &self,
+            browser: Option<&mut Browser>,
+            _frame: Option<&mut Frame>,
+            request: Option<&mut Request>,
+            _is_navigation: ::std::os::raw::c_int,
+            _is_download: ::std::os::raw::c_int,
+            request_initiator: Option<&CefString>,
+            _disable_default_handling: Option<&mut ::std::os::raw::c_int>,
+        ) -> Option<ResourceRequestHandler> {
+            // Only intercept requests not owned by a page browser (workers & Chromium bg tasks).
+            if browser.is_some() {
+                return None;
+            }
+            let uri = request.as_ref().map(|r| cef_str(r.url())).unwrap_or_default();
+            if is_unsolicited_vendor_bg(&uri) {
+                return Some(WorkerResourceRequestHandler::new(String::new()));
+            }
+            let rtype = request.as_ref().map(|r| r.resource_type());
+            let is_worker_or_bg = rtype.is_none_or(|rt| {
+                matches!(
+                    rt,
+                    ResourceType::SERVICE_WORKER
+                        | ResourceType::SHARED_WORKER
+                        | ResourceType::WORKER
+                        | ResourceType::XHR
+                        | ResourceType::SCRIPT
+                        | ResourceType::PING
+                        | ResourceType::IMAGE
+                        | ResourceType::SUB_RESOURCE
+                        | ResourceType::PREFETCH
+                )
             });
-        });
-    });
+            if !is_worker_or_bg {
+                return None;
+            }
+            let initiator = opt_cef_str(request_initiator);
+            Some(WorkerResourceRequestHandler::new(initiator))
+        }
+    }
+}
+
+pub fn create_request_context_handler() -> RequestContextHandler {
+    ZenithRequestContextHandler::new()
 }

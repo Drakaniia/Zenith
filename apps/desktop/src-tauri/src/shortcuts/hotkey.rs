@@ -11,7 +11,6 @@ use std::sync::mpsc;
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
-use tauri::Manager;
 use windows::Win32::System::Threading::GetCurrentThreadId;
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     GetAsyncKeyState, RegisterHotKey, SendInput, UnregisterHotKey, HOT_KEY_MODIFIERS, INPUT, INPUT_0, INPUT_KEYBOARD,
@@ -193,17 +192,17 @@ fn fire(action: String) {
     let handle = app.clone();
     let _ = handle.run_on_main_thread(move || {
         let windows: Vec<_> = app
-            .webview_windows()
+            .windows()
             .into_values()
             .filter(|w| crate::host::is_normal_window(w.label()) || crate::host::is_private_window(w.label()))
             .collect();
         let target = windows
             .iter()
-            .find(|w| w.is_focused().unwrap_or(false))
+            .find(|w| w.is_focused())
             .or_else(|| windows.iter().find(|w| w.label() == crate::host::MAIN))
             .or_else(|| windows.first());
         let Some(w) = target else { return };
-        if w.is_minimized().unwrap_or(false) {
+        if w.is_minimized() {
             let _ = w.unminimize();
         }
         let _ = w.show();

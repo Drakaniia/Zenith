@@ -3,15 +3,13 @@
 
 use std::sync::Mutex;
 
-use tauri::{AppHandle, Manager, WebviewWindow};
-
 use crate::app::command::{blocking, private, CmdResult};
+use crate::app::runtime::{AppHandle, WindowHandle};
 use crate::host::{self, paths};
 use crate::storage;
 
 /// Opens another normal window (Ctrl+N). `session` is the calling window's snapshot: the new
 /// window gets its spaces, essentials and pinned tabs, but not its regular tabs.
-#[tauri::command]
 pub async fn window_open(app: AppHandle, session: Option<String>) -> CmdResult<()> {
     let start = super::Start { data: session, keep: Some(false), fresh: true };
     std::thread::spawn(move || {
@@ -23,9 +21,8 @@ pub async fn window_open(app: AppHandle, session: Option<String>) -> CmdResult<(
 }
 
 /// Reopens the most recently closed normal window (Ctrl+Shift+N); false when there is none.
-#[tauri::command]
 pub async fn window_undo_close(app: AppHandle) -> CmdResult<bool> {
-    let main_open = app.get_webview_window(host::MAIN).is_some();
+    let main_open = app.get_window(host::MAIN).is_some();
     let Some(closed) = super::pop_closed(main_open) else { return Ok(false) };
     std::thread::spawn(move || {
         let opened = match closed {
@@ -43,8 +40,7 @@ pub async fn window_undo_close(app: AppHandle) -> CmdResult<bool> {
 
 /// The main window's UI calls this once at startup: the other windows that were open when Zenith
 /// quit come back (`keep`, the "restore previous session" setting) or are forgotten.
-#[tauri::command]
-pub async fn windows_restore(app: AppHandle, window: WebviewWindow, keep: bool) -> CmdResult<()> {
+pub async fn windows_restore(app: AppHandle, window: WindowHandle, keep: bool) -> CmdResult<()> {
     if window.label() != host::MAIN {
         return Ok(());
     }
@@ -67,8 +63,7 @@ static SESSION_LOCK: Mutex<()> = Mutex::new(());
 
 /// A window's tabs. The main window's are in `session.json`; another normal window gets what it
 /// was opened with (see `session`). Incognito windows always start empty.
-#[tauri::command]
-pub async fn session_load(window: WebviewWindow) -> CmdResult<super::Start> {
+pub async fn session_load(window: WindowHandle) -> CmdResult<super::Start> {
     if private(&window) {
         return Ok(super::Start::default());
     }
@@ -82,8 +77,7 @@ pub async fn session_load(window: WebviewWindow) -> CmdResult<super::Start> {
 }
 
 /// Incognito windows never write a session.
-#[tauri::command]
-pub async fn session_save(window: WebviewWindow, data: String) -> CmdResult<()> {
+pub async fn session_save(window: WindowHandle, data: String) -> CmdResult<()> {
     if private(&window) {
         return Ok(());
     }

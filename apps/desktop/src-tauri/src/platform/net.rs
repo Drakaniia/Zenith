@@ -8,7 +8,7 @@
 use std::ffi::c_void;
 use std::sync::OnceLock;
 
-use tauri::Url;
+use url::Url;
 use windows::core::{HSTRING, PCWSTR};
 use windows::Win32::Networking::WinHttp::*;
 
