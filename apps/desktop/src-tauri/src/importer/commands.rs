@@ -1,7 +1,7 @@
 //! Commands for importing bookmarks and history from other browsers.
 
 use serde::Serialize;
-use tauri::WebviewWindow;
+use crate::app::runtime::WindowHandle;
 
 use crate::app::command::{blocking, private, CmdResult};
 use crate::bookmarks::commands::bookmarks_changed;
@@ -9,7 +9,6 @@ use crate::host::{bookmarks_db, db};
 use crate::{bookmarks, importer};
 
 /// Browser profiles on this PC with bookmarks or history to import.
-#[tauri::command]
 pub async fn import_sources() -> CmdResult<Vec<importer::ImportSource>> {
     blocking(importer::detect).await
 }
@@ -26,9 +25,8 @@ pub struct ImportResult {
 
 /// Imports bookmarks and/or history from a profile found by `import_sources`. History older
 /// than `history_days` (0: any age) is left out, since retention would drop it anyway.
-#[tauri::command]
 pub async fn import_run(
-    window: WebviewWindow,
+    window: WindowHandle,
     source: String,
     bookmarks: bool,
     history: bool,

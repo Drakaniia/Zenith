@@ -29,7 +29,7 @@ pub fn start(record: &DownloadRecord) -> Result<i64, String> {
         h.tabs
             .iter()
             .find(|(_, t)| !t.shared.private)
-            .map(|(id, t)| (id.clone(), crate::media::sniff::user_agent(&t.core())))
+            .map(|(id, _)| (id.clone(), crate::media::sniff::default_user_agent()))
     })
     .flatten()
     .unwrap_or_default();

@@ -172,11 +172,10 @@ pub struct Request {
 
 /// The default downloads folder, or the one chosen in settings.
 pub fn download_dir() -> PathBuf {
-    use tauri::Manager;
     crate::host::config()
         .download_dir
         .filter(|d| d.is_dir())
-        .or_else(|| crate::host::app().path().download_dir().ok())
+        .or_else(|| crate::host::app().download_dir())
         .unwrap_or_else(|| crate::host::paths().local.join("Downloads"))
 }
 

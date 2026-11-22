@@ -1,29 +1,16 @@
-//! Placing page webviews: rectangles, visibility and z-order of each window's
-//! panes, relayout on resize and fullscreen pages.
+//! Native Win32 child-window placement for CEF browsers: rectangles, animation clipping via
+//! container HWNDs, visibility, overlay-lease z-order, relayout on resize, and fullscreen.
 
 use std::collections::HashMap;
 
-use windows::Win32::Foundation::{HWND, RECT};
+use windows::Win32::Foundation::HWND;
 use windows::Win32::UI::HiDpi::GetDpiForWindow;
 use windows::Win32::UI::WindowsAndMessaging::*;
-use wry::dpi::{LogicalPosition, LogicalSize};
-use wry::{Rect, WebViewExtWindows};
 
 use super::{window_of_tab, with_host, with_win, Host, LayoutSpec, PaneSpec};
 
-// ---------------------------------------------------------------------------------------------
-// Layout, visibility and z-order
-
-pub(crate) fn logical_rect(p: &PaneSpec) -> Rect {
-    Rect {
-        position: LogicalPosition::new(p.x, p.y).into(),
-        size: LogicalSize::new(p.w.max(1.0), p.h.max(1.0)).into(),
-    }
-}
-
-/// A logical rectangle in window pixels. The size comes from the rounded edges, so the right and
-/// bottom edges never wobble by a pixel as the left edge moves.
-fn px_rect(x: f64, y: f64, w: f64, h: f64, scale: f64) -> (i32, i32, i32, i32) {
+/// Converts a logical CSS rectangle into physical window pixels without edge wobble.
+pub(crate) fn px_rect(x: f64, y: f64, w: f64, h: f64, scale: f64) -> (i32, i32, i32, i32) {
     let left = (x * scale).round() as i32;
     let top = (y * scale).round() as i32;
     let pw = (((x + w) * scale).round() as i32 - left).max(1);
@@ -31,11 +18,6 @@ fn px_rect(x: f64, y: f64, w: f64, h: f64, scale: f64) -> (i32, i32, i32, i32) {
     (left, top, pw, ph)
 }
 
-/// Places a tab's webview. The container window is moved synchronously, in step with the page
-/// inside it (wry moves it asynchronously after resizing the page, which shows the page shifted
-/// for a frame). A move that keeps the size leaves the page alone, so nothing is repainted.
-/// The page content's size in physical px: the pane, or while the layout animates the larger
-/// size the content keeps throughout (`PaneSpec::cw`/`ch`).
 fn content_px(p: &PaneSpec, scale: f64) -> (i32, i32) {
     let (_, _, w, h) = px_rect(p.x, p.y, p.w, p.h, scale);
     let cw = if p.cw > p.w { (p.cw * scale).round() as i32 } else { 0 };
@@ -43,12 +25,12 @@ fn content_px(p: &PaneSpec, scale: f64) -> (i32, i32) {
     (cw.max(w), ch.max(h))
 }
 
-/// While the layout animates, the content keeps its largest size and only the container (which
-/// wry doesn't subclass for child webviews, so resizing it leaves the page alone) moves and
-/// clips it: the page needs no relayout or repaint per frame, so it never lags the chrome and
-/// leaves no unpainted strip.
-fn place_view(
-    view: &wry::WebView,
+/// Places a tab's container HWND and sizes its inner CEF browser HWND. Keeping the inner
+/// browser at `(cw, ch)` while the container clips to `(w, h)` avoids per-frame relayouts
+/// during sidebar/compact animations.
+fn place_tab(
+    container: HWND,
+    browser_hwnd: HWND,
     p: &PaneSpec,
     prev: Option<(f64, f64, f64, f64)>,
     content: &mut Option<(i32, i32)>,
@@ -61,20 +43,16 @@ fn place_view(
         (ow, oh) == (w, h)
     });
     unsafe {
-        // Size the content while the old container still clips it. Growing the container
-        // first would expose a strip with no WebView content until SetBounds catches up.
-        if *content != Some(want) {
-            let _ = view.controller().SetBounds(RECT { left: 0, top: 0, right: want.0, bottom: want.1 });
+        if *content != Some(want) && !browser_hwnd.is_invalid() {
+            let _ = SetWindowPos(browser_hwnd, None, 0, 0, want.0, want.1, SWP_NOACTIVATE | SWP_NOZORDER);
             *content = Some(want);
         }
-        if same_size {
-            let flags = SWP_NOACTIVATE | SWP_NOZORDER | SWP_NOSIZE;
-            let _ = SetWindowPos(view.hwnd(), None, left, top, 0, 0, flags);
-        } else {
-
-
-
-            let _ = SetWindowPos(view.hwnd(), None, left, top, w, h, SWP_NOACTIVATE | SWP_NOZORDER);
+        if !container.is_invalid() {
+            if same_size {
+                let _ = SetWindowPos(container, None, left, top, 0, 0, SWP_NOACTIVATE | SWP_NOZORDER | SWP_NOSIZE);
+            } else {
+                let _ = SetWindowPos(container, None, left, top, w, h, SWP_NOACTIVATE | SWP_NOZORDER);
+            }
         }
     }
 }
@@ -83,11 +61,7 @@ impl Host {
     pub(super) fn scale(&self, label: &str) -> f64 {
         let Some(win) = self.wins.get(label) else { return 1.0 };
         let dpi = unsafe { GetDpiForWindow(win.hwnd) };
-        if dpi == 0 {
-            1.0
-        } else {
-            dpi as f64 / 96.0
-        }
+        if dpi == 0 { 1.0 } else { dpi as f64 / 96.0 }
     }
 
     pub fn pane_for(&self, label: &str, id: &str) -> Option<PaneSpec> {
@@ -124,6 +98,7 @@ impl Host {
                 visible.insert(g.id.clone(), g.clone());
             }
         }
+
         for (id, tab) in self.tabs.iter_mut() {
             if tab.shared.window != label {
                 continue;
@@ -131,21 +106,18 @@ impl Host {
             match visible.get(id) {
                 Some(p) => {
                     let rect = (p.x, p.y, p.w, p.h);
-                    if tab.last_rect != Some(rect) || tab.content_px != Some(content_px(p, scale)) {
-                        place_view(&tab.view, p, tab.last_rect, &mut tab.content_px, scale);
+                    let want = content_px(p, scale);
+                    if tab.last_rect != Some(rect) || tab.content_px != Some(want) {
+                        place_tab(tab.container_hwnd, tab.browser_hwnd, p, tab.last_rect, &mut tab.content_px, scale);
                         tab.last_rect = Some(rect);
                     }
                     if !tab.visible {
-                        let _ = tab.view.set_visible(true);
-                        tab.visible = true;
-                        tab.set_memory_level(false);
+                        tab.set_visible(true);
                     }
                 }
                 None => {
                     if tab.visible {
-                        let _ = tab.view.set_visible(false);
-                        tab.visible = false;
-                        tab.set_memory_level(true);
+                        tab.set_visible(false);
                     }
                 }
             }
@@ -157,47 +129,64 @@ impl Host {
         let Some(win) = self.wins.get_mut(label) else { return };
         let raise = win.layout.overlay && win.fullscreen_tab.is_none();
         unsafe {
-            if raise {
-                let _ = SetWindowPos(
-                    win.chrome_hwnd,
-                    Some(HWND_TOP),
-                    0,
-                    0,
-                    0,
-                    0,
-                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
-                );
-                if let Some(g) = &win.layout.glance {
-                    if let Some(t) = self.tabs.get(&g.id) {
-                        let _ = SetWindowPos(
-                            t.view.hwnd(),
-                            Some(HWND_TOP),
-                            0,
-                            0,
-                            0,
-                            0,
-                            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
-                        );
+            if !win.chrome_hwnd.is_invalid() {
+                if raise {
+                    let _ = SetWindowPos(
+                        win.chrome_hwnd,
+                        Some(HWND_TOP),
+                        0,
+                        0,
+                        0,
+                        0,
+                        SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+                    );
+                    if let Some(g) = &win.layout.glance {
+                        if let Some(t) = self.tabs.get(&g.id) {
+                            if !t.container_hwnd.is_invalid() {
+                                let _ = SetWindowPos(
+                                    t.container_hwnd,
+                                    Some(HWND_TOP),
+                                    0,
+                                    0,
+                                    0,
+                                    0,
+                                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+                                );
+                            }
+                        }
                     }
+                } else if win.chrome_raised != Some(false) {
+                    let _ = SetWindowPos(
+                        win.chrome_hwnd,
+                        Some(HWND_BOTTOM),
+                        0,
+                        0,
+                        0,
+                        0,
+                        SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+                    );
                 }
-            } else if win.chrome_raised != Some(false) {
-                let _ = SetWindowPos(
-                    win.chrome_hwnd,
-                    Some(HWND_BOTTOM),
-                    0,
-                    0,
-                    0,
-                    0,
-                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
-                );
             }
         }
         win.chrome_raised = Some(raise);
     }
 
-    /// Re-derives pane rectangles for a new client size without waiting for the UI: margins to
-    /// the window edges stay fixed and panes keep their relative split.
     fn relayout_for_size(&mut self, label: &str, width_px: i32, height_px: i32) {
+        if let Some(win) = self.wins.get(label) {
+            if !win.chrome_hwnd.is_invalid() {
+                unsafe {
+                    let _ = SetWindowPos(
+                        win.chrome_hwnd,
+                        None,
+                        0,
+                        0,
+                        width_px.max(1),
+                        height_px.max(1),
+                        SWP_NOACTIVATE | SWP_NOZORDER,
+                    );
+                }
+            }
+        }
         let scale = self.scale(label);
         let (new_w, new_h) = (width_px as f64 / scale, height_px as f64 / scale);
         let Some(win) = self.wins.get_mut(label) else { return };
@@ -265,7 +254,6 @@ pub fn set_layout(label: &str, spec: LayoutSpec) {
     });
 }
 
-/// A page entered (`on`) or left HTML fullscreen: its window follows.
 pub fn set_fullscreen_tab(tab_id: &str, on: bool) {
     let label = window_of_tab(tab_id);
     let window = with_win(&label, |w| {

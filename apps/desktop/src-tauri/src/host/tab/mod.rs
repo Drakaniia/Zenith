@@ -1,8 +1,5 @@
-//! Page webviews: creation, WebView2 event wiring and per-tab commands.
-//!
-//! This file holds the tab types, creation and the per-tab commands. Event wiring is in
-//! `events` (with `new_window`, `permissions`, `requests` and `context_menu` for the larger
-//! handlers), injected scripts in `scripts`, find in page in `find` and tab sleeping in `sleep`.
+//! Page browsers: creation, CEF Chrome-style child embedding, generation-safe state, and
+//! per-tab commands.
 
 mod context_menu;
 mod events;
@@ -15,25 +12,25 @@ mod sleep;
 
 pub use find::find;
 pub use permissions::{respond_permission, PendingPermission};
-pub use requests::{apply_blocking, TOTAL_BLOCKED};
+pub use requests::{apply_blocking, create_request_context_handler, TOTAL_BLOCKED};
+pub use scripts::{EXT_POPUP_SCRIPT, PAGE_SCRIPT, STORE_SCRIPT};
 pub use sleep::{content_size, sleep};
 
-use std::cell::{Cell, RefCell};
-use std::rc::Rc;
+use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicU32, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, RwLock};
 
+use cef::*;
 use serde::Serialize;
-use std::result::Result;
-use webview2_com::Microsoft::Web::WebView2::Win32::*;
-use webview2_com::*;
-use windows::core::{Interface, HSTRING, PWSTR};
-use wry::{MemoryUsageLevel, WebViewBuilder, WebViewBuilderExtWindows, WebViewExtWindows};
+use windows::core::w;
+use windows::Win32::Foundation::HWND;
+use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+use windows::Win32::UI::WindowsAndMessaging::{
+    CreateWindowExW, DestroyWindow, ShowWindow, SW_HIDE, SW_SHOWNOACTIVATE, WINDOW_EX_STYLE,
+    WS_CHILD, WS_CLIPCHILDREN, WS_CLIPSIBLINGS,
+};
 
-use events::wire;
-use scripts::{EXT_POPUP_SCRIPT, PAGE_SCRIPT, STORE_SCRIPT};
-use super::{config, emit_tab, post, with_host, with_win};
-
-// ---------------------------------------------------------------------------------------------
-// Events sent to the chrome UI
+use super::{config, emit_tab, incognito_context, maybe_drop_incognito_context, open_devtools, with_host, with_win};
+use crate::platform::urls::host_of;
 
 #[derive(Serialize, Clone, Default)]
 #[serde(rename_all = "camelCase")]
@@ -68,13 +65,10 @@ pub struct TabPatch {
 }
 
 impl TabPatch {
-    fn new(id: &str) -> Self {
-        Self {
-            id: id.to_string(),
-            ..Default::default()
-        }
+    pub(crate) fn new(id: &str) -> Self {
+        Self { id: id.to_string(), ..Default::default() }
     }
-    fn send(self) {
+    pub(crate) fn send(self) {
         let id = self.id.clone();
         emit_tab(&id, "tab-update", self);
     }
@@ -82,264 +76,320 @@ impl TabPatch {
 
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
-struct OpenRequest {
-    url: String,
-    opener_id: Option<String>,
-    /// "glance" | "background" | "split" | "foreground"
-    kind: String,
+pub(crate) struct OpenRequest {
+    pub url: String,
+    pub opener_id: Option<String>,
+    pub kind: String,
 }
 
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
-struct TabRef {
-    id: String,
+pub(crate) struct TabRef {
+    pub id: String,
 }
 
-// ---------------------------------------------------------------------------------------------
-// Tab state
-
-/// Per-tab values the WebView2 handlers read and write without touching the host.
+/// Thread-safe per-tab state shared across CEF UI and IO thread handlers.
 pub struct TabShared {
     pub id: String,
-    /// Label of the window the tab lives in.
     pub window: String,
-    /// A tab of an incognito window (InPrivate profile, no history).
     pub private: bool,
-    pub glance: Cell<bool>,
-    /// An extension page (toolbar popup): drawn on white like in Chrome, never on the theme's
-    /// page colour.
+    pub glance: AtomicBool,
     pub light_bg: bool,
-    pub nav_uri: RefCell<String>,
-    pub page_host: RefCell<String>,
-    pub url: RefCell<String>,
-    pub title: RefCell<String>,
-    pub blocked: Cell<u32>,
-    /// Web requests the page made since its last navigation (all frames and workers).
-    pub requests: Cell<u32>,
-    pub flush_pending: Cell<bool>,
-    pub restore_scroll: Cell<Option<(f64, f64)>>,
-    /// DevTools target id of this view (used to tell Zenith's pages from stray ones).
-    pub target_id: RefCell<String>,
-    /// Videos and audio found on the current page (media downloader).
-    pub media: RefCell<crate::media::TabMedia>,
-    /// Id of the injected "download video" button script, when installed.
-    pub button_script: RefCell<Option<String>>,
+    pub generation: AtomicU64,
+    pub closed: AtomicBool,
+    pub container_hwnd: AtomicIsize,
+    pub nav_uri: RwLock<String>,
+    pub page_host: RwLock<String>,
+    pub url: RwLock<String>,
+    pub title: RwLock<String>,
+    pub blocked: AtomicU32,
+    pub requests: AtomicU32,
+    pub flush_pending: AtomicBool,
+    pub restore_scroll: Mutex<Option<(f64, f64)>>,
+    pub target_id: RwLock<String>,
+    pub media: Mutex<crate::media::TabMedia>,
 }
 
 impl TabShared {
-    fn new(id: &str, window: &str, glance: bool, light_bg: bool) -> Self {
+    pub(crate) fn new(id: &str, window: &str, glance: bool, light_bg: bool) -> Self {
         Self {
             id: id.to_string(),
             window: window.to_string(),
             private: super::is_private_window(window),
-            glance: Cell::new(glance),
+            glance: AtomicBool::new(glance),
             light_bg,
-            nav_uri: RefCell::new(String::new()),
-            page_host: RefCell::new(String::new()),
-            url: RefCell::new(String::new()),
-            title: RefCell::new(String::new()),
-            blocked: Cell::new(0),
-            requests: Cell::new(0),
-            flush_pending: Cell::new(false),
-            restore_scroll: Cell::new(None),
-            target_id: RefCell::new(String::new()),
-            media: RefCell::new(Default::default()),
-            button_script: RefCell::new(None),
+            generation: AtomicU64::new(0),
+            closed: AtomicBool::new(false),
+            container_hwnd: AtomicIsize::new(0),
+            nav_uri: RwLock::new(String::new()),
+            page_host: RwLock::new(String::new()),
+            url: RwLock::new(String::new()),
+            title: RwLock::new(String::new()),
+            blocked: AtomicU32::new(0),
+            requests: AtomicU32::new(0),
+            flush_pending: AtomicBool::new(false),
+            restore_scroll: Mutex::new(None),
+            target_id: RwLock::new(String::new()),
+            media: Mutex::new(Default::default()),
         }
     }
 
-    /// A navigation turned out to be a download, so the page stayed: puts back the page's host
-    /// and address that NavigationStarting replaced with the file's (the blocker tells first- from
-    /// third-party requests by them).
+    pub fn is_glance(&self) -> bool {
+        self.glance.load(Ordering::Relaxed)
+    }
+
+    pub fn url(&self) -> String {
+        self.url.read().map(|s| s.clone()).unwrap_or_default()
+    }
+
+    pub fn title(&self) -> String {
+        self.title.read().map(|s| s.clone()).unwrap_or_default()
+    }
+
+    pub fn page_host(&self) -> String {
+        self.page_host.read().map(|s| s.clone()).unwrap_or_default()
+    }
+
+    pub fn nav_uri(&self) -> String {
+        self.nav_uri.read().map(|s| s.clone()).unwrap_or_default()
+    }
+
+    pub fn target_id(&self) -> String {
+        self.target_id.read().map(|s| s.clone()).unwrap_or_default()
+    }
+
+    pub fn requests(&self) -> u32 {
+        self.requests.load(Ordering::Relaxed)
+    }
+
+    pub fn blocked(&self) -> u32 {
+        self.blocked.load(Ordering::Relaxed)
+    }
+
     pub fn restore_page_after_download(&self) {
-        let url = self.url.borrow().clone();
+        let url = self.url();
         if url.is_empty() {
-            return; // a tab opened just for the download: there is no page to go back to
+            return;
         }
-        *self.page_host.borrow_mut() = crate::platform::urls::host_of(&url).unwrap_or("").to_ascii_lowercase();
-        *self.nav_uri.borrow_mut() = url;
+        if let Ok(mut h) = self.page_host.write() {
+            *h = host_of(&url).unwrap_or("").to_ascii_lowercase();
+        }
+        if let Ok(mut n) = self.nav_uri.write() {
+            *n = url;
+        }
     }
 }
 
 pub struct Tab {
-    pub view: wry::WebView,
-    pub shared: Rc<TabShared>,
+    pub container_hwnd: HWND,
+    pub browser: Option<Browser>,
+    pub browser_hwnd: HWND,
+    pub shared: Arc<TabShared>,
     pub visible: bool,
     pub last_rect: Option<(f64, f64, f64, f64)>,
-    /// Size of the page content inside the container, in physical px (see `PaneSpec::cw`).
     pub content_px: Option<(i32, i32)>,
-    pub find: Option<ICoreWebView2Find>,
+    pub pending_url: Option<String>,
+    pub pending_muted: bool,
+    pub pending_zoom: Option<f64>,
+    pub find_text: String,
+    pub find_case: bool,
 }
 
 impl Tab {
-    pub fn core(&self) -> ICoreWebView2 {
-        self.view.webview()
-    }
-
-    /// Label of the window the tab lives in.
     pub fn window(&self) -> &str {
         &self.shared.window
     }
 
-    pub fn set_memory_level(&self, low: bool) {
-        let _ = self.view.set_memory_usage_level(if low {
-            MemoryUsageLevel::Low
-        } else {
-            MemoryUsageLevel::Normal
-        });
+    pub fn set_visible(&mut self, show: bool) {
+        self.visible = show;
+        if !self.container_hwnd.is_invalid() {
+            unsafe {
+                let _ = ShowWindow(self.container_hwnd, if show { SW_SHOWNOACTIVATE } else { SW_HIDE });
+            }
+        }
+    }
+
+    pub fn destroy_container(&self) {
+        if !self.container_hwnd.is_invalid() {
+            unsafe {
+                let _ = DestroyWindow(self.container_hwnd);
+            }
+        }
     }
 }
 
-// ---------------------------------------------------------------------------------------------
-// Creation
+pub(crate) fn create_container(parent: HWND, x: i32, y: i32, w: i32, h: i32) -> Result<HWND, String> {
+    unsafe {
+        let hinstance = GetModuleHandleW(None).map_err(|e| format!("GetModuleHandleW: {e}"))?;
+        CreateWindowExW(
+            WINDOW_EX_STYLE(0),
+            w!("STATIC"),
+            w!(""),
+            WS_CHILD | WS_CLIPCHILDREN | WS_CLIPSIBLINGS,
+            x,
+            y,
+            w.max(1),
+            h.max(1),
+            Some(parent),
+            None,
+            Some(hinstance.into()),
+            None,
+        )
+        .map_err(|e| format!("CreateWindowExW tab container: {e}"))
+    }
+}
 
 pub struct CreateOptions {
     pub id: String,
-    /// Label of the window the tab belongs to.
     pub window: String,
     pub url: Option<String>,
     pub glance: bool,
     pub muted: bool,
     pub zoom: Option<f64>,
     pub scroll: Option<(f64, f64)>,
-    /// For an extension's toolbar popup: the address of the page it was opened over.
     pub opener_url: Option<String>,
 }
 
-/// Creates the webview for a tab. Must run on the UI thread outside any host borrow.
-pub fn create(opts: CreateOptions) -> Result<ICoreWebView2, String> {
+/// Creates a CEF Chrome-style child page browser inside a clipping container HWND.
+pub fn create(opts: CreateOptions) -> Result<(), String> {
     let label = opts.window.clone();
     let snapshot = with_host(|h| {
+        let win = h.wins.get(&label)?;
+        let scale = h.scale(&label);
         Some((
-            h.wins.get(&label)?.window.clone(),
-            h.env.clone(),
+            win.hwnd,
+            scale,
             h.page_bg,
             h.pane_for(&label, &opts.id),
-            h.tabs.get(&opts.id).map(|t| t.core()),
-            h.content_scheme,
+            h.tabs.get(&opts.id).and_then(|t| t.browser.clone()),
+            h.tabs.contains_key(&opts.id),
         ))
     })
     .flatten();
-    let (window, env, bg, pane, existing, scheme) = snapshot.ok_or("browser is not ready")?;
-    let private = super::is_private_window(&label);
-    if let Some(core) = existing {
+    let (parent_hwnd, scale, bg, pane, existing_browser, exists) = snapshot.ok_or("browser is not ready")?;
+    if exists {
         if let Some(url) = &opts.url {
-            unsafe {
-                let _ = core.Navigate(&HSTRING::from(url.as_str()));
+            if let Some(b) = existing_browser {
+                if let Some(frame) = b.main_frame() {
+                    frame.load_url(Some(&CefString::from(url.as_str())));
+                }
+            } else {
+                with_host(|h| {
+                    if let Some(t) = h.tabs.get_mut(&opts.id) {
+                        t.pending_url = Some(url.clone());
+                    }
+                });
             }
         }
-        return Ok(core);
+        return Ok(());
     }
 
     super::set_tab_window(&opts.id, &label);
+    let private = super::is_private_window(&label);
     let light_bg = opts.url.as_deref().is_some_and(|u| u.starts_with("chrome-extension://"));
-    // Extension pages keep an opaque white fill (their popups assume one).
-    let bg = if light_bg { (255, 255, 255, 255) } else { (bg.0, bg.1, bg.2, super::profile::PAGE_BG_ALPHA) };
-    let shared = Rc::new(TabShared::new(&opts.id, &label, opts.glance, light_bg));
-    shared.restore_scroll.set(opts.scroll);
-    let rect = pane.as_ref().map(super::logical_rect).unwrap_or_default();
-    let mut builder = WebViewBuilder::new()
-        .with_visible(false)
-        .with_bounds(rect)
-        .with_environment(env.clone())
-        .with_devtools(true)
-        .with_hotkeys_zoom(true)
-        .with_back_forward_navigation_gestures(true)
-        .with_background_color(bg)
-        .with_browser_accelerator_keys(true)
-        .with_default_context_menus(true)
-        // Incognito windows: their tabs share one in-memory InPrivate profile, which WebView2
-        // discards once the last of them closes.
-        .with_incognito(private)
-        .with_initialization_script_for_main_only(PAGE_SCRIPT, false)
-        // Login forms: save offers and saved-account suggestions (top-level document only).
-        .with_initialization_script_for_main_only(super::autofill::PAGE_SCRIPT, true);
-    if !private {
-        builder = builder.with_initialization_script_for_main_only(STORE_SCRIPT, true);
-    }
-    if light_bg && opts.glance {
-        let opener = serde_json::to_string(&opts.opener_url).unwrap_or_else(|_| "null".into());
-        builder = builder.with_initialization_script_for_main_only(&EXT_POPUP_SCRIPT.replace("__OPENER__", &opener), true);
-    }
-    // The first navigation starts below, after the optional media button script is registered.
-    let view = builder.build_as_child(&window).map_err(|e| e.to_string())?;
-    let core = view.webview();
-    unsafe {
-        if let Ok(settings) = core.Settings() {
-            let _ = settings.SetIsStatusBarEnabled(true);
-            let _ = settings.SetIsWebMessageEnabled(false);
-            // The in-app vault is the only autofill source: WebView2's own password and
-            // general (address/form) autofill would show a second, duplicate dropdown.
-            if let Ok(s4) = settings.cast::<ICoreWebView2Settings4>() {
-                let _ = s4.SetIsPasswordAutosaveEnabled(false);
-                let _ = s4.SetIsGeneralAutofillEnabled(false);
-            }
-        }
-        if opts.muted {
-            if let Ok(c8) = core.cast::<ICoreWebView2_8>() {
-                let _ = c8.SetIsMuted(true);
-            }
-        }
-        if private {
-            if let Ok(profile) = core.cast::<ICoreWebView2_13>().and_then(|c| c.Profile()) {
-                let _ = profile.SetPreferredColorScheme(scheme);
-                // Extensions the user allows in incognito windows load into this profile.
-                crate::extensions::private_profile::sync();
-            }
-        }
-    }
-    if let Some(z) = opts.zoom {
-        let _ = view.zoom(z);
-    }
-    wire(&view, &core, &env, shared.clone());
-    super::downloads::attach(&core, shared.clone());
-    crate::media::sniff::attach(&core, shared.clone());
-    if config().media_button {
-        crate::media::sniff::install_button(&core, &shared, true);
-    }
-    if let Some(url) = &opts.url {
-        unsafe {
-            let _ = core.Navigate(&HSTRING::from(url.as_str()));
-        }
-    }
-    {
-        let shared = shared.clone();
-        super::cdp_call(&core, "Target.getTargetInfo", "{}", move |r| {
-            if let Some(id) = r.ok().as_deref().and_then(super::target_id_of) {
-                *shared.target_id.borrow_mut() = id;
-            }
-        });
+    let shared = Arc::new(TabShared::new(&opts.id, &label, opts.glance, light_bg));
+    if let Ok(mut s) = shared.restore_scroll.lock() {
+        *s = opts.scroll;
     }
 
-    let id = opts.id.clone();
+    let (x, y, w, h) = pane
+        .as_ref()
+        .map(|p| super::placement::px_rect(p.x, p.y, p.w, p.h, scale))
+        .unwrap_or((0, 0, 800, 600));
+    let container_hwnd = create_container(parent_hwnd, x, y, w, h)?;
+    shared.container_hwnd.store(container_hwnd.0 as isize, Ordering::SeqCst);
+
+    let mut win_info = WindowInfo::default().set_as_child(
+        cef::sys::HWND(container_hwnd.0.cast()),
+        &Rect { x: 0, y: 0, width: w.max(1), height: h.max(1) },
+    );
+    // shortcut: Alloy style used for child page tabs in Phase 3 because Chrome style crashes
+    // inside libcef.dll when hosted alongside an Alloy chrome child under bootstrap.exe;
+    // revisit Chrome style for full chrome.tabs extension APIs in Phase 4.
+    win_info.runtime_style = RuntimeStyle::ALLOY;
+
+    let mut extra = dictionary_value_create().ok_or("dictionary_value_create failed")?;
+    extra.set_string(Some(&CefString::from("zenith_role")), Some(&CefString::from("page")));
+    extra.set_string(
+        Some(&CefString::from("zenith_private")),
+        Some(&CefString::from(if private { "1" } else { "0" })),
+    );
+    extra.set_string(
+        Some(&CefString::from("zenith_media_button")),
+        Some(&CefString::from(if config().media_button { "1" } else { "0" })),
+    );
+    if light_bg && opts.glance {
+        extra.set_string(Some(&CefString::from("zenith_ext_popup")), Some(&CefString::from("1")));
+        if let Some(opener) = &opts.opener_url {
+            extra.set_string(
+                Some(&CefString::from("zenith_ext_opener")),
+                Some(&CefString::from(opener.as_str())),
+            );
+        }
+    }
+
+    let mut settings = BrowserSettings::default();
+    settings.background_color = if light_bg {
+        0xFFFFFFFF
+    } else {
+        0xFF000000 | ((bg.0 as u32) << 16) | ((bg.1 as u32) << 8) | (bg.2 as u32)
+    };
+
+    let mut ctx = if private { incognito_context() } else { None };
+    let initial_url = opts.url.clone().unwrap_or_else(|| "about:blank".into());
+    let mut client = events::create_tab_client(shared.clone());
+
     let tab = Tab {
-        view,
+        container_hwnd,
+        browser: None,
+        browser_hwnd: HWND::default(),
         shared,
         visible: false,
         last_rect: None,
         content_px: None,
-        find: None,
+        pending_url: None,
+        pending_muted: opts.muted,
+        pending_zoom: opts.zoom,
+        find_text: String::new(),
+        find_case: false,
     };
+    let id = opts.id.clone();
     with_host(move |h| {
         h.tabs.insert(id, tab);
         h.apply_layout(&label);
     });
-    Ok(core)
+
+    if browser_host_create_browser(
+        Some(&win_info),
+        Some(&mut client),
+        Some(&CefString::from(initial_url.as_str())),
+        Some(&settings),
+        Some(&mut extra),
+        ctx.as_mut(),
+    ) == 0
+    {
+        with_host(|h| {
+            if let Some(t) = h.tabs.remove(&opts.id) {
+                t.destroy_container();
+            }
+        });
+        return Err("browser_host_create_browser failed for tab".into());
+    }
+    Ok(())
 }
 
-fn take(p: PWSTR) -> String {
-    take_pwstr(p)
-}
-
-fn is_web(url: &str) -> bool {
+pub(crate) fn is_web(url: &str) -> bool {
     url.starts_with("http://") || url.starts_with("https://")
 }
 
-// ---------------------------------------------------------------------------------------------
-// Commands
+pub fn zoom_factor_to_level(factor: f64) -> f64 {
+    factor.clamp(0.25, 5.0).ln() / 1.2_f64.ln()
+}
 
-/// Destroys a tab's webview. Tabs with running downloads are kept alive (hidden) until the
-/// downloads finish, because WebView2 cancels downloads of closed webviews.
+pub fn zoom_level_to_factor(level: f64) -> f64 {
+    (1.2_f64.powf(level) * 100.0).round() / 100.0
+}
+
 pub fn close(id: &str) {
     super::autofill::forget(id);
     let label = super::window_of_tab(id);
@@ -350,101 +400,129 @@ pub fn close(id: &str) {
             }
         }
         h.permissions.retain(|_, p| p.tab != id);
-        let tab = h.tabs.remove(id)?;
-        let busy = h.downloads.values().any(|d| d.tab == id && d.record.state == "progress");
-        if busy {
-            let _ = tab.view.set_visible(false);
-            tab.set_memory_level(true);
-            h.zombies.insert(id.to_string(), tab);
-            None
-        } else {
-            // Off screen now; destroying the webview (below, deferred) takes a moment.
-            let _ = tab.view.set_visible(false);
-            Some(tab)
+        h.cert_errors.retain(|_, p| p.tab != id);
+        h.protocol_prompts.retain(|_, p| p.tab != id);
+        h.pending_downloads.retain(|_, p| p.tab != id);
+        if let Ok(mut sb) = crate::security::SAFE_BROWSING.write() {
+            sb.drop_tab(id);
         }
+        let mut tab = h.tabs.remove(id)?;
+        tab.shared.closed.store(true, Ordering::SeqCst);
+        tab.set_visible(false);
+        Some(tab)
     })
     .flatten();
+
     if let Some(tab) = removed {
-        post(move || drop(tab));
+        if let Some(b) = tab.browser {
+            if let Some(host) = b.host() {
+                // Defer destroying `container_hwnd` until `on_before_close` so Chromium
+                // finishes tearing down its child HWND first.
+                host.close_browser(1);
+            }
+        } else {
+            let raw = tab.shared.container_hwnd.swap(0, Ordering::SeqCst);
+            if raw != 0 {
+                unsafe {
+                    let _ = DestroyWindow(HWND(raw as *mut _));
+                }
+            }
+            maybe_drop_incognito_context();
+        }
     }
+
     let window = with_win(&label, |w| w.window.clone());
     if let Some(w) = window {
-        if w.is_fullscreen().unwrap_or(false) {
+        if w.is_fullscreen() {
             let _ = w.set_fullscreen(false);
         }
     }
 }
 
 pub fn navigate(id: &str, url: &str) -> Result<(), String> {
-    let core = with_host(|h| h.tabs.get(id).map(|t| t.core())).flatten().ok_or("tab has no webview")?;
-    unsafe { core.Navigate(&HSTRING::from(url)) }.map_err(|e| e.to_string())
+    let browser = with_host(|h| {
+        let t = h.tabs.get_mut(id)?;
+        match &t.browser {
+            Some(b) => Some(Some(b.clone())),
+            None => {
+                t.pending_url = Some(url.to_string());
+                Some(None)
+            }
+        }
+    })
+    .flatten()
+    .ok_or("tab has no browser")?;
+    if let Some(b) = browser {
+        if let Some(frame) = b.main_frame() {
+            frame.load_url(Some(&CefString::from(url)));
+        }
+    }
+    Ok(())
 }
 
 pub fn set_glance(id: &str, glance: bool) {
     with_host(|h| {
         if let Some(t) = h.tabs.get(id) {
-            t.shared.glance.set(glance);
+            t.shared.glance.store(glance, Ordering::Relaxed);
         }
     });
 }
 
 pub fn command(id: &str, cmd: &str, arg: Option<serde_json::Value>) -> Result<serde_json::Value, String> {
-    let (core, controller) = with_host(|h| h.tabs.get(id).map(|t| (t.core(), t.view.controller())))
+    let browser = with_host(|h| h.tabs.get(id).and_then(|t| t.browser.clone()))
         .flatten()
-        .ok_or("tab has no webview")?;
+        .ok_or("tab has no browser")?;
+    let host = browser.host().ok_or("browser host unavailable")?;
     let num = |default: f64| arg.as_ref().and_then(|v| v.as_f64()).unwrap_or(default);
-    unsafe {
-        match cmd {
-            "back" => core.GoBack().map_err(|e| e.to_string())?,
-            "forward" => core.GoForward().map_err(|e| e.to_string())?,
-            "reload" => core.Reload().map_err(|e| e.to_string())?,
-            "hardReload" => {
-                core.CallDevToolsProtocolMethod(
-                    &HSTRING::from("Page.reload"),
-                    &HSTRING::from(r#"{"ignoreCache":true}"#),
-                    &CallDevToolsProtocolMethodCompletedHandler::create(Box::new(|_, _| Ok(()))),
-                )
-                .map_err(|e| e.to_string())?;
+    match cmd {
+        "back" => browser.go_back(),
+        "forward" => browser.go_forward(),
+        "reload" => browser.reload(),
+        "hardReload" => browser.reload_ignore_cache(),
+        "stop" => browser.stop_load(),
+        "devtools" => open_devtools(&browser)?,
+        "print" => host.print(),
+        "saveAs" => {
+            if let Some(frame) = browser.main_frame() {
+                let url = super::cef_app::cef_str(frame.url());
+                if is_web(&url) {
+                    host.start_download(Some(&CefString::from(url.as_str())));
+                }
             }
-            "stop" => core.Stop().map_err(|e| e.to_string())?,
-            "devtools" => core.OpenDevToolsWindow().map_err(|e| e.to_string())?,
-            "print" => {
-                let c16: ICoreWebView2_16 = core.cast().map_err(|e| e.to_string())?;
-                c16.ShowPrintUI(COREWEBVIEW2_PRINT_DIALOG_KIND_BROWSER).map_err(|e| e.to_string())?;
-            }
-            "saveAs" => {
-                let c25: ICoreWebView2_25 = core.cast().map_err(|e| e.to_string())?;
-                c25.ShowSaveAsUI(&ShowSaveAsUICompletedHandler::create(Box::new(|_, _| Ok(()))))
-                    .map_err(|e| e.to_string())?;
-            }
-            "mute" | "unmute" => {
-                let c8: ICoreWebView2_8 = core.cast().map_err(|e| e.to_string())?;
-                c8.SetIsMuted(cmd == "mute").map_err(|e| e.to_string())?;
-            }
-            "zoom" => {
-                let z = num(1.0).clamp(0.25, 5.0);
-                controller.SetZoomFactor(z).map_err(|e| e.to_string())?;
-                let mut applied = z;
-                let _ = controller.ZoomFactor(&mut applied);
-                TabPatch { zoom: Some(applied), ..TabPatch::new(id) }.send();
-                return Ok(serde_json::json!(applied));
-            }
-            "suspend" => {
-                let c3: ICoreWebView2_3 = core.cast().map_err(|e| e.to_string())?;
-                let _ = c3.TrySuspend(&TrySuspendCompletedHandler::create(Box::new(|_, _| Ok(()))));
-            }
-            "resume" => {
-                let c3: ICoreWebView2_3 = core.cast().map_err(|e| e.to_string())?;
-                let _ = c3.Resume();
-            }
-            "viewSource" => {
-                let mut uri = PWSTR::null();
-                core.Source(&mut uri).map_err(|e| e.to_string())?;
-                let src = take(uri);
-                return Ok(serde_json::json!(format!("view-source:{src}")));
-            }
-            other => return Err(format!("unknown tab command {other}")),
         }
+        "mute" | "unmute" => {
+            let muted = cmd == "mute";
+            host.set_audio_muted(if muted { 1 } else { 0 });
+            TabPatch { muted: Some(muted), ..TabPatch::new(id) }.send();
+        }
+        "zoom" => {
+            let z = num(1.0).clamp(0.25, 5.0);
+            host.set_zoom_level(zoom_factor_to_level(z));
+            TabPatch { zoom: Some(z), ..TabPatch::new(id) }.send();
+            return Ok(serde_json::json!(z));
+        }
+        "suspend" | "resume" => {}
+        "viewSource" => {
+            let src = browser
+                .main_frame()
+                .map(|f| super::cef_app::cef_str(f.url()))
+                .unwrap_or_default();
+            return Ok(serde_json::json!(format!("view-source:{src}")));
+        }
+        other => return Err(format!("unknown tab command {other}")),
     }
     Ok(serde_json::Value::Null)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn zoom_level_round_trips() {
+        for z in [0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0] {
+            let got = zoom_level_to_factor(zoom_factor_to_level(z));
+            assert!((got - z).abs() < 0.01, "expected {z}, got {got}");
+        }
+    }
 }

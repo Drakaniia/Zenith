@@ -11,6 +11,8 @@
   import { incognito } from '$features/window/window.svelte';
   import { isStrip } from '$features/sidebar/sidebar-position';
   import Content from '$features/browser/Content.svelte';
+  import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
+  import { extensionsApi } from '$features/extensions/api';
   import { extensions } from '$features/extensions/extensions.svelte';
   import Onboarding from '$features/onboarding/OnboardingDialog.svelte';
   import { onboarding } from '$features/onboarding/onboarding.svelte';
@@ -108,6 +110,40 @@
         void tabsApi.sessionSave(json);
       }
     }, 400);
+  });
+
+  // Keep the backend extension bridge synchronized with Zenith's Space/split/Glance model.
+  let extSyncTimer: ReturnType<typeof setTimeout> | undefined;
+  $effect(() => {
+    if (!browser.restored) return;
+    const glanceId = browser.glance?.tabId ?? null;
+    const snap = {
+      label: getCurrentWebviewWindow().label,
+      incognito,
+      focused: document.hasFocus(),
+      activeSpaceId: browser.activeSpaceId,
+      activeTabId: browser.activeTab?.id ?? null,
+      visibleIds: [...browser.visibleIds],
+      spaceOrder: browser.spaces.map((s) => s.id),
+      tabs: Object.values(browser.tabs).map((t) => ({
+        id: t.id,
+        url: t.url,
+        title: t.customTitle || t.title,
+        favicon: t.favicon ?? '',
+        loading: t.loading,
+        discarded: !t.live,
+        audible: t.audible,
+        muted: t.muted,
+        pinned: t.pinned,
+        essential: t.essential,
+        spaceId: t.spaceId,
+        glance: t.id === glanceId,
+      })),
+    };
+    clearTimeout(extSyncTimer);
+    extSyncTimer = setTimeout(() => {
+      void extensionsApi.extSyncState(snap).catch(() => {});
+    }, 150);
   });
 
   // Anything that moves page webviews schedules a layout pass.

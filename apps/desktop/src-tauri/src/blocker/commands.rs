@@ -43,10 +43,9 @@ fn list_file(id: &str) -> PathBuf {
 
 /// Rebuilds the engine from the built-in list plus the given subscriptions. With `update`, lists
 /// are downloaded again; otherwise cached copies are used (downloaded when missing).
-#[tauri::command]
 pub async fn blocker_configure(lists: Vec<FilterList>, update: bool, disabled_sites: Vec<String>) -> CmdResult<BlockerStats> {
     blocking(move || {
-        let mut engine = blocker::Engine::with_builtin();
+        let mut builder = blocker::Builder::with_builtin();
         let mut statuses = Vec::new();
         for list in &lists {
             let file = list_file(&list.id);
@@ -63,7 +62,7 @@ pub async fn blocker_configure(lists: Vec<FilterList>, update: bool, disabled_si
                 }
             }
             let text = std::fs::read_to_string(&file).unwrap_or_default();
-            let rules = if text.is_empty() { 0 } else { engine.add_list(&text) };
+            let rules = if text.is_empty() { 0 } else { builder.add_list(&text) };
             let updated = std::fs::metadata(&file)
                 .and_then(|m| m.modified())
                 .ok()
@@ -71,6 +70,7 @@ pub async fn blocker_configure(lists: Vec<FilterList>, update: bool, disabled_si
                 .map(|d| d.as_millis() as i64);
             statuses.push(ListStatus { id: list.id.clone(), rules, updated, error });
         }
+        let engine = builder.build();
         let rules = engine.rule_count();
         if let Ok(mut state) = BLOCKER.write() {
             state.engine = engine;
@@ -85,7 +85,6 @@ pub async fn blocker_configure(lists: Vec<FilterList>, update: bool, disabled_si
     .await
 }
 
-#[tauri::command]
 pub async fn blocker_set_disabled_sites(sites: Vec<String>) -> CmdResult<()> {
     if let Ok(mut state) = BLOCKER.write() {
         state.disabled_sites = sites.into_iter().map(|s| s.to_ascii_lowercase()).collect();
@@ -93,7 +92,6 @@ pub async fn blocker_set_disabled_sites(sites: Vec<String>) -> CmdResult<()> {
     Ok(())
 }
 
-#[tauri::command]
 pub async fn blocker_stats() -> CmdResult<BlockerStats> {
     let rules = BLOCKER.read().map(|b| b.engine.rule_count()).unwrap_or(0);
     Ok(BlockerStats {

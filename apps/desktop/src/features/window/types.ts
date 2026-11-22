@@ -13,4 +13,5 @@ export interface StartupInfo {
   version: string;
   dataDir: string;
   defaultDownloadDir: string;
+  migrationNotice?: boolean;
 }

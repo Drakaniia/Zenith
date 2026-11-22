@@ -1,39 +1,27 @@
-//! Hidden fast mode for page downloads: a large download from a server that serves byte ranges
-//! is handed from WebView2 to Zenith's own downloader, which fetches it over several connections.
-//!
-//! WebView2's DownloadStarting event is deferred while a worker thread asks the server for the
-//! first byte, with the page's cookies. Only a partial answer for exactly the size WebView2
-//! announced moves the download over (so form posts, one-time links and pages that answer a
-//! second request differently stay with WebView2); anything else, or no answer within a few
-//! seconds, lets WebView2 carry on as if nothing happened.
+//! Hidden fast mode for page downloads: probes whether the server serves exact byte ranges
+//! before deciding whether Zenith's segmented downloader takes over or CEF downloads normally.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
-use std::time::Duration;
 
-use tauri::Url;
-use webview2_com::Microsoft::Web::WebView2::Win32::*;
+use cef::*;
+use url::Url;
 
-use super::downloads::{track, Started};
+use super::downloads::{register_download, Started};
 use super::tab::TabShared;
+use crate::app::runtime::{post_ui, post_ui_delayed};
 use crate::media::http::Client;
 use crate::media::job::{self, Plan, Request, Source, FAST_MIN_BYTES};
 use crate::platform::urls::{host_of, site_of};
 
-/// How long a download may wait for the server's answer before WebView2 takes it after all.
-const PROBE_WAIT: Duration = Duration::from_secs(4);
+const PROBE_WAIT_MS: i64 = 4000;
 
-/// A download waiting for the probe. WebView2 objects never leave the UI thread, so they wait
-/// here and the worker only sends back the id.
 struct Pending {
-    args: ICoreWebView2DownloadStartingEventArgs,
-    deferral: ICoreWebView2Deferral,
-    op: ICoreWebView2DownloadOperation,
-    shared: Rc<TabShared>,
+    cb: BeforeDownloadCallback,
+    shared: Arc<TabShared>,
     started: Started,
 }
 
@@ -42,7 +30,6 @@ thread_local! {
 }
 static NEXT: AtomicU64 = AtomicU64::new(1);
 
-/// Worth trying: fast mode on, a normal window, a large http(s) file of known size.
 pub(super) fn wanted(shared: &TabShared, s: &Started) -> bool {
     super::config().fast_download
         && !shared.private
@@ -51,56 +38,59 @@ pub(super) fn wanted(shared: &TabShared, s: &Started) -> bool {
         && !crate::torrents::is_torrent_file(&s.path, &s.mime)
 }
 
-/// Holds the download back and checks the server on a worker thread.
 pub(super) fn offer(
-    core: &ICoreWebView2,
-    args: &ICoreWebView2DownloadStartingEventArgs,
-    op: ICoreWebView2DownloadOperation,
-    shared: Rc<TabShared>,
+    cb: BeforeDownloadCallback,
+    shared: Arc<TabShared>,
     started: Started,
-) -> windows::core::Result<()> {
-    let deferral = unsafe { args.GetDeferral()? };
-    let page = shared.url.borrow().clone();
-    let req = request(&shared.id, &started, &page, crate::media::sniff::user_agent(core));
+) {
+    let page = shared.url();
+    let req = request(&shared.id, &started, &page, crate::media::sniff::default_user_agent());
     let total = started.total as u64;
     let id = NEXT.fetch_add(1, Ordering::Relaxed);
-    PENDING.with(|p| p.borrow_mut().insert(id, Pending { args: args.clone(), deferral, op, shared, started }));
+    PENDING.with(|p| p.borrow_mut().insert(id, Pending { cb, shared, started }));
     let decided = Arc::new(AtomicBool::new(false));
     let first = decided.clone();
     std::thread::spawn(move || {
         let ok = probe(&req, total);
         if !first.swap(true, Ordering::SeqCst) {
-            let _ = super::app().run_on_main_thread(move || decide(id, ok.then_some(req)));
+            let _ = post_ui(move || decide(id, ok.then_some(req)));
         }
     });
-    std::thread::spawn(move || {
-        std::thread::sleep(PROBE_WAIT);
+    post_ui_delayed(PROBE_WAIT_MS, move || {
         if !decided.swap(true, Ordering::SeqCst) {
-            let _ = super::app().run_on_main_thread(move || decide(id, None));
+            decide(id, None);
         }
     });
-    Ok(())
 }
 
-/// Starts Zenith's download and cancels WebView2's, or lets WebView2 go on.
 fn decide(id: u64, req: Option<Request>) {
     let Some(p) = PENDING.with(|m| m.borrow_mut().remove(&id)) else { return };
-    let dir = Path::new(&p.started.path).parent().map(Path::to_path_buf).filter(|d| d.is_dir()).unwrap_or_else(job::download_dir);
+    let dir = Path::new(&p.started.path)
+        .parent()
+        .map(Path::to_path_buf)
+        .filter(|d| d.is_dir())
+        .unwrap_or_else(job::download_dir);
     let taken = req.is_some_and(|r| job::start_download(r, dir, p.started.origin.clone()).is_ok());
-    if taken {
-        let _ = unsafe { p.args.SetCancel(true) };
-    } else if let Err(e) = track(p.op, p.started, &p.shared) {
-        eprintln!("[zenith] download could not be followed: {e}");
+    if !taken {
+        let path = p.started.path.clone();
+        let _ = register_download(p.started, &p.shared);
+        p.cb.cont(Some(&CefString::from(path.as_str())), 0);
     }
-    let _ = unsafe { p.deferral.Complete() };
+    // When `taken` is true, dropping `p.cb` without calling `cont` cancels the CEF download.
 }
 
-/// The job for a page download: saved under the name WebView2 chose.
 fn request(tab: &str, s: &Started, page: &str, user_agent: String) -> Request {
-    let name = Path::new(&s.path).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "download".into());
+    let name = Path::new(&s.path)
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "download".into());
     let p = PathBuf::from(&name);
     let ext = p.extension().map(|e| e.to_string_lossy().into_owned()).unwrap_or_default();
-    let stem = if ext.is_empty() { name.clone() } else { p.file_stem().map(|n| n.to_string_lossy().into_owned()).unwrap_or(name) };
+    let stem = if ext.is_empty() {
+        name.clone()
+    } else {
+        p.file_stem().map(|n| n.to_string_lossy().into_owned()).unwrap_or(name)
+    };
     let headers = referrer(page, &s.uri).map(|r| vec![("Referer".to_string(), r)]).unwrap_or_default();
     Request {
         tab: tab.to_string(),
@@ -115,8 +105,6 @@ fn request(tab: &str, s: &Started, page: &str, user_agent: String) -> Request {
     }
 }
 
-/// The Referer a browser sends by default (strict-origin-when-cross-origin): the whole page
-/// address to its own origin, only the origin elsewhere, nothing from HTTPS to HTTP.
 fn referrer(page: &str, target: &str) -> Option<String> {
     let (page, target) = (Url::parse(page).ok()?, Url::parse(target).ok()?);
     if !matches!(page.scheme(), "http" | "https") || (page.scheme() == "https" && target.scheme() == "http") {
@@ -130,10 +118,11 @@ fn referrer(page: &str, target: &str) -> Option<String> {
     Some(format!("{}/", page.origin().ascii_serialization()))
 }
 
-/// True when the server answers the first byte as part of a file of exactly `total` bytes.
 fn probe(req: &Request, total: u64) -> bool {
     let Source::Download { url, .. } = &req.plan.main else { return false };
-    let Ok(client) = Client::with_policy(&req.user_agent, job::network_policy(&req.page_url)) else { return false };
+    let Ok(client) = Client::with_policy(&req.user_agent, job::network_policy(&req.page_url)) else {
+        return false;
+    };
     let site = host_of(&req.page_url).map(site_of).unwrap_or("").to_string();
     let headers = |u: &str| {
         let mut h = req.headers.clone();

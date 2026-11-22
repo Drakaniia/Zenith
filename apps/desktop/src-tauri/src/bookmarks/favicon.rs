@@ -18,7 +18,7 @@ pub fn favicon_url(page: &str) -> Option<String> {
     // Judge the host the way the request will see it: parsed, so that forms like 127.1, 0x7f.1 or
     // 2130706433 are the loopback address they are. Only real public host names and public IPv4
     // addresses are asked.
-    let url = tauri::Url::parse(&format!("{}://{authority}/favicon.ico", rest.0)).ok()?;
+    let url = url::Url::parse(&format!("{}://{authority}/favicon.ico", rest.0)).ok()?;
     let host = url.host_str()?;
     let public = if url.domain().is_some() {
         host.rsplit('.').next().is_some_and(|tld| tld.chars().any(|c| c.is_ascii_alphabetic())) && !crate::media::detect::is_private_host(host)

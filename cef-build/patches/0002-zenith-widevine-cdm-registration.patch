@@ -1,0 +1,65 @@
+From: Zenith Browser <dev@zenith.local>
+Subject: [PATCH 2/3] Add explicit user-consented Widevine CDM registration hook
+
+Allows Zenith to register a verified Widevine CDM directory at startup without
+enabling unsolicited Google component-updater background networking.
+
+diff --git a/include/cef_cdm.h b/include/cef_cdm.h
+new file mode 100644
+--- /dev/null
++++ b/include/cef_cdm.h
+@@ -0,0 +1,24 @@
++// Copyright (c) Zenith Browser Authors.
++#ifndef CEF_INCLUDE_CEF_CDM_H_
++#define CEF_INCLUDE_CEF_CDM_H_
++#pragma once
++
++#include "include/cef_base.h"
++
++///
++/// Registers a user-consented Widevine CDM directory (`manifest.json` +
++/// `widevinecdm.dll`) with Chromium's CdmRegistry so DRM playback works
++/// without enabling Google Component Updater background traffic.
++/// Must be called on the browser process UI thread before media playback.
++///
++/*--cef()--*/
++bool CefRegisterWidevineCdm(const CefString& cdm_dir);
++
++#endif  // CEF_INCLUDE_CEF_CDM_H_
+diff --git a/libcef/browser/context.cc b/libcef/browser/context.cc
+index 1212121..3434343 100644
+--- a/libcef/browser/context.cc
++++ b/libcef/browser/context.cc
+@@ -24,6 +24,9 @@
+ #include "base/task/thread_pool.h"
+ #include "chrome/common/chrome_switches.h"
+ #include "content/public/browser/browser_thread.h"
++#include "content/public/browser/cdm_registry.h"
++#include "media/cdm/cdm_capability.h"
++#include "third_party/widevine/cdm/widevine_cdm_common.h"
+ 
+ namespace {
+ 
+@@ -420,3 +423,28 @@ bool CefRegisterWidevineCdm(const CefString& cdm_dir) {
++  CEF_REQUIRE_UIT();
++  base::FilePath dir(cdm_dir.ToWString());
++  base::FilePath cdm_path = dir.Append(FILE_PATH_LITERAL("widevinecdm.dll"));
++  base::FilePath manifest_path = dir.Append(FILE_PATH_LITERAL("manifest.json"));
++  if (!base::PathExists(cdm_path) || !base::PathExists(manifest_path)) {
++    return false;
++  }
++  content::CdmInfo info(
++      kWidevineKeySystem,
++      content::CdmInfo::Robustness::kSoftwareSecure,
++      std::nullopt,
++      content::CdmInfo::Status::kEnabled,
++      content::CdmType{kWidevineCdmType},
++      base::Version("4.10.2830.0"),
++      cdm_path,
++      kWidevineCdmFileSystemId,
++      media::CdmCapability(),
++      kWidevineKeySystem,
++      false);
++  content::CdmRegistry::GetInstance()->RegisterCdm(info);
++  return true;
++}

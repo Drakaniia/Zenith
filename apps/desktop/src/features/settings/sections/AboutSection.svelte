@@ -19,7 +19,7 @@
   <h2>About</h2>
   <div class="group about">
     <div class="row">
-      <div class="text"><b>Zenith {info?.version ?? ''}</b><span>A lightweight Zen-style browser for Windows, built on Tauri and Microsoft Edge WebView2.</span></div>
+      <div class="text"><b>Zenith {info?.version ?? ''}</b><span>A lightweight Zen-style browser for Windows powered by a bundled CEF Chromium runtime.</span></div>
     </div>
     <div class="row">
       <div class="text">
@@ -43,7 +43,14 @@
       </div>
       <Toggle checked={s.autoUpdate} onchange={(v) => set('autoUpdate', v)} label="Update automatically" />
     </div>
-    <div class="kv"><span>WebView2 runtime</span><span>{info?.webviewVersion ?? '…'}</span></div>
+    <div class="row">
+      <div class="text">
+        <b>Preview updates</b>
+        <span>Opt in to pre-release builds before stable rollout.</span>
+      </div>
+      <Toggle checked={s.previewUpdates} onchange={(v) => set('previewUpdates', v)} label="Preview updates" />
+    </div>
+    <div class="kv"><span>Browser engine</span><span>{info?.webviewVersion ?? '…'}</span></div>
     <div class="kv"><span>Profile folder</span><span class="ellipsis">{info?.dataDir ?? '…'}</span></div>
     <div class="kv"><span>Telemetry</span><span>None. Zenith sends no usage data.</span></div>
   </div>

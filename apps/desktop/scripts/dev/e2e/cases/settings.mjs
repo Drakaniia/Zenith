@@ -25,10 +25,10 @@ test("shortcut-editor", async () => {
   // Record a new chord.
   await ui(`${row}.querySelector('.add').click()`);
   await waitUi(`!!${row}.querySelector('.listening')`, "recording");
-  await key("KeyY", true, true);
+  await key("KeyU", true, true);
   await waitUi(
-    `!${row}.querySelector('.listening') && [...${row}.querySelectorAll('.kbd')].some((k) => k.textContent === 'Y')`,
-    "Ctrl+Shift+Y listed",
+    `!${row}.querySelector('.listening') && [...${row}.querySelectorAll('.kbd')].some((k) => k.textContent === 'U')`,
+    "Ctrl+Shift+U listed",
   );
   // A chord owned by another action needs confirmation.
   await ui(`${row}.querySelector('.add').click()`);
@@ -50,11 +50,11 @@ test("shortcut-editor", async () => {
     async () =>
       (
         JSON.parse(await invoke("settings_load")).shortcuts?.duplicateTab ?? []
-      ).includes("Ctrl+Shift+Y"),
+      ).includes("Ctrl+Shift+U"),
     "binding saved",
     5000,
   );
-  return `recorded Ctrl+Shift+Y and saved it; conflict: "${conflict.trim()}"; reserved: "${reserved.trim()}"`;
+  return `recorded Ctrl+Shift+U and saved it; conflict: "${conflict.trim()}"; reserved: "${reserved.trim()}"`;
 });
 
 test("search-suggestions", async () => {

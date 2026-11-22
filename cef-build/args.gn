@@ -1,0 +1,32 @@
+# Zenith custom Windows x64 CEF / Chromium GN build arguments.
+# Pinned baseline: CEF 156.0.31+ge603d97+chromium-156.0.8078.100
+# Security & privacy: keep sandbox, site isolation, and exploit mitigations enabled;
+# disable unsolicited Google reporting/remoting/hangouts components.
+
+target_cpu = "x64"
+is_official_build = true
+is_debug = false
+is_component_build = false
+symbol_level = 1
+blink_symbol_level = 0
+v8_symbol_level = 0
+dcheck_always_on = false
+
+# Proprietary media codecs (H.264 / AAC) and Widevine CDM support
+proprietary_codecs = true
+ffmpeg_branding = "Chrome"
+enable_widevine = true
+enable_cdm_host_verification = false
+
+# Privacy and bloat reduction (no unsolicited vendor services)
+enable_reporting = false
+enable_media_remoting = false
+enable_hangout_services_extension = false
+google_api_key = ""
+google_default_client_id = ""
+google_default_client_secret = ""
+
+# Windows sandbox & CEF distribution
+enable_cef = true
+use_thin_lto = true
+chrome_pgo_phase = 0

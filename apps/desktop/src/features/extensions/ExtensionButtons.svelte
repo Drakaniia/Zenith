@@ -1,5 +1,6 @@
 <script lang="ts">
   import Icon from '$shared/ui/Icon.svelte';
+  import { browser } from '$features/browser/browser.svelte';
   import { extensions } from './extensions.svelte';
 
   // Pinned extension icons (open the extension's popup) and the extensions menu button.
@@ -28,8 +29,16 @@
 </script>
 
 {#each shown as ext (ext.id)}
-  <button class="icon-btn ext" title={ext.name} onclick={(e) => extensions.open(ext, anchorOf(e))}>
+  {@const badge = extensions.badgeFor(ext.id, browser.activeTab?.id)}
+  <button class="icon-btn ext" title={ext.name} data-ext-id={ext.id} onclick={(e) => extensions.open(ext, anchorOf(e))}>
     {#if ext.icon}<img src={ext.icon} alt="" width="16" height="16" />{:else}<Icon name="puzzle" size={15} />{/if}
+    {#if badge?.text}
+      <span
+        class="ext-badge"
+        style:background={badge.backgroundColor ?? undefined}
+        style:color={badge.textColor ?? undefined}
+      >{badge.text}</span>
+    {/if}
   </button>
 {/each}
 <button class="icon-btn" class:on={!!extensions.popover} title="Extensions" data-action="extensions" onclick={toggleMenu}>
@@ -37,9 +46,26 @@
 </button>
 
 <style>
+  .ext {
+    position: relative;
+  }
   .ext img {
     display: block;
     object-fit: contain;
+  }
+  .ext-badge {
+    position: absolute;
+    right: 1px;
+    bottom: 1px;
+    min-width: 12px;
+    height: 12px;
+    padding: 0 3px;
+    border-radius: 6px;
+    background: var(--accent);
+    color: #fff;
+    font: 700 8.5px/12px var(--font-sans, system-ui);
+    text-align: center;
+    pointer-events: none;
   }
   .icon-btn.on {
     background: var(--element-bg);

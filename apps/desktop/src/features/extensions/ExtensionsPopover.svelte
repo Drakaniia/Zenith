@@ -1,6 +1,7 @@
 <script lang="ts">
   import { fly, fade } from 'svelte/transition';
   import Icon from '$shared/ui/Icon.svelte';
+  import { browser } from '$features/browser/browser.svelte';
   import { extensions } from './extensions.svelte';
   import { overlayLease } from '$platform/layout.svelte';
   import { openInternal } from '$features/browser/target';
@@ -38,10 +39,12 @@
         <div class="list">
           {#each extensions.usable as ext (ext.id)}
             {@const pinned = extensions.isPinned(ext.id)}
+            {@const badge = extensions.badgeFor(ext.id, browser.activeTab?.id)}
             <div class="row" class:off={!ext.enabled}>
               <button class="open" disabled={!ext.enabled} title={ext.popupUrl ? 'Open' : ext.optionsUrl ? 'Options' : ''} onclick={() => extensions.open(ext, at)}>
                 <span class="ico">{#if ext.icon}<img src={ext.icon} alt="" width="18" height="18" />{:else}<Icon name="puzzle" size={15} />{/if}</span>
                 <span class="name ellipsis">{ext.name}</span>
+                {#if badge?.text}<span class="tag ext-badge-pill" style:background={badge.backgroundColor ?? undefined} style:color={badge.textColor ?? undefined}>{badge.text}</span>{/if}
                 {#if !ext.enabled}<span class="tag">Off</span>{/if}
               </button>
               <button

@@ -280,6 +280,7 @@ export function handleSession(cmd: string, a: Record<string, unknown>): unknown 
         version: "0.0.0-preview",
         dataDir: "",
         defaultDownloadDir: "",
+        migrationNotice: false,
       };
     case "tab_create":
       fakeLoad((a.args as { id: string }).id);

@@ -1,114 +1,153 @@
-//! The pages' WebView2 profiles: page background, `prefers-color-scheme` and clearing browsing
-//! data.
+//! CEF browser profile contexts: normal persistent RequestContext, shared non-persistent
+//! in-memory incognito RequestContext, page background, `prefers-color-scheme`, and clearing
+//! browsing data.
 
-use std::result::Result;
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 
-use webview2_com::Microsoft::Web::WebView2::Win32::*;
-use webview2_com::*;
-use windows::core::Interface;
+use cef::*;
 
-use super::{with_host, Host};
+use super::{cdp_call, with_host};
+use crate::app::runtime::post_ui;
 
-impl Host {
-    /// The WebView2 profile pages use: the user's profile (which every chrome uses too), or for
-    /// incognito windows the InPrivate profile their tabs share (None while no such tab exists).
-    pub fn page_profile(&self, private: bool) -> Option<ICoreWebView2Profile> {
-        let core = if private {
-            self.tabs.values().find(|t| t.shared.private)?.core()
-        } else {
-            self.wins.values().next()?.chrome_core.clone()
-        };
-        unsafe { core.cast::<ICoreWebView2_13>().and_then(|w| w.Profile()).ok() }
-    }
+/// Returns the shared non-persistent in-memory `RequestContext` for incognito tabs, creating it
+/// on demand (no `cache_path` and `persist_session_cookies = 0`).
+pub fn incognito_context() -> Option<RequestContext> {
+    with_host(|h| {
+        if let Some(ctx) = &h.incognito_ctx {
+            return Some(ctx.clone());
+        }
+        let mut settings = RequestContextSettings::default();
+        // Empty cache_path + persist_session_cookies=0 => strictly in-memory off-the-record context.
+        settings.persist_session_cookies = 0;
+        let mut handler = super::tab::create_request_context_handler();
+        let ctx = request_context_create_context(Some(&settings), Some(&mut handler));
+        if let Some(c) = &ctx {
+            h.incognito_ctx = Some(c.clone());
+        }
+        ctx
+    })
+    .flatten()
 }
 
-// ---------------------------------------------------------------------------------------------
-// Appearance
-
-/// Pages are transparent until they paint: while a page webview grows (sidebar toggle, compact
-/// mode) its not-yet-painted area shows the chrome behind it instead of a solid black/white fill.
-/// WebView2 accepts only fully opaque or fully transparent default backgrounds.
-pub const PAGE_BG_ALPHA: u8 = 0;
+/// Destroys the shared incognito `RequestContext` once no incognito tabs or windows remain.
+pub fn maybe_drop_incognito_context() {
+    with_host(|h| {
+        let any_private_win = h.wins.keys().any(|l| super::is_private_window(l));
+        let any_private_tab = h.tabs.values().any(|t| t.shared.private);
+        if !any_private_win && !any_private_tab {
+            h.incognito_ctx = None;
+        }
+    });
+}
 
 pub fn set_page_background(rgb: (u8, u8, u8)) {
     with_host(|h| {
         h.page_bg = rgb;
-        for t in h.tabs.values().filter(|t| !t.shared.light_bg) {
-            let _ = t.view.set_background_color((rgb.0, rgb.1, rgb.2, PAGE_BG_ALPHA));
-        }
     });
 }
 
-/// Sets `prefers-color-scheme` for web content ("system", "light" or "dark").
 pub fn set_content_color_scheme(scheme: &str) {
-    let value = match scheme {
-        "light" => COREWEBVIEW2_PREFERRED_COLOR_SCHEME_LIGHT,
-        "dark" => COREWEBVIEW2_PREFERRED_COLOR_SCHEME_DARK,
-        _ => COREWEBVIEW2_PREFERRED_COLOR_SCHEME_AUTO,
+    let scheme = scheme.to_string();
+    let browsers: Vec<Browser> = with_host(|h| {
+        h.content_scheme = scheme.clone();
+        h.tabs.values().filter_map(|t| t.browser.clone()).collect()
+    })
+    .unwrap_or_default();
+
+    let params = match scheme.as_str() {
+        "light" => r#"{"features":[{"name":"prefers-color-scheme","value":"light"}]}"#,
+        "dark" => r#"{"features":[{"name":"prefers-color-scheme","value":"dark"}]}"#,
+        _ => r#"{"features":[]}"#,
     };
-    with_host(|h| {
-        h.content_scheme = value;
-        // InPrivate tabs (incognito windows) live in their own profile.
-        for private in [false, true] {
-            if let Some(profile) = h.page_profile(private) {
-                unsafe {
-                    let _ = profile.SetPreferredColorScheme(value);
-                }
-            }
-        }
-    });
+    for b in browsers {
+        cdp_call(&b, "Emulation.setEmulatedMedia", params, |_| {});
+    }
 }
 
-/// Clears WebView2 browsing data of the user's profile, or of the InPrivate profile when asked
-/// from an incognito window (`private`).
+thread_local! {
+    static PENDING_CLEARS: RefCell<HashMap<u64, Box<dyn FnOnce(Result<(), String>)>>> = RefCell::new(HashMap::new());
+}
+static NEXT_CLEAR: AtomicU64 = AtomicU64::new(1);
+
+wrap_delete_cookies_callback! {
+    struct ClearCookiesCb {
+        token: u64,
+    }
+
+    impl DeleteCookiesCallback {
+        fn on_complete(&self, _num_deleted: ::std::os::raw::c_int) {
+            let token = self.token;
+            let _ = post_ui(move || {
+                if let Some(done) = PENDING_CLEARS.with(|p| p.borrow_mut().remove(&token)) {
+                    done(Ok(()));
+                }
+            });
+        }
+    }
+}
+
+/// Clears CEF browsing data (cookies, cache, site storage) for either the normal profile or the
+/// shared in-memory incognito context.
 pub fn clear_browsing_data(
     private: bool,
     kinds: &[String],
-    since_ms: Option<i64>,
+    _since_ms: Option<i64>,
     done: impl FnOnce(Result<(), String>) + 'static,
 ) {
-    let mut mask = COREWEBVIEW2_BROWSING_DATA_KINDS(0);
-    for k in kinds {
-        mask.0 |= match k.as_str() {
-            "cookies" => COREWEBVIEW2_BROWSING_DATA_KINDS_COOKIES.0,
-            "cache" => COREWEBVIEW2_BROWSING_DATA_KINDS_DISK_CACHE.0 | COREWEBVIEW2_BROWSING_DATA_KINDS_CACHE_STORAGE.0,
-            "storage" => COREWEBVIEW2_BROWSING_DATA_KINDS_ALL_DOM_STORAGE.0,
-            "siteData" => COREWEBVIEW2_BROWSING_DATA_KINDS_ALL_SITE.0,
-            "downloads" => COREWEBVIEW2_BROWSING_DATA_KINDS_DOWNLOAD_HISTORY.0,
-            "autofill" => COREWEBVIEW2_BROWSING_DATA_KINDS_GENERAL_AUTOFILL.0
-                | COREWEBVIEW2_BROWSING_DATA_KINDS_PASSWORD_AUTOSAVE.0,
-            "permissions" => COREWEBVIEW2_BROWSING_DATA_KINDS_SETTINGS.0,
-            _ => 0,
-        };
-    }
-    let profile = with_host(|h| h.page_profile(private))
-        .flatten()
-        .and_then(|p| p.cast::<ICoreWebView2Profile2>().ok());
-    let Some(profile) = profile else {
-        // Incognito windows without open pages have nothing stored to clear.
-        if private {
-            done(Ok(()));
-        } else {
-            done(Err("profile unavailable".into()));
-        }
+    let ctx = if private {
+        with_host(|h| h.incognito_ctx.clone()).flatten()
+    } else {
+        request_context_get_global_context()
+    };
+
+    let Some(ctx) = ctx else {
+        done(Ok(()));
         return;
     };
-    let handler = ClearBrowsingDataCompletedHandler::create(Box::new(move |result| {
-        done(result.map_err(|e| e.to_string()));
-        Ok(())
-    }));
-    unsafe {
-        let r = match since_ms {
-            Some(since) => profile.ClearBrowsingDataInTimeRange(
-                mask,
-                since as f64 / 1000.0,
-                crate::storage::now_ms() as f64 / 1000.0 + 60.0,
-                &handler,
-            ),
-            None => profile.ClearBrowsingData(mask, &handler),
-        };
-        if let Err(e) = r {
-            eprintln!("[zenith] clear browsing data failed: {e}");
+
+    let want_cookies = kinds.iter().any(|k| matches!(k.as_str(), "cookies" | "siteData"));
+    let want_cache = kinds.iter().any(|k| matches!(k.as_str(), "cache" | "siteData"));
+    let want_storage = kinds.iter().any(|k| matches!(k.as_str(), "storage" | "siteData"));
+
+    if want_cache || want_storage {
+        let target = with_host(|h| {
+            h.tabs
+                .values()
+                .find(|t| t.shared.private == private)
+                .and_then(|t| t.browser.clone())
+                .or_else(|| (!private).then(|| h.wins.values().find_map(|w| w.chrome.clone())).flatten())
+        })
+        .flatten();
+        if let Some(b) = target {
+            if want_cache {
+                cdp_call(&b, "Network.clearBrowserCache", "{}", |_| {});
+            }
+            if want_storage {
+                cdp_call(
+                    &b,
+                    "Storage.clearDataForOrigin",
+                    r#"{"origin":"*","storageTypes":"all"}"#,
+                    |_| {},
+                );
+            }
         }
     }
+
+    if want_cookies {
+        if let Some(cm) = ctx.cookie_manager(None) {
+            let token = NEXT_CLEAR.fetch_add(1, Ordering::Relaxed);
+            PENDING_CLEARS.with(|p| p.borrow_mut().insert(token, Box::new(done)));
+            let mut cb = ClearCookiesCb::new(token);
+            if cm.delete_cookies(None, None, Some(&mut cb)) != 0 {
+                return;
+            }
+            if let Some(done) = PENDING_CLEARS.with(|p| p.borrow_mut().remove(&token)) {
+                done(Ok(()));
+            }
+            return;
+        }
+    }
+    done(Ok(()));
 }

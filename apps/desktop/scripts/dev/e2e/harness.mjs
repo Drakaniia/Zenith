@@ -14,9 +14,9 @@ export async function targets() {
   const res = await fetch(`http://127.0.0.1:${PORT}/json/list`);
   return (await res.json()).filter((t) => t.type === "page");
 }
-// The bundled UI (tauri.localhost), or the Vite dev server when the binary came from `tauri dev`.
+// The bundled UI (zenith://app or tauri.localhost), or the Vite dev server.
 export const isChrome = (t) =>
-  /^https?:\/\/(tauri\.localhost|127\.0\.0\.1:1420|localhost:1420)/.test(t.url);
+  /^(zenith:\/\/app|https?:\/\/(tauri\.localhost|127\.0\.0\.1:1420|localhost:1420))/.test(t.url);
 
 export const sessions = new Map();
 export async function session(target) {
@@ -140,8 +140,12 @@ export const waitUi = (expr, what, timeout) => waitFor(() => ui(expr), what, tim
 
 export async function page(match) {
   return waitFor(
-    async () =>
-      (await targets()).find((t) => !isChrome(t) && t.url.includes(match)),
+    async () => {
+      const t = (await targets()).find(
+        (x) => !isChrome(x) && x.url.includes(match),
+      );
+      return t && (await evalIn(t, "!!document.body")) ? t : null;
+    },
     `page ${match}`,
   );
 }

@@ -1,7 +1,7 @@
 //! URL helpers shared by external launches, palette fallbacks and the blocker.
 
 use std::path::Path;
-use tauri::Url;
+use url::Url;
 
 /// Schemes a tab may be navigated to from the chrome UI.
 pub fn is_navigable_scheme(scheme: &str) -> bool {

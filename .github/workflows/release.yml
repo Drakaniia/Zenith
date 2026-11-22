@@ -1,7 +1,7 @@
-# Publishes a release when a version tag is pushed (cut one with `pnpm release <version>`).
-# Builds the NSIS installer on Windows, signs the update with the updater key, and creates the
-# GitHub Release with the installer, its signature and `latest.json`, the feed installed copies of
-# Zenith check (see apps/docs/src/content/docs/contributing/releasing.md).
+# Publishes a CEF release when a version tag is pushed (cut one with `pnpm release <version>`).
+# Builds the bundled CEF NSIS installer on Windows, signs it with Zenith's minisign updater key,
+# publishes the GitHub Release, and updates `latest.json` (stable) or the rolling `preview` release
+# `preview.json` (prerelease tags containing `-`).
 name: Release
 
 on:
@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Existing tag to (re)build, e.g. v0.2.0"
+        description: "Existing tag to (re)build, e.g. v0.2.0 or v0.2.0-preview.1"
         required: true
 
 concurrency:
@@ -26,6 +26,7 @@ jobs:
     timeout-minutes: 90
     env:
       TAG: ${{ github.event.inputs.tag || github.ref_name }}
+      IS_PREVIEW: ${{ contains(github.event.inputs.tag || github.ref_name, '-') }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -50,34 +51,74 @@ jobs:
       - name: Check that the tag matches the app version
         run: node scripts/release.mjs --check "$env:TAG"
 
-
-      - name: Check the updater key secrets
-        shell: bash
+      - name: Check updater signing secrets
+        shell: pwsh
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
-          if [ -z "$TAURI_SIGNING_PRIVATE_KEY" ] || [ -z "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD" ]; then
-            echo "::error::The TAURI_SIGNING_PRIVATE_KEY and TAURI_SIGNING_PRIVATE_KEY_PASSWORD secrets are required. See apps/docs/src/content/docs/contributing/releasing.md (one-time setup)."
+          if (-not $env:TAURI_SIGNING_PRIVATE_KEY -or -not $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD) {
+            Write-Error "TAURI_SIGNING_PRIVATE_KEY and TAURI_SIGNING_PRIVATE_KEY_PASSWORD secrets are required."
             exit 1
-          fi
+          }
 
-      - name: Build, sign and publish
-        uses: tauri-apps/tauri-action@v0
+      - name: Install NSIS and minisign
+        shell: pwsh
+        run: |
+          if (-not (Get-Command makensis -ErrorAction SilentlyContinue)) { choco install -y nsis }
+          if (-not (Get-Command minisign -ErrorAction SilentlyContinue)) { choco install -y minisign }
+
+      - name: Export pinned CEF runtime
+        shell: pwsh
+        run: |
+          $cefDir = "$env:RUNNER_TEMP\zenith-cef\156.0.31"
+          if (-not (Get-Command export-cef-dir -ErrorAction SilentlyContinue)) {
+            cargo install export-cef-dir --version 156.7.0 --locked
+          }
+          export-cef-dir --force "$cefDir"
+          "CEF_PATH=$cefDir" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding UTF8
+
+      - name: Build, package and sign CEF NSIS installer
+        shell: pwsh
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        with:
-          tagName: ${{ env.TAG }}
-          releaseName: Zenith ${{ env.TAG }}
-          releaseBody: |
-            Install with `Zenith_*_x64-setup.exe` (per-user, no administrator rights). Installed copies update themselves: the new version downloads in the background and installs when Zenith closes.
+        run: |
+          $argsList = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'apps/desktop/scripts/package-nsis.ps1', '-CefDir', $env:CEF_PATH)
+          if ($env:IS_PREVIEW -eq 'true') { $argsList += '-Preview' }
+          & powershell @argsList
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-            The installer is not code-signed yet, so Windows SmartScreen may say "Windows protected your PC". Choose **More info › Run anyway**. Updates are verified with Zenith's own signing key.
-          generateReleaseNotes: true
-          releaseDraft: false
-          prerelease: ${{ contains(env.TAG, '-') }}
-          updaterJsonPreferNsis: true
-          projectPath: apps/desktop
-          tauriScript: pnpm tauri
+      - name: Publish GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $bundleDir = "apps/desktop/src-tauri/target/release/bundle/nsis"
+          $installer = Get-ChildItem $bundleDir -Filter "Zenith_*_x64-setup.exe" | Select-Object -First 1
+          $sig = "$($installer.FullName).sig"
+          $manifest = Join-Path $bundleDir "runtime-manifest.json"
+          $feedName = if ($env:IS_PREVIEW -eq 'true') { 'preview.json' } else { 'latest.json' }
+          $feed = Join-Path $bundleDir $feedName
+
+          $notes = @"
+          Install with ``$($installer.Name)`` (per-user, no administrator rights, bundled CEF Chromium 156 runtime).
+          Installed copies update themselves silently on exit and verify signatures against Zenith's pinned minisign key.
+
+          **Upgrading from WebView2 (v0.1.x):** bookmarks, passwords, history, settings, profiles, and open tabs are preserved and backed up automatically. Website sign-ins, cookies, site storage, and extension data start fresh; your old WebView2 folder is left untouched.
+          "@
+
+          $createArgs = @('release', 'create', $env:TAG, $installer.FullName, $sig, $manifest, $feed,
+            '--title', "Zenith $($env:TAG)", '--notes', $notes, '--generate-notes')
+          if ($env:IS_PREVIEW -eq 'true') { $createArgs += '--prerelease' }
+          gh @createArgs
+
+          # Mirror `preview.json` onto the rolling `preview` release so opted-in clients can fetch a stable URL.
+          if ($env:IS_PREVIEW -eq 'true') {
+            $exists = gh release view preview 2>$null
+            if ($LASTEXITCODE -ne 0) {
+              gh release create preview $feed --prerelease --title "Zenith Preview Feed" --notes "Rolling preview update metadata pointer (latest prerelease: $($env:TAG))."
+            } else {
+              gh release upload preview $feed --clobber
+            }
+          }

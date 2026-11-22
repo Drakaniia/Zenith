@@ -16,6 +16,7 @@ import * as downloads from "./cases/downloads.mjs";
 import * as extensions from "./cases/extensions.mjs";
 import * as windows from "./cases/windows.mjs";
 import * as settings from "./cases/settings.mjs";
+import * as phase4 from "./cases/phase4.mjs";
 import * as restart from "./cases/restart.mjs";
 
 const args = process.argv.slice(2);
@@ -57,7 +58,7 @@ await waitUi(`!!document.querySelector('.app')`, "chrome UI", 20000);
 // Start from a known layout: leave compact mode if it was turned on.
 if (await ui(`document.querySelector('.app').classList.contains('compact')`)) {
   await ui(
-    `document.querySelector('.hot-left').dispatchEvent(new MouseEvent('mouseenter'))`,
+    `document.querySelector('.hot-edge.left').dispatchEvent(new MouseEvent('mouseenter'))`,
   );
   await waitUi(
     `!!document.querySelector('.flyout [data-action=compact]')`,
@@ -86,6 +87,7 @@ const scenarios = [
   ...pages.zoom,
   ...downloads.exempt,
   ...settings.scenarios,
+  ...phase4.scenarios,
   ...extensions.store,
   ...tabs.sleepTimeout,
 ];

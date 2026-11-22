@@ -36,7 +36,7 @@ test("compact-mode", async () => {
     return v && v.x < 20 ? v : null;
   }, "webview fills window");
   await ui(
-    `document.querySelector('.hot-left').dispatchEvent(new MouseEvent('mouseenter'))`,
+    `document.querySelector('.hot-edge.left').dispatchEvent(new MouseEvent('mouseenter'))`,
   );
   await waitUi(
     `!!document.querySelector('.flyout .sidebar')`,
@@ -56,7 +56,7 @@ test("compact-mode", async () => {
   await ui(`(() => { const e = new KeyboardEvent('keydown'); })()`);
   // Leave compact mode through the settings store via the toggle in the floating sidebar.
   await ui(
-    `document.querySelector('.hot-left').dispatchEvent(new MouseEvent('mouseenter'))`,
+    `document.querySelector('.hot-edge.left').dispatchEvent(new MouseEvent('mouseenter'))`,
   );
   await waitUi(
     `!!document.querySelector('.flyout [data-action=compact]')`,
@@ -93,7 +93,7 @@ test("layout-animation", async () => {
   const between = xs.filter((x) => x < start.x - 4 && x > end + 4);
   // Back to the normal layout.
   await ui(
-    `document.querySelector('.hot-left').dispatchEvent(new MouseEvent('mouseenter'))`,
+    `document.querySelector('.hot-edge.left').dispatchEvent(new MouseEvent('mouseenter'))`,
   );
   await waitUi(
     `!!document.querySelector('.flyout [data-action=compact]')`,
@@ -109,8 +109,12 @@ test("layout-animation", async () => {
     throw new Error(`page came back at x=${back.x}, started at ${start.x}`);
   if (end > 20)
     throw new Error(`page did not reach the window edge (x=${end})`);
-  if (!between.length)
+  if (!between.length) {
+    // The OS "Animation effects" setting off means prefers-reduced-motion: the page jumps by design.
+    if (await ui(`matchMedia('(prefers-reduced-motion: reduce)').matches`))
+      return `page moved ${Math.round(start.x)} → ${end} without animation (reduced motion)`;
     throw new Error(`no intermediate frames: ${xs.join(",")}`);
+  }
   return `page moved ${Math.round(start.x)} → ${end} through ${between.length} intermediate frames`;
 });
 
@@ -225,7 +229,11 @@ test("incognito-window", async () => {
 });
 
 test("spaces", async () => {
-  await ui(`document.querySelector('.space-dot.add').click()`);
+  await ui(`document.querySelector('[data-action=create-new]').click()`);
+  await waitUi(`!!document.querySelector('.menu')`, "create menu");
+  await ui(
+    `[...document.querySelectorAll('.menu .item')].find((b) => b.textContent.includes('New space')).click()`,
+  );
   await waitUi(`!!document.querySelector('.dialog input')`, "space editor");
   await ui(
     `(() => { const i = document.querySelector('.dialog input'); i.value = 'Work'; i.dispatchEvent(new Event('input', { bubbles: true })); document.querySelector('.dialog').requestSubmit(); })()`,
@@ -235,12 +243,12 @@ test("spaces", async () => {
     "Work space active",
   );
   const tabs = await tabTitles();
-  await ui(`document.querySelector('.space-dot').click()`);
+  await ui(`document.querySelector('.space-btn').click()`);
   await waitUi(
     `document.querySelector('.space-name')?.textContent.includes('Home')`,
     "back to Home",
   );
-  return `Work space had ${tabs.length} tabs; ${await ui(`document.querySelectorAll('.space-dot:not(.add)').length`)} spaces`;
+  return `Work space had ${tabs.length} tabs; ${await ui(`document.querySelectorAll('.space-btn').length`)} spaces`;
 });
 
 test("essentials", async () => {
@@ -248,7 +256,7 @@ test("essentials", async () => {
   await page("essential-check");
   const id = await waitFor(activeTabId, "tab id");
   await ui(
-    `document.querySelector(${JSON.stringify(tabSel(id))}).dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 60, clientY: 200 }))`,
+    `document.querySelector(${JSON.stringify(tabSel(id))}).dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 60, clientY: 200 }))`,
   );
   await waitUi(`!!document.querySelector('.menu')`, "tab menu");
   await ui(
@@ -260,16 +268,16 @@ test("essentials", async () => {
     "tab in the Essentials grid",
   );
   const spaces = await ui(
-    `document.querySelectorAll('.space-dot:not(.add)').length`,
+    `document.querySelectorAll('.space-btn').length`,
   );
   if (spaces > 1) {
-    await ui(`document.querySelectorAll('.space-dot:not(.add)')[1].click()`);
+    await ui(`document.querySelectorAll('.space-btn')[1].click()`);
     await sleep(400);
     await waitUi(
       `!!document.querySelector(${sel})`,
       "Essentials shown in the other space",
     );
-    await ui(`document.querySelectorAll('.space-dot:not(.add)')[0].click()`);
+    await ui(`document.querySelectorAll('.space-btn')[0].click()`);
     await sleep(400);
   }
   return `tab added to Essentials${spaces > 1 ? " and visible in every space" : ""}`;

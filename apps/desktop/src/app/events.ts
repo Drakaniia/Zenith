@@ -12,6 +12,7 @@ import { flights } from '../features/downloads/flights.svelte';
 import { torrents } from '../features/downloads/torrents.svelte';
 import { formatFromShortcut } from '../features/notes/rich-dom';
 import { permissions } from '../features/page/permissions.svelte';
+import { security } from '../features/page/security.svelte';
 import { ui } from '../shared/ui/ui.svelte';
 import { incognito } from '../features/window/window.svelte';
 import { updates } from '../features/updates/updates.svelte';
@@ -37,6 +38,7 @@ export function listenBackend(flushAndClose: () => Promise<void>): Promise<() =>
       if (browser.glance?.tabId === id) browser.closeGlance();
       else browser.removeTab(id, false);
       permissions.dropTab(id);
+      security.dropTab(id);
       vault.dropTab(id);
     }),
     on('tab-focused', ({ id }) => {
@@ -63,6 +65,10 @@ export function listenBackend(flushAndClose: () => Promise<void>): Promise<() =>
       void runAction(s.action, s.source, s.repeat);
     }),
     on('permission-request', (p) => permissions.push(p)),
+    on('cert-error', (c) => security.pushCert(c)),
+    on('safebrowsing-block', (s) => security.pushSafeBrowsing(s)),
+    on('external-protocol', (p) => security.pushProtocol(p)),
+    on('download-warning', (d) => security.pushDownload(d)),
     on('vault-status', (s) => vault.apply(s)),
     on('password-suggest', (s) => {
       if (browser.isVisible(s.tabId) && !onboarding.open) vault.offerSuggest(s);
@@ -73,6 +79,7 @@ export function listenBackend(flushAndClose: () => Promise<void>): Promise<() =>
     on('password-save-offer', (o) => vault.pushOffer(o)),
     on('card-save-offer', (o) => vault.pushCardOffer(o)),
     on('ext-install', (e) => extensions.handleEvent(e)),
+    on('ext-badge', (b) => extensions.handleBadge(b)),
     on('download', (d) => {
       const prev = downloads.items.find((x) => x.id === d.id);
       const known = !!prev;

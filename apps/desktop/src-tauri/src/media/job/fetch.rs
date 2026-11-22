@@ -97,7 +97,7 @@ impl<'a> Ctx<'a> {
     /// Request headers for `url`: the page's Referer/Origin plus the browser's cookies.
     pub(super) fn headers_for(&self, url: &str) -> Vec<(String, String)> {
         let mut h = self.headers.to_vec();
-        let key = tauri::Url::parse(url).map(|u| u.origin().ascii_serialization()).unwrap_or_default();
+        let key = url::Url::parse(url).map(|u| u.origin().ascii_serialization()).unwrap_or_default();
         let cached = lock(&self.cookies).get(&key).cloned();
         let cookie = match cached {
             Some(c) => c,

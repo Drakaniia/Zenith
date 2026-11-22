@@ -1,7 +1,7 @@
 //! Login forms: the saved-account list under a login field, offers to save a submitted login
 //! (including two-step logins) and fill-on-load.
 
-use std::rc::Rc;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use serde::Serialize;
@@ -38,21 +38,21 @@ pub(super) fn matching_accounts(accounts: Vec<Account>, typed: &str) -> Vec<Acco
         .collect()
 }
 
-pub(super) fn on_field(sh: &Rc<TabShared>, origin: &str, m: &Msg) {
+pub(super) fn on_field(sh: &Arc<TabShared>, origin: &str, m: &Msg) {
     with_tab(&sh.id, |t| t.muted = false);
     show_list(sh, origin, m, None);
 }
 
 /// A username field changed: the open list narrows to the matching accounts, and comes back when
 /// the text matches again. Nothing when the user closed the list.
-pub(super) fn on_type(sh: &Rc<TabShared>, origin: &str, m: &Msg) {
+pub(super) fn on_type(sh: &Arc<TabShared>, origin: &str, m: &Msg) {
     if m.f != "user" || with_tab(&sh.id, |t| t.muted) {
         return;
     }
     show_list(sh, origin, m, Some(m.u.as_str()));
 }
 
-fn show_list(sh: &Rc<TabShared>, origin: &str, m: &Msg, typed: Option<&str>) {
+fn show_list(sh: &Arc<TabShared>, origin: &str, m: &Msg, typed: Option<&str>) {
     let cfg = config();
     let new_password = m.k == "new";
     let mut accounts = if cfg.autofill_suggest && (cfg.autofill_usernames || cfg.autofill_passwords) && !(new_password && m.f == "pass") {
@@ -95,7 +95,7 @@ fn show_list(sh: &Rc<TabShared>, origin: &str, m: &Msg, typed: Option<&str>) {
     );
 }
 
-pub(super) fn on_capture(sh: &Rc<TabShared>, origin: &str, m: &Msg) {
+pub(super) fn on_capture(sh: &Arc<TabShared>, origin: &str, m: &Msg) {
     let cfg = config();
     if !cfg.passwords_offer_save || sh.private {
         return;
@@ -146,7 +146,7 @@ pub(super) fn on_capture(sh: &Rc<TabShared>, origin: &str, m: &Msg) {
     });
 }
 
-pub(super) fn on_form(sh: &Rc<TabShared>, origin: &str) {
+pub(super) fn on_form(sh: &Arc<TabShared>, origin: &str) {
     let cfg = config();
     if !cfg.autofill_on_load || cfg.vault_ask_every_time || !(cfg.autofill_usernames || cfg.autofill_passwords) {
         return;

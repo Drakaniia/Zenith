@@ -1,0 +1,23 @@
+{
+  "manifest_version": 3,
+  "name": "Zenith Phase 2 Probe Extension",
+  "version": "1.0.0",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAunDUgDpRSzal4by3zOtuj0RM/33AJ2hRS6N3E0Fb+siDMsDi9LKGPh5iY9jufFMzAf63fCGByFGh6hc2BrACCiapUCNP+rIO79GM2olLYN0A5pjevXFlhu3oioKzQa/4hFIfmBCMjP0ZJwo0vnWUSgUO7WlHOLeoz9SY5bc39W+1VMJJud54x2orDerfBI0zi/bAcZHeSeOZuMKHqMoAGvImlG47tkU2gUBARl8u68J14Ozklj6bSsLldm95Yx6iEXLNXivqw6752iWqGKkWOobf4vvHApi+z+E8Gg6zGCk64TCKE7SPNlvX8IiLRkVC8+hZXyNkpBSPjHXuwJRyFQIDAQAB",
+  "permissions": ["tabs", "nativeMessaging"],
+  "host_permissions": ["http://127.0.0.1/*"],
+  "background": {
+    "service_worker": "sw.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["http://127.0.0.1/*"],
+      "js": ["content.js"],
+      "run_at": "document_start"
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Zenith Phase 2"
+  },
+  "options_page": "options.html"
+}

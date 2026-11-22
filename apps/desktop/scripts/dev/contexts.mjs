@@ -10,6 +10,7 @@ const list = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json();
 const target = list.find(
   (t) =>
     t.type === "page" &&
+    !t.url.startsWith("zenith://app") &&
     !t.url.includes("tauri.localhost") &&
     t.url.includes(match),
 );

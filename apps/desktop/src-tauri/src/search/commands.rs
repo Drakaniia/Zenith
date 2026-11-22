@@ -2,7 +2,6 @@
 
 use crate::app::command::{blocking, CmdResult};
 
-#[tauri::command]
 pub async fn search_suggest(engine: String, query: String) -> CmdResult<Vec<String>> {
     let query = query.trim().to_string();
     if query.is_empty() || query.len() > 200 {

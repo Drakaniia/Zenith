@@ -3,41 +3,37 @@ name = "zenith"
 version = "0.1.13"
 description = "Zenith: a lightweight Zen-style web browser for Windows"
 edition = "2021"
-# 1.90: required by tauri-plugin-updater.
 rust-version = "1.90"
 publish = false
-default-run = "zenith"
 
-[[bin]]
+[lib]
 name = "zenith"
-path = "src/main.rs"
+path = "src/lib.rs"
+crate-type = ["cdylib", "rlib"]
 
 [features]
 # Honour ZENITH_REMOTE_DEBUG_PORT in release builds (always honoured in debug builds).
 remote-debug = []
 
-[build-dependencies]
-tauri-build = { version = "2.7", features = [] }
-
 [dependencies]
-# Pin the Tauri/wry minor versions: tab webviews are built directly on wry and WebView2,
-# and the multi-webview surface has no semver guarantees.
-# image-png: decodes a profile's picture for its window icon.
-tauri = { version = "~2.12.5", features = ["image-png"] }
-wry = { version = "~0.57.1", default-features = false }
-webview2-com = "0.39"
+# Pinned official prebuilt CEF binary distribution (Chromium 156.0.31).
+# No Tauri, wry, or WebView2 runtime dependencies.
+cef = "=156.7.0"
+# Full Adblock Plus / EasyList / EasyPrivacy network + cosmetic filtering (thread-safe).
+adblock = { version = "0.13", default-features = false, features = ["embedded-domain-resolver", "full-regex-handling"] }
+url = "2"
+minisign-verify = "0.3"
+semver = "1"
+png = "0.18"
 
-tauri-plugin-single-instance = "2.4"
-tauri-plugin-dialog = "2.8"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-# rt-multi-thread/net/io-util: the torrent engine's runtime and its local streaming server.
+# rt-multi-thread/net/io-util: async runtime, torrent engine, and local streaming server.
 tokio = { version = "1", features = ["sync", "rt-multi-thread", "net", "io-util", "time"] }
 # Torrent and magnet downloads (DHT, PEX, persistence, rate limits, streaming).
 librqbit = { version = "9.1", default-features = false, features = ["default-tls"] }
 rusqlite = { version = "0.32", features = ["bundled"] }
 base64 = "0.22"
-tauri-plugin-updater = "2"
 # Password vault: Argon2id key derivation, AES-256-GCM, keyed hashes, wiping secrets.
 aes-gcm = "0.10"
 argon2 = "0.5"
@@ -62,12 +58,14 @@ features = [
   "Win32_System_DataExchange",
   "Win32_System_Memory",
   "Win32_System_Ole",
+  "Win32_System_Pipes",
   "Win32_System_Diagnostics_ToolHelp",
   "Win32_System_LibraryLoader",
   "Win32_System_ProcessStatus",
   "Win32_System_Registry",
   "Win32_System_SystemInformation",
   "Win32_System_Threading",
+  "Win32_UI_Controls",
   "Win32_UI_HiDpi",
   "Win32_UI_Input_KeyboardAndMouse",
   "Win32_UI_Shell",

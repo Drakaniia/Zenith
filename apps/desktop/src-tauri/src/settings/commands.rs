@@ -2,10 +2,10 @@
 //! pushes, the settings file, and uploaded start-page backgrounds.
 
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, WebviewWindow};
 
 use super::wallpapers::{valid_wallpaper_data, wallpaper_file};
 use crate::app::command::{blocking, on_main, private, refuse_in_incognito, CmdResult};
+use crate::app::runtime::{AppHandle, Theme, WindowHandle};
 use crate::host::{self, paths, RuntimeConfig};
 use crate::storage;
 
@@ -19,10 +19,9 @@ pub struct Appearance {
     content_scheme: String,
 }
 
-#[tauri::command]
 pub async fn apply_settings(
     app: AppHandle,
-    window: WebviewWindow,
+    window: WindowHandle,
     config: RuntimeConfig,
     appearance: Appearance,
 ) -> CmdResult<()> {
@@ -34,8 +33,8 @@ pub async fn apply_settings(
         host::set_extensions_in_incognito(config.extensions_in_incognito);
     }
     let theme = match appearance.theme.as_str() {
-        "light" => Some(tauri::Theme::Light),
-        "dark" => Some(tauri::Theme::Dark),
+        "light" => Some(Theme::Light),
+        "dark" => Some(Theme::Dark),
         _ => None,
     };
     let _ = window.set_theme(theme);
@@ -48,7 +47,6 @@ pub async fn apply_settings(
     .await
 }
 
-#[tauri::command]
 pub async fn settings_load() -> CmdResult<Option<String>> {
     blocking(|| storage::read_text(&paths().settings())).await
 }
@@ -61,8 +59,7 @@ struct SettingsChanged {
 
 /// Incognito windows start from the user's settings; their own changes are not saved. The other
 /// normal windows hear about a change through `settings-changed` and reload.
-#[tauri::command]
-pub async fn settings_save(window: WebviewWindow, data: String) -> CmdResult<()> {
+pub async fn settings_save(window: WindowHandle, data: String) -> CmdResult<()> {
     if private(&window) {
         return Ok(());
     }
@@ -72,8 +69,7 @@ pub async fn settings_save(window: WebviewWindow, data: String) -> CmdResult<()>
 }
 
 /// Stores a start-page background the user uploaded (a downscaled image as a data URL).
-#[tauri::command]
-pub async fn wallpaper_save(window: WebviewWindow, id: String, data: String) -> CmdResult<()> {
+pub async fn wallpaper_save(window: WindowHandle, id: String, data: String) -> CmdResult<()> {
     refuse_in_incognito(&window, "Adding a background")?;
     if !valid_wallpaper_data(&data) {
         return Err("This image can't be used as a background. Try a JPEG, PNG or WebP file.".into());
@@ -82,14 +78,12 @@ pub async fn wallpaper_save(window: WebviewWindow, id: String, data: String) -> 
     blocking(move || storage::write_atomic(&path, data.as_bytes()).map_err(|e| e.to_string())).await?
 }
 
-#[tauri::command]
 pub async fn wallpaper_load(id: String) -> CmdResult<Option<String>> {
     let path = wallpaper_file(&id)?;
     blocking(move || storage::read_text(&path)).await
 }
 
-#[tauri::command]
-pub async fn wallpaper_delete(window: WebviewWindow, id: String) -> CmdResult<()> {
+pub async fn wallpaper_delete(window: WindowHandle, id: String) -> CmdResult<()> {
     if private(&window) {
         return Ok(());
     }

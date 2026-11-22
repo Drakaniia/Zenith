@@ -1,6 +1,13 @@
 // Backend calls for browser extensions.
 import { invoke } from "@tauri-apps/api/core";
-import type { ExtensionInfo, ExtensionUpdate, InstallEvent } from "./types";
+import type {
+  BadgeEvent,
+  ExtensionInfo,
+  ExtensionUpdate,
+  InstallEvent,
+  NativeHostInfo,
+  WindowSyncSnapshot,
+} from "./types";
 
 export const extensionsApi = {
   extList: () => invoke<ExtensionInfo[]>("ext_list"),
@@ -21,10 +28,17 @@ export const extensionsApi = {
     invoke<void>("ext_set_incognito", { id, allowed }),
   extSetEnabled: (id: string, enabled: boolean) =>
     invoke<void>("ext_set_enabled", { id, enabled }),
+  extSyncState: (snapshot: WindowSyncSnapshot) =>
+    invoke<void>("ext_sync_state", { snapshot }),
+  extBadges: () => invoke<BadgeEvent[]>("ext_badges"),
+  extNativeHosts: () => invoke<NativeHostInfo[]>("ext_native_hosts"),
+  extNativeHostConsent: (hostName: string, allowed: boolean) =>
+    invoke<void>("ext_native_host_consent", { hostName, allowed }),
 };
 
 declare module "../../platform/ipc" {
   interface BackendEvents {
     "ext-install": InstallEvent;
+    "ext-badge": BadgeEvent;
   }
 }

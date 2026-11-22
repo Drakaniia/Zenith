@@ -1,22 +1,28 @@
-//! Browser windows: building the normal window (`main`), extra normal windows (`window-N`) and
-//! incognito ones, placing them, and remembering the main window's geometry.
+//! Pure Win32 browser windows: borderless frameless top-level HWND hosting a CEF Alloy
+//! trusted UI child browser and native CEF Chrome-style page child windows.
 
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
-use tauri::webview::ScrollBarStyle;
-use tauri::{AppHandle, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
+use windows::core::{w, HSTRING};
+use windows::Win32::Graphics::Dwm::{
+    DwmExtendFrameIntoClientArea, DwmSetWindowAttribute, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND,
+};
+use windows::Win32::Graphics::Gdi::{GetStockObject, BLACK_BRUSH, HBRUSH};
+use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+use windows::Win32::UI::Controls::MARGINS;
+use windows::Win32::UI::WindowsAndMessaging::*;
 
+use super::runtime::{register_window, AppHandle, WindowHandle};
 use super::startup::set_startup_urls;
 use crate::{host, incognito, profiles, session, storage};
 
 pub(crate) static NEXT_INCOGNITO: AtomicU32 = AtomicU32::new(1);
 static NEXT_WINDOW: AtomicU32 = AtomicU32::new(1);
+static CLASS_REGISTERED: AtomicBool = AtomicBool::new(false);
 
-/// The saved state was maximized. Applied when the window is first shown (`ui_ready`):
-/// maximizing a still-hidden window leaves it flagged maximized at its restored size, so it
-/// never fills the screen and the webviews never get the maximized client size.
+/// The saved state was maximized. Applied when the window is first shown (`ui_ready`).
 pub static RESTORE_MAXIMIZED: AtomicBool = AtomicBool::new(false);
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug)]
@@ -30,14 +36,13 @@ struct WindowState {
 
 static WINDOW_STATE: Mutex<Option<WindowState>> = Mutex::new(None);
 
-/// Geometry of the normal window. Incognito windows open next to it and never save their own.
 fn window_state_file() -> std::path::PathBuf {
     host::persistent_paths().roaming.join("window.json")
 }
 
-pub(crate) fn remember_window_state(window: &tauri::Window) {
-    let maximized = window.is_maximized().unwrap_or(false);
-    if window.is_minimized().unwrap_or(false) || window.is_fullscreen().unwrap_or(false) {
+pub(crate) fn remember_window_state(window: &WindowHandle) {
+    let maximized = window.is_maximized();
+    if window.is_minimized() || window.is_fullscreen() {
         return;
     }
     let Ok(mut guard) = WINDOW_STATE.lock() else { return };
@@ -47,14 +52,8 @@ pub(crate) fn remember_window_state(window: &tauri::Window) {
         }
         return;
     }
-    if let (Ok(pos), Ok(size)) = (window.outer_position(), window.inner_size()) {
-        *guard = Some(WindowState {
-            x: pos.x,
-            y: pos.y,
-            width: size.width,
-            height: size.height,
-            maximized: false,
-        });
+    if let (Ok((x, y)), Ok((width, height))) = (window.outer_position(), window.inner_size()) {
+        *guard = Some(WindowState { x, y, width, height, maximized: false });
     }
 }
 
@@ -66,28 +65,22 @@ pub(crate) fn save_window_state() {
     }
 }
 
-fn restore_window_state(window: &WebviewWindow) {
+fn restore_window_state(window: &WindowHandle) {
     let Some(state) = storage::read_text(&window_state_file())
         .and_then(|s| serde_json::from_str::<WindowState>(&s).ok())
     else {
         let _ = window.center();
         return;
     };
-    // Only restore onto a monitor that still exists.
-    let visible = window
-        .available_monitors()
-        .unwrap_or_default()
-        .iter()
-        .any(|m| {
-            let (p, s) = (m.position(), m.size());
-            state.x + 80 < p.x + s.width as i32
-                && state.x + state.width as i32 - 80 > p.x
-                && state.y >= p.y - 8
-                && state.y + 40 < p.y + s.height as i32
-        });
+    let visible = window.available_monitors().iter().any(|m| {
+        state.x + 80 < m.x + m.width as i32
+            && state.x + state.width as i32 - 80 > m.x
+            && state.y >= m.y - 8
+            && state.y + 40 < m.y + m.height as i32
+    });
     if visible && state.width >= 400 && state.height >= 300 {
-        let _ = window.set_size(PhysicalSize::new(state.width, state.height));
-        let _ = window.set_position(PhysicalPosition::new(state.x, state.y));
+        let _ = window.set_size(state.width, state.height);
+        let _ = window.set_position(state.x, state.y);
     } else {
         let _ = window.center();
     }
@@ -99,27 +92,15 @@ fn restore_window_state(window: &WebviewWindow) {
     }
 }
 
-fn browser_args() -> String {
-    // msWebOOUI: Edge "mini menu" on text selection; msPdfOOUI: Edge PDF toolbar pop-ups.
-    #[allow(unused_mut)]
-    let mut args = String::from("--disable-features=msWebOOUI,msPdfOOUI");
-    #[cfg(any(debug_assertions, feature = "remote-debug"))]
-    if let Ok(port) = std::env::var("ZENITH_REMOTE_DEBUG_PORT") {
-        if port.parse::<u16>().is_ok() {
-            args.push_str(" --remote-debugging-port=");
-            args.push_str(&port);
-        }
-    }
-    args
-}
-
-/// An incognito or extra window opens over the window the user is in (else the main one),
-/// offset like a cascaded window.
-fn place_cascaded(app: &AppHandle, window: &WebviewWindow) {
-    let others: Vec<WebviewWindow> = app.webview_windows().into_values().filter(|w| w.label() != window.label()).collect();
+fn place_cascaded(app: &AppHandle, window: &WindowHandle) {
+    let others: Vec<WindowHandle> = app
+        .windows()
+        .into_values()
+        .filter(|w| w.label() != window.label())
+        .collect();
     let base = others
         .iter()
-        .find(|w| w.is_focused().unwrap_or(false))
+        .find(|w| w.is_focused())
         .or_else(|| others.iter().find(|w| w.label() == host::MAIN))
         .or_else(|| others.first())
         .cloned();
@@ -127,57 +108,97 @@ fn place_cascaded(app: &AppHandle, window: &WebviewWindow) {
         let _ = window.center();
         return;
     };
-    if main.is_maximized().unwrap_or(false) {
+    if main.is_maximized() {
         let _ = window.center();
         return;
     }
-    if let (Ok(pos), Ok(size)) = (main.outer_position(), main.inner_size()) {
-        let step = (32.0 * main.scale_factor().unwrap_or(1.0)) as i32;
-        let _ = window.set_size(size);
-        let _ = window.set_position(PhysicalPosition::new(pos.x + step, pos.y + step));
+    if let (Ok((x, y)), Ok((w, h))) = (main.outer_position(), main.inner_size()) {
+        let step = (32.0 * main.scale_factor()) as i32;
+        let _ = window.set_size(w, h);
+        let _ = window.set_position(x + step, y + step);
     }
 }
 
-/// Builds a browser window: the normal window (`main`) or an incognito one. Every window
-/// passes the same WebView2 options, so all of them share one WebView2 browser process.
-pub(crate) fn create_window(app: &AppHandle, label: &str) -> tauri::Result<()> {
+fn ensure_window_class() -> Result<(), String> {
+    if CLASS_REGISTERED.swap(true, Ordering::SeqCst) {
+        return Ok(());
+    }
+    unsafe {
+        let hinstance = GetModuleHandleW(None).map_err(|e| format!("GetModuleHandleW: {e}"))?;
+        let wc = WNDCLASSW {
+            style: CS_HREDRAW | CS_VREDRAW,
+            lpfnWndProc: Some(host::window_proc::host_wnd_proc),
+            hInstance: hinstance.into(),
+            hCursor: LoadCursorW(None, IDC_ARROW).unwrap_or_default(),
+            hbrBackground: HBRUSH(GetStockObject(BLACK_BRUSH).0),
+            lpszClassName: w!("ZenithBrowserWindow"),
+            ..Default::default()
+        };
+        RegisterClassW(&wc);
+    }
+    Ok(())
+}
+
+/// Builds a frameless top-level Win32 browser window and embeds its CEF Alloy trusted UI.
+/// Must be called on the CEF UI thread.
+pub(crate) fn create_window(app: &AppHandle, label: &str) -> Result<(), String> {
+    ensure_window_class()?;
     let private = host::is_private_window(label);
     let extra = session::is_extra_window(label);
     let title = window_title(private);
-    let mut builder = WebviewWindowBuilder::new(app, label, WebviewUrl::App("index.html".into()))
-        .title(&title)
-        .inner_size(1280.0, 820.0)
-        .min_inner_size(560.0, 400.0)
-        .decorations(false)
-        .transparent(true)
-        .shadow(true)
-        .visible(false);
-    if private {
-        // Known to the UI before its first render, so it never restores or saves a session.
-        builder = builder.initialization_script("window.__ZENITH_INCOGNITO__ = true;");
+
+    let hwnd = unsafe {
+        let hinstance = GetModuleHandleW(None).map_err(|e| format!("GetModuleHandleW: {e}"))?;
+        let style = WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN | WS_CLIPSIBLINGS;
+        CreateWindowExW(
+            WINDOW_EX_STYLE(0),
+            w!("ZenithBrowserWindow"),
+            &HSTRING::from(&title),
+            style,
+            CW_USEDEFAULT,
+            CW_USEDEFAULT,
+            1280,
+            820,
+            None,
+            None,
+            Some(hinstance.into()),
+            None,
+        )
+        .map_err(|e| format!("CreateWindowExW: {e}"))?
+    };
+
+    // Enable DWM drop shadow and Windows 11 rounded corners on the borderless frame.
+    unsafe {
+        let margins = MARGINS { cxLeftWidth: 1, cxRightWidth: 1, cyTopHeight: 1, cyBottomHeight: 1 };
+        let _ = DwmExtendFrameIntoClientArea(hwnd, &margins);
+        let corner = DWMWCP_ROUND;
+        let _ = DwmSetWindowAttribute(
+            hwnd,
+            DWMWA_WINDOW_CORNER_PREFERENCE,
+            &corner as *const _ as *const _,
+            std::mem::size_of_val(&corner) as u32,
+        );
     }
-    let window = builder
-        .data_directory(host::paths().webview_data())
-        .additional_browser_args(&browser_args())
-        .browser_extensions_enabled(true)
-        .scroll_bar_style(ScrollBarStyle::FluentOverlay)
-        .disable_drag_drop_handler()
-        .zoom_hotkeys_enabled(false)
-        .devtools(cfg!(debug_assertions))
-        .build()?;
+
+    let window = WindowHandle::new(label, hwnd);
+    let _ = window.set_theme(None);
+    register_window(window.clone());
+
     if private || extra {
         place_cascaded(app, &window);
     } else {
         restore_window_state(&window);
     }
-    // A profile with a picture shows it as its window (and taskbar) icon.
+
     if !private {
-        if let Some(icon) = profiles::commands::window_icon() {
+        if let Some(icon) = profiles::commands::window_icon().or_else(|| app.default_window_icon()) {
             let _ = window.set_icon(icon);
         }
+    } else if let Some(icon) = app.default_window_icon() {
+        let _ = window.set_icon(icon);
     }
-    let w = window.clone();
-    window.with_webview(move |pw| host::attach_chrome(w, pw.controller(), pw.environment()))?;
+
+    host::create_chrome_window(window, private)?;
     Ok(())
 }
 
@@ -194,22 +215,34 @@ pub fn window_title(private: bool) -> String {
     }
 }
 
-/// Opens a new incognito window that loads `urls` once its UI is ready. Call off the UI thread.
-pub fn open_incognito_window(app: &AppHandle, urls: Vec<String>) -> tauri::Result<()> {
+pub fn open_incognito_window(app: &AppHandle, urls: Vec<String>) -> Result<(), String> {
     let label = format!("{}{}", incognito::LABEL_PREFIX, NEXT_INCOGNITO.fetch_add(1, Ordering::Relaxed));
     set_startup_urls(&label, urls);
-    create_window(app, &label)
+    let app2 = app.clone();
+    app.run_on_main_thread(move || {
+        if let Err(e) = create_window(&app2, &label) {
+            eprintln!("[zenith] open_incognito_window failed: {e}");
+        }
+    })
 }
 
-/// Opens another normal window (`window-N`) that starts with `start`. Call off the UI thread.
-pub fn open_normal_window(app: &AppHandle, start: session::Start) -> tauri::Result<()> {
+pub fn open_normal_window(app: &AppHandle, start: session::Start) -> Result<(), String> {
     let label = format!("{}{}", session::LABEL_PREFIX, NEXT_WINDOW.fetch_add(1, Ordering::Relaxed));
     session::set_pending(&label, start);
-    create_window(app, &label)
+    let app2 = app.clone();
+    app.run_on_main_thread(move || {
+        if let Err(e) = create_window(&app2, &label) {
+            eprintln!("[zenith] open_normal_window failed: {e}");
+        }
+    })
 }
 
-/// Reopens the main window (closed while other windows stayed open) with all of its tabs.
-pub fn reopen_main_window(app: &AppHandle) -> tauri::Result<()> {
+pub fn reopen_main_window(app: &AppHandle) -> Result<(), String> {
     session::set_pending(host::MAIN, session::Start { data: None, keep: Some(true), fresh: false });
-    create_window(app, host::MAIN)
+    let app2 = app.clone();
+    app.run_on_main_thread(move || {
+        if let Err(e) = create_window(&app2, host::MAIN) {
+            eprintln!("[zenith] reopen_main_window failed: {e}");
+        }
+    })
 }

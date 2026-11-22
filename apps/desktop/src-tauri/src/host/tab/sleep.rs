@@ -1,23 +1,21 @@
-//! Tab sleeping (capture the scroll position, then free the webview) and content measuring.
+//! Tab sleeping (capture scroll position via CEF DevTools `Runtime.evaluate`, then close the
+//! browser) and extension popup content measuring.
 
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use webview2_com::*;
-use windows::core::HSTRING;
-
 use super::close;
-use crate::host::{app, post, with_host};
+use crate::app::runtime::post_ui_delayed;
+use crate::host::{eval_js, with_host};
 
 type SleepDone = Box<dyn FnOnce(Option<(f64, f64)>)>;
 
 thread_local! {
-    static PENDING_SLEEPS: RefCell<std::collections::HashMap<u64, SleepDone>> = RefCell::new(Default::default());
+    static PENDING_SLEEPS: RefCell<HashMap<u64, SleepDone>> = RefCell::new(HashMap::new());
 }
 static NEXT_SLEEP: AtomicU64 = AtomicU64::new(1);
 
-/// Completes a sleep request exactly once: whichever of the script result, a script error or
-/// the timeout arrives first closes the webview and answers the caller.
 fn finish_sleep(token: u64, id: &str, scroll: Option<(f64, f64)>) {
     let done = PENDING_SLEEPS.with(|p| p.borrow_mut().remove(&token));
     if let Some(done) = done {
@@ -26,42 +24,35 @@ fn finish_sleep(token: u64, id: &str, scroll: Option<(f64, f64)>) {
     }
 }
 
-/// Captures the scroll position, then frees the webview (tab sleeping). A crashed or hung
-/// renderer never answers the script, so the webview is freed after 1.5 s regardless.
+/// Captures `[window.scrollX, window.scrollY]`, then closes the browser (or after 1.5 s if the
+/// renderer is hung or crashed).
 pub fn sleep(id: &str, done: impl FnOnce(Option<(f64, f64)>) + 'static) {
-    let core = with_host(|h| h.tabs.get(id).map(|t| t.core())).flatten();
-    let Some(core) = core else {
+    let browser = with_host(|h| h.tabs.get(id).and_then(|t| t.browser.clone())).flatten();
+    let Some(browser) = browser else {
+        close(id);
         done(None);
         return;
     };
     let token = NEXT_SLEEP.fetch_add(1, Ordering::Relaxed);
     PENDING_SLEEPS.with(|p| p.borrow_mut().insert(token, Box::new(done)));
-    let id = id.to_string();
-    {
-        let id = id.clone();
-        std::thread::spawn(move || {
-            std::thread::sleep(std::time::Duration::from_millis(1500));
-            let _ = app().run_on_main_thread(move || finish_sleep(token, &id, None));
+    let id_timeout = id.to_string();
+    post_ui_delayed(1500, move || finish_sleep(token, &id_timeout, None));
+
+    let id_eval = id.to_string();
+    eval_js(&browser, "[window.scrollX, window.scrollY]", false, false, move |res| {
+        let scroll = res.ok().and_then(|v| {
+            let arr = v.as_array()?;
+            if arr.len() == 2 {
+                Some((arr[0].as_f64()?, arr[1].as_f64()?))
+            } else {
+                None
+            }
         });
-    }
-    let script_id = id.clone();
-    let handler = ExecuteScriptCompletedHandler::create(Box::new(move |_, json| {
-        let scroll = serde_json::from_str::<Vec<f64>>(&json)
-            .ok()
-            .filter(|v| v.len() == 2)
-            .map(|v| (v[0], v[1]));
-        post(move || finish_sleep(token, &script_id, scroll));
-        Ok(())
-    }));
-    unsafe {
-        if core.ExecuteScript(&HSTRING::from("[window.scrollX, window.scrollY]"), &handler).is_err() {
-            post(move || finish_sleep(token, &id, None));
-        }
-    }
+        finish_sleep(token, &id_eval, scroll);
+    });
 }
 
-/// The natural size of a page's content (CSS px), laid out shrink-to-fit the way Chrome sizes
-/// an extension's toolbar popup. None when the page cannot run the script.
+/// Measures natural content size (CSS px) for shrink-to-fit extension toolbar popups.
 pub fn content_size(id: &str, done: impl FnOnce(Option<(f64, f64)>) + 'static) {
     const SCRIPT: &str = r#"(() => {
   const d = document.documentElement, b = document.body;
@@ -74,24 +65,18 @@ pub fn content_size(id: &str, done: impl FnOnce(Option<(f64, f64)>) + 'static) {
   d.style.cssText = saved;
   return [Math.ceil(w), Math.ceil(h)];
 })()"#;
-    let Some(core) = with_host(|h| h.tabs.get(id).map(|t| t.core())).flatten() else {
+    let Some(browser) = with_host(|h| h.tabs.get(id).and_then(|t| t.browser.clone())).flatten() else {
         return done(None);
     };
-    let done = RefCell::new(Some(done));
-    let handler = ExecuteScriptCompletedHandler::create(Box::new(move |result, json| {
-        let size = result
-            .ok()
-            .and_then(|_| serde_json::from_str::<Vec<f64>>(&json).ok())
-            .filter(|v| v.len() == 2)
-            .map(|v| (v[0], v[1]));
-        if let Some(done) = done.borrow_mut().take() {
-            done(size);
-        }
-        Ok(())
-    }));
-    unsafe {
-        if let Err(e) = core.ExecuteScript(&HSTRING::from(SCRIPT), &handler) {
-            eprintln!("[zenith] content size script failed: {e}");
-        }
-    }
+    eval_js(&browser, SCRIPT, false, false, move |res| {
+        let size = res.ok().and_then(|v| {
+            let arr = v.as_array()?;
+            if arr.len() == 2 {
+                Some((arr[0].as_f64()?, arr[1].as_f64()?))
+            } else {
+                None
+            }
+        });
+        done(size);
+    });
 }

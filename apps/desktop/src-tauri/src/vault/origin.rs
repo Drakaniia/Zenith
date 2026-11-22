@@ -1,7 +1,7 @@
 //! Addresses: the origin a credential belongs to, how it is shown, the "never save" key and
 //! whether a saved origin matches a page.
 
-use tauri::Url;
+use url::Url;
 
 use super::*;
 
