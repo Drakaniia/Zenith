@@ -19,6 +19,7 @@ import {
   pageOf,
   downloadDir,
   settleStartupSettings,
+  openSettings,
 } from "../harness.mjs";
 
 export const scenarios = [];
@@ -221,6 +222,13 @@ list = exempt;
 
 test("download-exempt", async () => {
   // A control tab that should go to sleep, and a tab with a (paused) download that must not.
+  // A fresh profile sleeps tabs after 5 minutes; use 1 (Settings > Tabs & memory).
+  const sleepAfter = (minutes) =>
+    ui(
+      `(() => { const s = document.querySelector('#settings-tabs select'); s.value = '${minutes}'; s.dispatchEvent(new Event('change', { bubbles: true })); })()`,
+    );
+  await openSettings();
+  await sleepAfter(1);
   await openUrl("https://example.org/?sleep-control");
   await page("sleep-control");
   const controlId = await waitFor(activeTabId, "control tab id");
@@ -255,6 +263,8 @@ test("download-exempt", async () => {
     `!!document.querySelector(${JSON.stringify(tabSel(id, ".sleeping"))})`,
   );
   await invoke("download_action", { id: dl.id, action: "cancel" });
+  await openSettings();
+  await sleepAfter(5);
   if (downloadTabAsleep)
     throw new Error("the tab with a download in progress was put to sleep");
   return `control tab slept after ~${slept}s; the tab with a download in progress stayed awake (download then canceled)`;

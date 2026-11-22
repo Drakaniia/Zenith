@@ -1,0 +1,50 @@
+name: CEF Runtime & Security Cadence
+
+on:
+  schedule:
+    # Daily check against Chrome stable releases to meet the 72h emergency security SLA (Section 15.3).
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+    inputs:
+      build_custom_cef:
+        description: 'Run full custom Windows x64 Chromium/CEF build (requires large runner)'
+        type: boolean
+        default: false
+
+jobs:
+  security-cadence:
+    name: Check Chromium Security Baseline Lag
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify cef-build manifest and patches
+        shell: pwsh
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File cef-build/build-cef.ps1 -CheckOnly
+      - name: Compare bundled Chromium version against Chrome Windows Stable
+        shell: pwsh
+        run: |
+          $manifest = Get-Content cef-build/manifest.json -Raw | ConvertFrom-Json
+          $bundled = $manifest.chromium.version
+          $url = 'https://versionhistory.googleapis.com/v1/chrome/platforms/win64/channels/stable/versions?pageSize=1'
+          $resp = Invoke-RestMethod -Uri $url -TimeoutSec 20
+          $latest = $resp.versions[0].version
+          Write-Output "Bundled Chromium: $bundled"
+          Write-Output "Chrome Win64 Stable: $latest"
+          if ($bundled -ne $latest) {
+            Write-Output "::warning::Bundled Chromium ($bundled) differs from Chrome Win64 Stable ($latest). Review CVEs and schedule CEF bump within 72h if critical/high."
+          }
+
+  build-custom-cef:
+    name: Build Custom CEF Windows x64 Runtime
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.build_custom_cef }}
+    runs-on: [self-hosted, windows, x64, cef-builder]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build custom CEF with proprietary codecs & Zenith patches
+        shell: pwsh
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File cef-build/build-cef.ps1 -OutDir "${{ runner.temp }}\zenith-cef-custom"
+      - name: Upload runtime manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: zenith-cef-runtime-manifest
+          path: ${{ runner.temp }}\zenith-cef-custom\runtime-manifest.json

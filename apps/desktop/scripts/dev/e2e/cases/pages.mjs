@@ -105,11 +105,11 @@ test("zoom", async () => {
   const before = await evalIn(t, "window.devicePixelRatio");
   const set = await invoke("tab_command", { id, cmd: "zoom", arg: 1.5 });
   await waitUi(
-    `document.querySelector('.topbar .zoom')?.textContent === '150%'`,
+    `document.querySelector('.pill .zoom')?.textContent === '150%'`,
     "zoom badge shows 150%",
   ).catch(async (e) => {
     const dump = await ui(
-      `JSON.stringify({ active: document.querySelector('.list .tab.active')?.title, badge: document.querySelector('.topbar .zoom')?.textContent ?? null, buttons: [...document.querySelectorAll('.topbar .actions > *')].map((b) => b.className) })`,
+      `JSON.stringify({ active: document.querySelector('.list .tab.active')?.title, badge: document.querySelector('.pill .zoom')?.textContent ?? null, buttons: [...document.querySelectorAll('.pill .actions > *')].map((b) => b.className) })`,
     );
     throw new Error(`${e.message}; set=${set}; id=${id}; ${dump}`);
   });
@@ -121,9 +121,9 @@ test("zoom", async () => {
     "page re-rendered at 150%",
     5000,
   );
-  await ui(`document.querySelector('.topbar .zoom').click()`);
+  await ui(`document.querySelector('.pill .zoom').click()`);
   await waitUi(
-    `!document.querySelector('.topbar .zoom')`,
+    `!document.querySelector('.pill .zoom')`,
     "zoom reset from the badge",
   );
   return `150% zoom applied (devicePixelRatio ${before} -> ${after}) and reset from the badge`;

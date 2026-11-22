@@ -25,7 +25,7 @@ test("versions bump and compare like semver", () => {
 });
 
 test("only the app version is rewritten in each file", () => {
-  const [pkg, cargo, lock, tauri] = FILES.map(
+  const [pkg, cargo, lock] = FILES.map(
     (f: { pattern: RegExp }) => f.pattern,
   );
   const pkgText =
@@ -51,13 +51,6 @@ test("only the app version is rewritten in each file", () => {
     "other packages untouched",
   );
   assert.ok(lockOut.includes('name = "zenith"\nversion = "0.2.0"'));
-  assert.equal(
-    readVersion(
-      '{ "productName": "Zenith", "version": "0.1.0", "plugins": {} }',
-      tauri,
-    ),
-    "0.1.0",
-  );
   assert.throws(() => setVersion("{}", pkg, "1.0.0"), /could not find/);
 });
 

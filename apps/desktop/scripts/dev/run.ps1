@@ -30,9 +30,9 @@ function Stop-TestInstance {
     Get-Process -Id $old -ErrorAction SilentlyContinue | Where-Object { $_.ProcessName -eq 'zenith' } | Stop-Process -Force
     Remove-Item $pidFile -ErrorAction SilentlyContinue
   }
-  # The WebView2 processes of the test profile can outlive zenith.exe for a moment.
+  # CEF subprocesses of the test profile can outlive the browser process for a moment.
   for ($i = 0; $i -lt 25; $i++) {
-    $left = Get-CimInstance Win32_Process -Filter "Name = 'msedgewebview2.exe'" -ErrorAction SilentlyContinue |
+    $left = Get-CimInstance Win32_Process -Filter "Name = 'zenith.exe' OR Name = 'msedgewebview2.exe'" -ErrorAction SilentlyContinue |
       Where-Object { $_.CommandLine -and $_.CommandLine.Contains($ProfileDir) }
     if (-not $left) { return }
     if ($i -ge 10) { $left | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue } }

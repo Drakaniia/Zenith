@@ -142,7 +142,7 @@ test("sleep-and-wake", async () => {
   );
   await sleep(400);
   await ui(
-    `(() => { const t = [...document.querySelectorAll('.list .tab')].find((t) => t.title === 'Example Domain'); t.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 60, clientY: 200 })); })()`,
+    `(() => { const t = [...document.querySelectorAll('.list .tab')].find((t) => t.title === 'Example Domain'); t.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 60, clientY: 200 })); })()`,
   );
   await waitUi(`!!document.querySelector('.menu')`, "tab menu");
   await ui(
@@ -199,7 +199,7 @@ test("sleep-timeout-scroll-audio", async () => {
   const audioPage = await page("audio-check");
   const audioId = await waitFor(activeTabId, "audio tab id");
   await ui(
-    `document.querySelector(${JSON.stringify(tabSel(audioId))}).dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 60, clientY: 200 }))`,
+    `document.querySelector(${JSON.stringify(tabSel(audioId))}).dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 60, clientY: 200 }))`,
   );
   await waitUi(`!!document.querySelector('.menu')`, "tab menu");
   await ui(

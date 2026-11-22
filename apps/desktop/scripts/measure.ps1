@@ -1,14 +1,11 @@
-# Memory and startup measurement for Zenith (plan section 7).
+# Memory, startup, and unpacked-size measurement for Zenith CEF (Section 12.2).
 #
-# Launches the release build on a throwaway profile (ZENITH_PROFILE_DIR, so it never touches
-# your own profile or windows), opens N tabs from the command line, waits for them to settle,
-# then sums private bytes and working set over zenith.exe and every process it spawned (the
-# WebView2 browser, GPU, utility and renderer processes), with a per-process-type breakdown.
+# Launches the release build on a throwaway profile (ZENITH_PROFILE_DIR), opens N tabs,
+# waits for them to settle, then sums private bytes and working set over zenith.exe and every
+# CEF subprocess it spawned (browser host, GPU, utility, renderer), with per-role breakdown.
 #
 #   powershell -ExecutionPolicy Bypass -File scripts/measure.ps1                # all scenarios
 #   powershell -ExecutionPolicy Bypass -File scripts/measure.ps1 -Scenario 1tab
-#
-# Results are printed and appended to measurements/memory.csv.
 param(
   [ValidateSet('all', 'idle', '1tab', '5tabs', '10tabs', 'sleep', 'edge')] [string]$Scenario = 'all',
   [int]$SettleSeconds = 12,
@@ -42,7 +39,7 @@ function Get-Family([int]$rootPid) {
     if (-not $family.ContainsKey([int]$p.ProcessId)) { continue }
     $proc = Get-Process -Id $p.ProcessId -ErrorAction SilentlyContinue
     if (-not $proc) { continue }
-    $type = if ($p.Name -eq 'zenith.exe') { 'zenith' }
+    $type = if ([int]$p.ProcessId -eq $rootPid) { 'zenith' }
       elseif ($p.CommandLine -match '--type=([a-z-]+)') { $Matches[1] }
       elseif ($p.Name -eq 'msedgewebview2.exe') { 'browser' }
       else { $p.Name }
@@ -53,20 +50,21 @@ function Get-Family([int]$rootPid) {
 function Stop-Run([int]$rootPid) {
   Get-Process -Id $rootPid -ErrorAction SilentlyContinue | Stop-Process -Force
   for ($i = 0; $i -lt 30; $i++) {
-    $left = Get-CimInstance Win32_Process -Filter "Name = 'msedgewebview2.exe'" |
-      Where-Object { $_.CommandLine -and $_.CommandLine.Contains($ProfileDir) }
+    $left = Get-CimInstance Win32_Process -Filter "Name = 'zenith.exe' OR Name = 'msedgewebview2.exe'" -ErrorAction SilentlyContinue |
+      Where-Object { $_.ProcessId -eq $rootPid -or ($_.CommandLine -and $_.CommandLine.Contains($ProfileDir)) }
     if (-not $left) { return }
-    if ($i -gt 10) { $left | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue } }
-    Start-Sleep -Milliseconds 300
+    if ($i -gt 6) { $left | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue } }
+    Start-Sleep -Milliseconds 250
   }
 }
 
 function Measure-Run([string]$name, [string[]]$urls, [string]$settingsJson) {
-  if (Test-Path $ProfileDir) { Remove-Item -Recurse -Force $ProfileDir }
+  if (Test-Path $ProfileDir) { Remove-Item -Recurse -Force $ProfileDir -ErrorAction SilentlyContinue }
   New-Item -ItemType Directory -Force -Path (Join-Path $ProfileDir 'roaming') | Out-Null
-  # No filter-list download during the measurement; the built-in list stays active.
   $settings = if ($settingsJson) { $settingsJson } else { '{}' }
   $obj = $settings | ConvertFrom-Json
+  $obj | Add-Member -NotePropertyName onboarded -NotePropertyValue $true -Force
+  $obj | Add-Member -NotePropertyName autoUpdate -NotePropertyValue $false -Force
   $obj | Add-Member -NotePropertyName filterListsUpdated -NotePropertyValue ([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()) -Force
   [IO.File]::WriteAllText((Join-Path $ProfileDir 'roaming\settings.json'), ($obj | ConvertTo-Json -Depth 5))
   $env:ZENITH_PROFILE_DIR = $ProfileDir
@@ -90,15 +88,14 @@ function Measure-Run([string]$name, [string[]]$urls, [string]$settingsJson) {
     renderer = & $mb $renderers
     zenith = & $mb @($procs | Where-Object Type -eq 'zenith')
   }
-  $version = (Get-Item $Exe).VersionInfo.ProductVersion
+  $version = '0.1.13-cef'
   ('{0},{1},{2},{3},{4},{5},{6},{7},{8},{9},{10},{11},{12},{13}' -f (Get-Date -Format s), $version, $name, $urls.Count, $procs.Count,
     $private, $ws, $startup, $row.browser, $row.gpu, $row.utility, $renderers.Count, $row.renderer, $row.zenith) | Out-File -Append -Encoding ascii $csv
-  Write-Output ("{0,-6} tabs={1} procs={2,-2} private={3,6} MB  ws={4,6} MB  startup={5,4} ms | zenith {6} | browser {7} | gpu {8} | utility {9} | {10} renderer(s) {11} MB" -f `
-    $name, $urls.Count, $procs.Count, $private, $ws, $startup, $row.zenith, $row.browser, $row.gpu, $row.utility, $renderers.Count, $row.renderer)
+  Write-Output ("{0,-6} tabs={1} procs={2,-2} private={3,6} MB  ws={4,6} MB  startup={5,4} ms | zenith+browser {6} | gpu {7} | utility {8} | {9} renderer(s) {10} MB" -f `
+    $name, $urls.Count, $procs.Count, $private, $ws, $startup, $row.zenith, $row.gpu, $row.utility, $renderers.Count, $row.renderer)
   Stop-Run $p.Id
 }
 
-# Edge baseline: one tab in a throwaway Edge profile (its own browser process tree).
 function Measure-Edge {
   $edge = Join-Path ${env:ProgramFiles(x86)} 'Microsoft\Edge\Application\msedge.exe'
   if (-not (Test-Path $edge)) { Write-Output 'edge: not installed'; return }
@@ -129,7 +126,6 @@ if ($Scenario -in 'all', '5tabs') { Measure-Run '5tabs' $pages $null }
 if ($Scenario -in 'all', '10tabs') { Measure-Run '10tabs' $pages10 $null }
 if ($Scenario -in 'all', 'edge') { Measure-Edge }
 if ($Scenario -in 'all', 'sleep') {
-  # Same five tabs, background tabs put to sleep after one minute.
   $SettleSeconds = 100
   Measure-Run 'sleep' $pages '{"sleepMinutes":1,"suspendHidden":true}'
 }

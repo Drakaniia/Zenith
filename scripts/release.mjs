@@ -60,7 +60,7 @@ function replaceOnce(text, pattern, version, what) {
   );
 }
 
-// The first `"version"` in package.json and tauri.conf.json is the top-level one.
+// The first `"version"` in package.json is the top-level one.
 const JSON_VERSION = /("version"\s*:\s*")([^"]*)(")/;
 // The `version` line of the [package] table (the first table in Cargo.toml).
 const CARGO_VERSION = /(\[package\][^[]*?\nversion\s*=\s*")([^"]*)(")/;
@@ -72,7 +72,6 @@ export const FILES = [
   { path: "apps/desktop/package.json", pattern: JSON_VERSION },
   { path: "apps/desktop/src-tauri/Cargo.toml", pattern: CARGO_VERSION },
   { path: "apps/desktop/src-tauri/Cargo.lock", pattern: LOCK_VERSION },
-  { path: "apps/desktop/src-tauri/tauri.conf.json", pattern: JSON_VERSION },
 ];
 
 export function setVersion(text, pattern, version, what = "the file") {
