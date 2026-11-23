@@ -217,7 +217,7 @@ pub fn verify_runtime_manifest(exe_dir: &Path) -> Result<(), String> {
     }
     let raw = std::fs::read_to_string(&manifest_path)
         .map_err(|e| format!("read runtime-manifest.json: {e}"))?;
-    let manifest: RuntimeManifest = serde_json::from_str(&raw)
+    let manifest: RuntimeManifest = serde_json::from_str(raw.trim_start_matches('\u{feff}'))
         .map_err(|e| format!("parse runtime-manifest.json: {e}"))?;
     if manifest.files.is_empty() {
         return Err("runtime-manifest.json has no file entries".into());
@@ -344,6 +344,13 @@ mod tests {
         std::fs::write(
             dir.join("runtime-manifest.json"),
             format!(r#"{{"files":{{"locales/en-US.pak":"{hash}"}}}}"#),
+        )
+        .unwrap();
+        assert!(verify_runtime_manifest(&dir).is_ok());
+
+        std::fs::write(
+            dir.join("runtime-manifest.json"),
+            format!("\u{feff}{{\"files\":{{\"locales/en-US.pak\":\"{hash}\"}}}}"),
         )
         .unwrap();
         assert!(verify_runtime_manifest(&dir).is_ok());

@@ -136,7 +136,11 @@ try {
       cefVersion = '156.0.31+ge603d97+chromium-156.0.8078.100'
       files = $manifestFiles
     }
-    $rtManifest | ConvertTo-Json -Depth 4 | Set-Content -Path (Join-Path $dir 'runtime-manifest.json') -Encoding UTF8
+    [System.IO.File]::WriteAllText(
+      (Join-Path $dir 'runtime-manifest.json'),
+      ($rtManifest | ConvertTo-Json -Depth 4),
+      [System.Text.UTF8Encoding]::new($false)
+    )
   }
   Write-Output "staged CEF sandbox bundle at $exeDst"
 } finally {

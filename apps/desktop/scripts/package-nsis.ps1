@@ -69,6 +69,18 @@ if ($installerMb -gt 150) {
 
 Copy-Item -Path $manifestPath -Destination (Join-Path $outDir 'runtime-manifest.json') -Force
 
+# Build the lightweight web stub installer (ZenithSetup.exe or ZenithPreviewSetup.exe).
+$stubManifest = Join-Path $desktopRoot 'stub-installer\Cargo.toml'
+$stubArgs = @('build', '--manifest-path', $stubManifest, '--release')
+if ($Preview) { $stubArgs += @('--features', 'preview') }
+& cargo @stubArgs
+if ($LASTEXITCODE -ne 0) { throw "stub installer build failed ($LASTEXITCODE)" }
+$stubName = if ($Preview) { 'ZenithPreviewSetup.exe' } else { 'ZenithSetup.exe' }
+$stubPath = Join-Path $outDir $stubName
+Copy-Item -Path (Join-Path $desktopRoot 'stub-installer\target\release\zenith-setup.exe') -Destination $stubPath -Force
+$stubKb = [math]::Round((Get-Item $stubPath).Length / 1KB, 1)
+Write-Output "Web stub installer: $stubPath (${stubKb} KB)"
+
 # Optional minisign signature + update feed generation (compatible with TAURI_SIGNING_PRIVATE_KEY).
 if ($env:TAURI_SIGNING_PRIVATE_KEY) {
   $sigPath = "$installerPath.sig"
@@ -91,6 +103,6 @@ if ($env:TAURI_SIGNING_PRIVATE_KEY) {
     }
   }
   $feedPath = Join-Path $outDir $feedName
-  $feed | ConvertTo-Json -Depth 5 | Set-Content -Path $feedPath -Encoding UTF8
+  [System.IO.File]::WriteAllText($feedPath, ($feed | ConvertTo-Json -Depth 5), [System.Text.UTF8Encoding]::new($false))
   Write-Output "Signed installer and wrote $feedPath"
 }
