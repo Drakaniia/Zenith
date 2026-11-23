@@ -1,6 +1,7 @@
 node_modules/
 dist/
 **/src-tauri/target/
+**/stub-installer/target/
 spikes/*/target/
 spikes/*/.cef/
 **/src-tauri/gen/schemas/

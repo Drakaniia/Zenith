@@ -95,19 +95,22 @@ jobs:
         run: |
           $bundleDir = "apps/desktop/src-tauri/target/release/bundle/nsis"
           $installer = Get-ChildItem $bundleDir -Filter "Zenith_*_x64-setup.exe" | Select-Object -First 1
+          $stubName = if ($env:IS_PREVIEW -eq 'true') { 'ZenithPreviewSetup.exe' } else { 'ZenithSetup.exe' }
+          $stub = Join-Path $bundleDir $stubName
           $sig = "$($installer.FullName).sig"
           $manifest = Join-Path $bundleDir "runtime-manifest.json"
           $feedName = if ($env:IS_PREVIEW -eq 'true') { 'preview.json' } else { 'latest.json' }
           $feed = Join-Path $bundleDir $feedName
 
           $notes = @"
-          Install with ``$($installer.Name)`` (per-user, no administrator rights, bundled CEF Chromium 156 runtime).
+          **Recommended:** download ``$stubName`` (small web installer — downloads, verifies, and installs the latest Zenith automatically).
+          **Offline installer:** ``$($installer.Name)`` (per-user, no administrator rights, bundled CEF Chromium 156 runtime).
           Installed copies update themselves silently on exit and verify signatures against Zenith's pinned minisign key.
 
           **Upgrading from WebView2 (v0.1.x):** bookmarks, passwords, history, settings, profiles, and open tabs are preserved and backed up automatically. Website sign-ins, cookies, site storage, and extension data start fresh; your old WebView2 folder is left untouched.
           "@
 
-          $createArgs = @('release', 'create', $env:TAG, $installer.FullName, $sig, $manifest, $feed,
+          $createArgs = @('release', 'create', $env:TAG, $stub, $installer.FullName, $sig, $manifest, $feed,
             '--title', "Zenith $($env:TAG)", '--notes', $notes, '--generate-notes')
           if ($env:IS_PREVIEW -eq 'true') { $createArgs += '--prerelease' }
           gh @createArgs
@@ -116,8 +119,8 @@ jobs:
           if ($env:IS_PREVIEW -eq 'true') {
             $exists = gh release view preview 2>$null
             if ($LASTEXITCODE -ne 0) {
-              gh release create preview $feed --prerelease --title "Zenith Preview Feed" --notes "Rolling preview update metadata pointer (latest prerelease: $($env:TAG))."
+              gh release create preview $feed $stub --prerelease --title "Zenith Preview Feed" --notes "Rolling preview update metadata pointer (latest prerelease: $($env:TAG))."
             } else {
-              gh release upload preview $feed --clobber
+              gh release upload preview $feed $stub --clobber
             }
           }
