@@ -6,6 +6,7 @@
   import { dnd } from './sidebar-dnd.svelte';
   import { tabMenu } from './menus';
   import { ui } from '$shared/ui/ui.svelte';
+  import { rowFlipMs } from './sidebar-motion';
 
   // Zen's Essentials: a grid of favicon tiles above the spaces, shared by every space.
   let { collapsed = false }: { collapsed?: boolean } = $props();
@@ -25,7 +26,7 @@
         class:dragging={dnd.drag?.started && dnd.drag.id === tab.id}
         data-tab-id={tab.id}
         title={tabTitle(tab)}
-        animate:flip={{ duration: 160 }}
+        animate:flip={{ duration: rowFlipMs }}
         onclick={() => browser.activate(tab.id)}
         onauxclick={(e) => e.button === 1 && browser.closeTab(tab.id)}
         oncontextmenu={(e) => {

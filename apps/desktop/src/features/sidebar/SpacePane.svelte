@@ -12,6 +12,7 @@
   import { settings } from '$features/settings/settings.svelte';
   import { spaceMenu } from './menus';
   import { ui } from '$shared/ui/ui.svelte';
+  import { isLayoutAnimating, rowFlipMs } from './sidebar-motion';
   import type { Space, Tab, TabId } from '$features/browser/types';
 
   // One Zen workspace column: indicator, pinned section (folders and pinned tabs), separator
@@ -80,17 +81,18 @@
     const b = el.getBoundingClientRect();
     offscreen = r.bottom < b.top + 8 ? 'up' : r.top > b.bottom - 8 ? 'down' : null;
   }
-  $effect(() => {
-    void activeId;
-    void regular.length;
-    void tick().then(measure);
-  });
+  let measureRaf = 0;
+  function scheduleMeasure() {
+    if (measureRaf) return;
+    measureRaf = requestAnimationFrame(() => { measureRaf = 0; isLayoutAnimating() ? scheduleMeasure() : measure(); });
+  }
+  $effect(() => { void activeId; void regular.length; void tick().then(measure); });
   $effect(() => {
     const el = scroller;
     if (!el) return;
-    const ro = new ResizeObserver(measure);
+    const ro = new ResizeObserver(scheduleMeasure);
     ro.observe(el);
-    return () => ro.disconnect();
+    return () => { cancelAnimationFrame(measureRaf); measureRaf = 0; ro.disconnect(); };
   });
   function scrollToActive() {
     scroller?.querySelector(`[data-tab-id="${CSS.escape(activeId ?? '')}"]`)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
@@ -154,7 +156,7 @@
         onclick={() => hasPinned && (space.pinnedCollapsed = !space.pinnedCollapsed)}
         ondblclick={() => void rename()}
       >
-        <span class="stack" data-sidebar-icon="indicator:{space.id}">
+        <span class="stack" class:pins-collapsed={space.pinnedCollapsed} data-sidebar-icon="indicator:{space.id}">
           <span class="space-icon">{space.icon}</span>
           <span class="chevron"><Icon name="chevronDown" size={14} /></span>
         </span>
@@ -189,7 +191,7 @@
     </div>
   {:else}
     <button class="indicator-mini" title={space.name} onclick={() => (ui.spaceEditor = { spaceId: space.id })}>
-      <span data-sidebar-icon="indicator:{space.id}">{space.icon}</span>
+      <span class="mini-icon" data-sidebar-icon="indicator:{space.id}">{space.icon}</span>
     </button>
   {/if}
 
@@ -201,14 +203,14 @@
     onscroll={measure}
   >
     {#if !space.pinnedCollapsed || collapsed}
-      <div class="list pinned" data-zone="pinned" role="tablist" aria-label="Pinned tabs" transition:slide={{ duration: 150 }}>
+      <div class="list pinned" data-zone="pinned" role="tablist" aria-label="Pinned tabs" transition:slide={{ duration: isLayoutAnimating() ? 0 : 150 }}>
         {#each folders as folder (folder.id)}
-          <div animate:flip={{ duration: 160 }}>
+          <div animate:flip={{ duration: rowFlipMs }}>
             <FolderItem {folder} {space} {collapsed} />
           </div>
         {/each}
         {#each pinnedRows as row (row.key)}
-          <div animate:flip={{ duration: 160 }}>{@render tabRow(row)}</div>
+          <div animate:flip={{ duration: rowFlipMs }}>{@render tabRow(row)}</div>
         {/each}
         {#if !hasPinned && dnd.active}
           <div class="pin-hint">{collapsed ? '📌' : 'Drop here to pin'}</div>
@@ -236,7 +238,7 @@
 
     <div class="list tabs" data-zone="tabs" role="tablist" aria-label="Tabs">
       {#each tabRows as row (row.key)}
-        <div animate:flip={{ duration: 160 }} use:rowEnter={settled}>{@render tabRow(row)}</div>
+        <div animate:flip={{ duration: rowFlipMs }} use:rowEnter={settled}>{@render tabRow(row)}</div>
       {/each}
       <div class="list-tail" role="presentation" ondblclick={() => ui.openPalette('newTab')}></div>
     </div>
@@ -278,7 +280,7 @@
     display: flex;
     align-items: center;
     gap: 9px;
-    padding: 0 8px 0 9px;
+    padding: 0 8px 0 11px;
     border-radius: var(--r-tab);
     corner-shape: var(--sq);
     font-size: 13px;
@@ -308,21 +310,11 @@
     display: grid;
     place-items: center;
     opacity: 0;
-    transition:
-      opacity 0.15s,
-      transform 0.1s;
+    transition: opacity 0.15s, transform 0.1s;
   }
-  .indicator.has-pinned:hover .space-icon,
-  .indicator.pins-collapsed .space-icon {
-    opacity: 0;
-  }
-  .indicator.has-pinned:hover .chevron,
-  .indicator.pins-collapsed .chevron {
-    opacity: 1;
-  }
-  .indicator.pins-collapsed .chevron {
-    transform: rotate(-90deg);
-  }
+  .indicator.has-pinned:hover .space-icon, .stack.pins-collapsed .space-icon { opacity: 0; }
+  .indicator.has-pinned:hover .chevron, .stack.pins-collapsed .chevron { opacity: 1; }
+  .stack.pins-collapsed .chevron { transform: rotate(-90deg); }
   .space-name {
     flex: 1;
     min-width: 0;
@@ -363,10 +355,17 @@
     display: grid;
     place-items: center;
     font-size: 15px;
+  }
+  .mini-icon {
+    display: grid;
+    place-items: center;
+    width: 16px;
+    height: 16px;
+    line-height: 1;
     opacity: 0.4;
     transition: opacity 0.1s;
   }
-  .indicator-mini:hover {
+  .indicator-mini:hover .mini-icon {
     opacity: 1;
   }
 
@@ -482,6 +481,7 @@
     height: calc(var(--tab-h) + var(--tab-mb) * 2);
     padding: var(--tab-mb);
     font-size: var(--tab-font);
+    text-align: left;
     color: color-mix(in srgb, currentColor 70%, transparent);
     transition: scale 0.1s ease;
   }
@@ -528,17 +528,10 @@
     padding: 0 2px;
     border-radius: var(--r-tab);
     corner-shape: var(--sq);
-    transition:
-      scale 0.1s ease,
-      background-color 0.1s;
+    transition: scale 0.1s ease, background-color 0.1s;
   }
-  .split-group:hover {
-    background: var(--element-bg);
-  }
-  .split-group.active {
-    background: var(--tab-selected);
-    box-shadow: var(--tab-shadow);
-  }
+  .split-group:hover { background: var(--element-bg); }
+  .split-group.active { background: var(--tab-selected); box-shadow: var(--tab-shadow); }
   .split-group.collapsed {
     flex-direction: column;
     width: calc(var(--collapsed-tab-w) - 10px);

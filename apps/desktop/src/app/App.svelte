@@ -177,7 +177,7 @@
     position: overlay.panes.map((r) => `${r.x}px ${r.y}px`).join(', '),
     size: overlay.panes.map((r) => `${r.w}px ${r.h}px`).join(', '),
   });
-  const hasPanes = $derived(overlay.panes.length > 0);
+  const hasPanes = $derived(overlay.raised && overlay.panes.length > 0);
 
   // Close the find bar when its tab goes away.
   $effect(() => {

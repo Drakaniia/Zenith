@@ -5,6 +5,9 @@
 export const SIDEBAR_LAYOUT_MS = 300;
 export const SIDEBAR_ENTER_MS = 200;
 export const SIDEBAR_ENTER_OFFSET = 14;
+export const isLayoutAnimating = () =>
+  typeof document !== 'undefined' && !!document.querySelector('[data-layout-root].animating');
+export const rowFlipMs = () => (isLayoutAnimating() ? 0 : 160);
 const EASING = 'linear(0, 0.139 10%, 0.373 20%, 0.58 30%, 0.733 40%, 0.835 50%, 0.901 60%, 0.941 70%, 0.966 80%, 0.98 90%, 1)';
 type Icon = HTMLElement | SVGElement;
 type Point = { x: number; y: number };
@@ -19,6 +22,7 @@ export function sidebarMotion(root: HTMLElement) {
   }
   const layer = document.createElement('div');
   layer.setAttribute('aria-hidden', 'true');
+  layer.setAttribute('data-sidebar-motion-layer', 'true');
   layer.style.cssText = 'position:absolute;inset:0;pointer-events:none;z-index:5;overflow:visible';
   root.append(layer);
   function cancel() {

@@ -12,10 +12,19 @@ export interface PaneSpec {
   ch?: number;
 }
 
+export interface OverlayRect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  r: number;
+}
+
 export interface LayoutSpec {
   panes: PaneSpec[];
   glance: PaneSpec | null;
   overlay: boolean;
+  overlayRects?: OverlayRect[];
   viewportW: number;
   viewportH: number;
 }

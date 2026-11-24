@@ -171,6 +171,13 @@
       transform 0.2s,
       background-color 0.1s;
   }
+  :global(.app.animating) .space-btn {
+    transition:
+      filter 0.2s,
+      opacity 0.2s,
+      transform 0.2s,
+      background-color 0.1s;
+  }
   .foot.collapsed .space-btn {
     width: 36px;
   }

@@ -1,5 +1,5 @@
 // Keeps native page bounds and chrome cutouts in sync with the visible DOM panes.
-import type { LayoutSpec, PaneSpec } from "./webview-api";
+import type { LayoutSpec, OverlayRect, PaneSpec } from "./webview-api";
 import { webviewApi } from "./webview-api";
 import { intersectRects, sameRects, type Rect } from "./rects";
 
@@ -15,6 +15,7 @@ let registry: Registry = { isLive: () => false, isReady: () => true };
 export function setLayoutRegistry(r: Registry) { registry = r; }
 
 const panes = new Map<HTMLElement, string>();
+const surfaces = new Map<HTMLElement, number>();
 let glanceEl: { el: HTMLElement; id: string } | null = null;
 let pending = false;
 let lastSent = "";
@@ -27,6 +28,8 @@ class OverlayState {
   /** Includes floating elements playing their exit transition. */
   holds = $state(0);
   forced = $state(false);
+  /** True only while chrome_hwnd is raised above page webviews. */
+  raised = $state(false);
   /** Page rectangles (CSS px) last applied to the native host. */
   panes = $state<Rect[]>([]);
 }
@@ -66,16 +69,20 @@ export function scheduleLayout() {
   });
 }
 
-/** Only transitions owned by shell layout, never unrelated hover or fade motion. */
-function layoutTransitions(): CSSTransition[] {
+/** Only animations owned by shell layout, never unrelated hover or fade motion. */
+function layoutTransitions(): Animation[] {
   if (typeof document.getAnimations !== "function" || typeof CSSTransition === "undefined") return [];
-  return document.getAnimations().filter((a): a is CSSTransition => {
-    if (!(a instanceof CSSTransition) || a.currentTime === null || a.playState === "finished" || a.playState === "idle") return false;
+  return document.getAnimations().filter((a): a is Animation => {
+    if (a.currentTime === null || a.playState === "finished" || a.playState === "idle") return false;
     const target = (a.effect as KeyframeEffect | null)?.target;
-    return target instanceof HTMLElement && (
-      (a.transitionProperty.startsWith("--lay-") && target.hasAttribute("data-layout-root")) ||
-      (a.transitionProperty === "width" && target.hasAttribute("data-layout-sidebar"))
-    );
+    if (!(target instanceof HTMLElement)) return false;
+    if (a instanceof CSSTransition) {
+      return (
+        (a.transitionProperty.startsWith("--lay-") && target.hasAttribute("data-layout-root")) ||
+        (a.transitionProperty === "width" && target.hasAttribute("data-layout-sidebar"))
+      );
+    }
+    return typeof target.closest === "function" && !!target.closest("[data-sidebar-motion-layer]");
   });
 }
 
@@ -200,10 +207,26 @@ function readLayout() {
   }
   const glance = glanceEl && glanceEl.el.isConnected && registry.isLive(glanceEl.id)
     ? rectOf(glanceEl.el, glanceEl.id) : null;
+  const hasOverlay = overlay.holds > 0 || overlay.forced || !!glance;
+  let overlayRects: OverlayRect[] | undefined;
+  if (hasOverlay && surfaces.size > 0) {
+    overlayRects = [];
+    for (const [el, radius] of surfaces) {
+      if (!el.isConnected) continue;
+      const r = el.getBoundingClientRect();
+      if (r.width < 1 || r.height < 1) continue;
+      const right = Math.round(r.right);
+      const bottom = Math.round(r.bottom);
+      const x = Math.round(r.left);
+      const y = Math.round(r.top);
+      overlayRects.push({ x, y, w: Math.max(1, right - x), h: Math.max(1, bottom - y), r: radius });
+    }
+  }
   const spec: LayoutSpec = {
     panes: list,
     glance,
-    overlay: overlay.holds > 0 || overlay.forced || !!glance,
+    overlay: hasOverlay,
+    ...(overlayRects?.length ? { overlayRects } : {}),
     viewportW: window.innerWidth,
     viewportH: window.innerHeight,
   };
@@ -222,6 +245,7 @@ async function flush() {
     let paint = exposes && (layout.spec.overlay || root.hasAttribute("data-raised")) && !document.hidden;
     if (layout.spec.overlay && !root.hasAttribute("data-raised")) {
       root.setAttribute("data-raised", "");
+      overlay.raised = true;
       paint = !document.hidden;
     }
     if (paint) {
@@ -239,7 +263,10 @@ async function flush() {
       break;
     }
     if (!sameRects(layout.cutouts, overlay.panes)) overlay.panes = layout.cutouts;
-    if (!layout.spec.overlay) root.removeAttribute("data-raised");
+    if (!layout.spec.overlay) {
+      root.removeAttribute("data-raised");
+      overlay.raised = false;
+    }
     break;
   }
   const waiting = pendingFocus != null && registry.isLive(pendingFocus) && !registry.isReady(pendingFocus);
@@ -337,6 +364,21 @@ export function overlayHold(_node: HTMLElement) {
   scheduleLayout();
   return {
     destroy() { overlay.holds = Math.max(0, overlay.holds - 1); scheduleLayout(); },
+  };
+}
+
+/** Marks a visible floating panel so native chrome regions stay cut out around it. */
+export function overlaySurface(node: HTMLElement, radius = 10) {
+  surfaces.set(node, radius);
+  observer.observe(node);
+  scheduleLayout();
+  return {
+    update(next = 10) { surfaces.set(node, next); scheduleLayout(); },
+    destroy() {
+      surfaces.delete(node);
+      observer.unobserve(node);
+      scheduleLayout();
+    },
   };
 }
 

@@ -37,33 +37,63 @@
   const tightBadges = $derived(spilled > SPILL_ORDER.length);
 
   let fitting = false;
+  let fitRaf = 0;
+  let lastBarW = 0;
   async function fit() {
     if (!bar || fitting) return;
+    if (document.querySelector('[data-layout-root].animating')) {
+      scheduleFit();
+      return;
+    }
     fitting = true;
     try {
-      spilled = 0;
+      const w = bar.clientWidth;
+      if (w >= lastBarW) spilled = 0;
+      lastBarW = w;
       await tick();
       while (bar && bar.scrollWidth > bar.clientWidth + 1 && spilled < SPILL_MAX) {
         spilled++;
         await tick();
+      }
+      while (bar && spilled > 0) {
+        const prev = spilled;
+        spilled--;
+        await tick();
+        if (bar.scrollWidth > bar.clientWidth + 1) {
+          spilled = prev;
+          break;
+        }
       }
     } finally {
       fitting = false;
     }
   }
 
+  function scheduleFit() {
+    if (fitRaf) return;
+    fitRaf = requestAnimationFrame(() => {
+      fitRaf = 0;
+      void fit();
+    });
+  }
+
   $effect(() => {
     if (!bar) return;
-    const ro = new ResizeObserver(() => void fit());
+    const ro = new ResizeObserver(scheduleFit);
     ro.observe(bar);
-    return () => ro.disconnect();
+    return () => {
+      cancelAnimationFrame(fitRaf);
+      fitRaf = 0;
+      ro.disconnect();
+    };
   });
   // Content that changes the bar's width needs a new fit too.
   $effect(() => {
     void collapsed;
     void incognito;
     void appInfo.info?.testProfile;
-    void fit();
+    lastBarW = 0;
+    scheduleFit();
   });
 
   function overflowItems(): MenuItem[] {
@@ -98,7 +128,7 @@
 
 <div class="topbar" class:floating bind:this={bar} data-tauri-drag-region="deep">
   {#if collapsed}
-    <!-- Collapsed toolbar: only the compact-mode toggle; expanding goes through Settings, the menu or the shortcut. -->
+    <!-- Collapsed toolbar: compact toggle + expand sidebar button. -->
     <button
       class="icon-btn"
       title={withHint(settings.value.compact ? 'Turn off compact mode' : 'Compact mode', 'toggleCompact')}
@@ -106,6 +136,9 @@
       onclick={() => void runAction('toggleCompact')}
     >
       <Icon name="sidebar" />
+    </button>
+    <button class="icon-btn" title={withHint('Expand sidebar', 'toggleSidebar')} data-action="toggle-sidebar" onclick={() => void runAction('toggleSidebar')}>
+      <Icon name="sidebarExpand" />
     </button>
   {:else}
     <button class="icon-btn" title={withHint('Collapse sidebar', 'toggleSidebar')} data-action="toggle-sidebar" onclick={() => void runAction('toggleSidebar')}>

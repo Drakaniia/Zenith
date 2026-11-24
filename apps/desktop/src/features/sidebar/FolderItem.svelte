@@ -204,6 +204,9 @@
     margin-inline-start: 14px;
     transition: var(--zen-indent);
   }
+  :global(.app.animating) .children {
+    transition: none;
+  }
   .folder.icon-only .head {
     width: calc(var(--collapsed-tab-w) + var(--tab-mb) * 2);
     margin-inline: auto;

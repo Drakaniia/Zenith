@@ -215,3 +215,26 @@ test("a slow backend coalesces resize requests and immediately applies the lates
   assert.equal(h.sent.at(-1)?.panes[0].x, 110);
   assert.equal(h.measurements(), 2, "Do not replay a queued flush for every missed frame");
 });
+
+test("overlay.raised tracks data-raised and overlaySurface forwards panel bounds while raised", async () => {
+  const h = harness();
+  await h.frame();
+  assert.equal(h.api.overlay.raised, false);
+  const panel = {
+    isConnected: true,
+    getBoundingClientRect: () => ({ left: 100, top: 40, right: 320, bottom: 240, width: 220, height: 200 }),
+  };
+  const reg = h.api.overlaySurface(panel, 10);
+  const release = h.api.raiseChrome();
+  await h.frame();
+  assert.equal(h.api.overlay.raised, true);
+  await h.frame();
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  await h.settle();
+  assert.deepEqual((h.sent.at(-1) as any)?.overlayRects, [{ x: 100, y: 40, w: 220, h: 200, r: 10 }]);
+  reg.destroy();
+  release();
+  await h.frame();
+  assert.equal(h.api.overlay.raised, false);
+  assert.equal((h.sent.at(-1) as any)?.overlayRects, undefined);
+});

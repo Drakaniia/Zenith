@@ -244,14 +244,18 @@
   .sidebar :global(.labels),
   .sidebar :global(.space-name),
   .sidebar :global(.new-tab-label),
-  .sidebar :global(.folder .name) {
+  .sidebar :global(.folder .name),
+  .top-wrap,
+  .sidebar :global(.pill.sidebar) {
     transition: opacity 150ms ease;
   }
   @starting-style {
     .sidebar :global(.labels),
     .sidebar :global(.space-name),
     .sidebar :global(.new-tab-label),
-    .sidebar :global(.folder .name) {
+    .sidebar :global(.folder .name),
+    .top-wrap,
+    .sidebar :global(.pill.sidebar) {
       opacity: 0;
     }
   }

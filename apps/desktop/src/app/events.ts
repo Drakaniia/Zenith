@@ -45,6 +45,13 @@ export function listenBackend(flushAndClose: () => Promise<void>): Promise<() =>
       if (browser.activeSplit?.ids.includes(id) && browser.activeTab?.id !== id) browser.activate(id, { focus: false });
       if (ui.flyout && !ui.flyoutPinned) ui.flyout = false;
       if (ui.topReveal) ui.topReveal = false;
+      if (ui.menu) ui.closeMenu();
+      if (ui.palette.open) ui.closePalette();
+      if (ui.downloadsOpen) ui.downloadsOpen = false;
+      if (ui.media) ui.media = null;
+      if (ui.bookmarkPopup) ui.bookmarkPopup = null;
+      if (extensions.popover) extensions.close();
+      if (browser.glance && browser.glance.tabId !== id) browser.closeGlance();
     }),
     // Another normal window changed the settings (incognito windows keep their own copy).
     on('settings-changed', ({ origin }) => {
