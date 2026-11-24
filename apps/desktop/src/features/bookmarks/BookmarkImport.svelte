@@ -7,7 +7,7 @@
   import { ui } from '$shared/ui/ui.svelte';
   import { bookmarksApi } from './api';
   import { webviewApi } from '$platform/webview-api';
-  import { focusAfterLayout, overlayLease } from '$platform/layout.svelte';
+  import { focusAfterLayout, overlayLease, overlaySurface } from '$platform/layout.svelte';
   import { plural } from '$features/onboarding/onboarding-flow';
   import { importBookmarksFile } from './bookmark-actions';
   import type { ImportSource } from './types';
@@ -100,6 +100,7 @@
     <div class="scrim" role="presentation" transition:fade={{ duration: 120 }} onpointerdown={close}></div>
     <div
       class="dialog glass"
+      use:overlaySurface={12}
       role="dialog"
       aria-modal="true"
       aria-label="Import bookmarks"

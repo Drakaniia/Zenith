@@ -12,7 +12,7 @@
   import { parseRestriction } from '$features/bookmarks/bookmarks';
   import { historyApi } from '$features/history/api';
   import { searchApi } from './api';
-  import { focusAfterLayout, overlayLease } from '$platform/layout.svelte';
+  import { focusAfterLayout, overlayLease, overlaySurface } from '$platform/layout.svelte';
   import { rememberFavicon } from '$shared/favicons';
   import { NEW_TAB_URL, SEARCH_ENGINES, isWebUrl } from '$shared/url';
   import { autofill, type Autofill } from './autocomplete';
@@ -245,6 +245,7 @@
       class:searchmode={commandMode}
       role="dialog"
       aria-label="Address bar and commands"
+      use:overlaySurface={16}
       transition:scale={{ start: 0.97, duration: 150, opacity: 0 }}
     >
       <div class="field">
@@ -296,7 +297,10 @@
         <span><span class="kbd">Tab</span> next</span>
         <span><span class="kbd">Alt ↵</span> new tab</span>
         <span><span class="kbd">Shift ↵</span> Glance</span>
-        <span><span class="kbd">*</span> bookmarks <span class="kbd">+</span> tags <span class="kbd">^</span> history <span class="kbd">%</span> tabs</span>
+        <span><span class="kbd">*</span> bookmarks</span>
+        <span><span class="kbd">+</span> tags</span>
+        <span><span class="kbd">^</span> history</span>
+        <span><span class="kbd">%</span> tabs</span>
         <span><span class="kbd">&gt;</span> commands</span>
       </div>
     </div>
@@ -399,11 +403,17 @@
 
   .hints {
     display: flex;
-    gap: 16px;
+    flex-wrap: wrap;
+    gap: 6px 14px;
     padding: 9px 16px;
     border-top: 1px solid var(--line);
     font-size: 11.5px;
     color: var(--text-3);
+  }
+  .hints > span {
+    display: inline-flex;
+    align-items: center;
+    white-space: nowrap;
   }
   .hints .kbd {
     margin-right: 4px;

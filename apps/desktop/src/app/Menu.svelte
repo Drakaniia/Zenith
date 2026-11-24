@@ -5,7 +5,7 @@
   import Favicon from '$shared/ui/Favicon.svelte';
   import { ui } from '$shared/ui/ui.svelte';
   import { type MenuItem, type MenuMods } from '$shared/ui/menu';
-  import { overlayLease } from '$platform/layout.svelte';
+  import { overlayLease, overlaySurface } from '$platform/layout.svelte';
   import { browser } from '$features/browser/browser.svelte';
   import { zoomActive } from '$features/page/actions';
   import { getCurrentWindow } from '@tauri-apps/api/window';
@@ -151,6 +151,7 @@
           role="menu"
           tabindex="-1"
           use:fit={level === 0 ? { x: menu.x, y: menu.y } : { x: subs[level - 1].x, y: subs[level - 1].y, flip: subs[level - 1].flip }}
+          use:overlaySurface={10}
           transition:scale={{ start: 0.97, duration: 120, opacity: 0 }}
         >
           {#each items as item, i (i)}

@@ -4,7 +4,7 @@
   import Icon from '$shared/ui/Icon.svelte';
   import { ui } from '$shared/ui/ui.svelte';
   import { settings } from '$features/settings/settings.svelte';
-  import { overlayHold } from '$platform/layout.svelte';
+  import { overlayHold, overlaySurface } from '$platform/layout.svelte';
   import { springEase } from '$shared/ui/motion';
   import { isStrip } from '$features/sidebar/sidebar-position';
 
@@ -18,11 +18,24 @@
   const floating = $derived(
     settings.value.compact || settings.value.toolbarMode === 'collapsed' || isStrip(settings.value.sidebarPosition),
   );
+  function toastSurface(node: HTMLElement, on: boolean) {
+    let sub = on ? overlaySurface(node, 14) : undefined;
+    return {
+      update(next: boolean) {
+        if (next && !sub) sub = overlaySurface(node, 14);
+        else if (!next && sub) {
+          sub.destroy();
+          sub = undefined;
+        }
+      },
+      destroy() { sub?.destroy(); },
+    };
+  }
 </script>
 
-{#snippet list()}
+{#snippet list(surfaced = false)}
   {#each ui.toasts as t (t.id)}
-    <div class="toast" role="status" animate:flip={{ duration: 200, easing: springEase }} transition:scale={{ start: 0.85, duration: 200, opacity: 0, easing: springEase }}>
+    <div class="toast" use:toastSurface={surfaced} role="status" animate:flip={{ duration: 200, easing: springEase }} transition:scale={{ start: 0.85, duration: 200, opacity: 0, easing: springEase }}>
       {#if t.icon}<span class="icon"><Icon name={t.icon} size={15} /></span>{/if}
       <span class="text">{t.text}</span>
       {#if t.action}
@@ -43,9 +56,9 @@
 
 {#if ui.toasts.length}
   {#if floating}
-    <div class="toasts floating" use:overlayHold>{@render list()}</div>
+    <div class="toasts floating" use:overlayHold>{@render list(true)}</div>
   {:else}
-    <div class="toasts">{@render list()}</div>
+    <div class="toasts">{@render list(false)}</div>
   {/if}
 {/if}
 
@@ -70,18 +83,19 @@
   .toasts.floating {
     left: auto;
     right: max(4px, var(--zen-sep));
-    top: max(4px, var(--zen-sep));
+    top: max(44px, calc(var(--lay-top) + 4px));
     bottom: auto;
     width: auto;
     align-items: flex-end;
   }
   .toast {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
-    gap: 8px;
+    gap: 6px 8px;
     max-width: 100%;
     min-height: 42px;
-    padding: 6px 6px 6px 12px;
+    padding: 8px 6px 8px 12px;
     border-radius: 14px;
     corner-shape: var(--sq);
     font-size: 13px;
@@ -102,7 +116,7 @@
     opacity: 0.85;
   }
   .text {
-    flex: 1;
+    flex: 1 1 110px;
     min-width: 0;
     padding-inline-end: 6px;
   }

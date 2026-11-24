@@ -3,7 +3,7 @@
   import { onMount } from 'svelte';
   import Icon from '$shared/ui/Icon.svelte';
   import { browser } from './browser.svelte';
-  import { followLayout, glancePane, overlayLease, scheduleLayout } from '$platform/layout.svelte';
+  import { followLayout, glancePane, overlayLease, overlaySurface, scheduleLayout } from '$platform/layout.svelte';
   import { copyText } from '$shared/clipboard';
   import { ui } from '$shared/ui/ui.svelte';
   import { springEase } from '$shared/ui/motion';
@@ -129,6 +129,7 @@
       class:popup
       class:ext={!!anchor}
       class:morphing={!!morph}
+      use:overlaySurface={anchor ? 16 : 6}
       style:left="{box.left}px"
       style:top="{box.top}px"
       style:width="{box.w}px"
@@ -144,7 +145,7 @@
       </div>
     </div>
     {#if !anchor}
-    <div class="side" style:left="{frame.left + frame.w}px" style:top="{frame.top + 3}px" transition:fade={{ duration: expanding ? 0 : 160 }}>
+    <div class="side" use:overlaySurface={17} style:left="{frame.left + frame.w}px" style:top="{frame.top + 3}px" transition:fade={{ duration: expanding ? 0 : 160 }}>
       <button class="action close" title="Close (Esc)" onclick={() => browser.closeGlance()}><Icon name="close" size={16} /></button>
       <button class="action" title="Open as tab" onclick={openAsTab}><Icon name="expand" size={16} /></button>
       {#if g?.openerId && browser.tabs[g.openerId]}

@@ -7,7 +7,7 @@
   import { cubicOut } from 'svelte/easing';
   import { onboarding } from './onboarding.svelte';
   import { STEPS, altitude, type StepId } from './onboarding-flow';
-  import { overlayLease } from '$platform/layout.svelte';
+  import { overlayLease, overlaySurface } from '$platform/layout.svelte';
   import WindowControls from '$shared/ui/WindowControls.svelte';
   import Horizon from './Horizon.svelte';
   import Welcome from './steps/Welcome.svelte';
@@ -90,7 +90,7 @@
 </script>
 
 {#if onboarding.open}
-  <div class="fre" use:overlayLease transition:fade={{ duration: reduced ? 0 : 220, easing: cubicOut }}>
+  <div class="fre" use:overlayLease use:overlaySurface={0} transition:fade={{ duration: reduced ? 0 : 220, easing: cubicOut }}>
     <div class="caption" data-tauri-drag-region>
       <WindowControls />
     </div>

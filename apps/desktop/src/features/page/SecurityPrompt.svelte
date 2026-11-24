@@ -2,7 +2,7 @@
   import { fly } from 'svelte/transition';
   import Icon from '$shared/ui/Icon.svelte';
   import { browser } from '$features/browser/browser.svelte';
-  import { overlayLease } from '$platform/layout.svelte';
+  import { overlayLease, overlaySurface } from '$platform/layout.svelte';
   import { security } from './security.svelte';
 
   const item = $derived(security.queue.find((x) => browser.isVisible(x.data.tabId)) ?? security.queue[0] ?? null);
@@ -15,7 +15,7 @@
 </script>
 
 {#if item}
-  <div class="prompt glass" use:overlayLease transition:fly={{ y: -10, duration: 160 }} role="alertdialog" aria-label="Security warning">
+  <div class="prompt glass" use:overlayLease use:overlaySurface={12} transition:fly={{ y: -10, duration: 160 }} role="alertdialog" aria-label="Security warning">
     <div class="icon danger"><Icon name="shield" size={20} /></div>
     <div class="body">
       {#if item.kind === 'cert'}

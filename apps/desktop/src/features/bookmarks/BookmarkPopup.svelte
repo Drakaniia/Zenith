@@ -9,7 +9,7 @@
   import { ui } from '$shared/ui/ui.svelte';
   import { type AnchorRect } from '$shared/ui/menu';
   import { webviewApi } from '$platform/webview-api';
-  import { focusAfterLayout, overlayLease } from '$platform/layout.svelte';
+  import { focusAfterLayout, overlayLease, overlaySurface } from '$platform/layout.svelte';
   import { deleteNodes } from './bookmark-actions';
   import { faviconFor } from '$shared/favicons';
   import type { BookmarkPatch } from './types';
@@ -131,6 +131,7 @@
     <div class="catcher" role="presentation" onpointerdown={() => void save()}></div>
     <div
       class="popup glass"
+      use:overlaySurface={10}
       role="dialog"
       aria-label="Edit bookmark"
       tabindex="-1"

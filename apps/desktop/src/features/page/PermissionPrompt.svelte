@@ -3,7 +3,7 @@
   import Icon from '$shared/ui/Icon.svelte';
   import { browser } from '$features/browser/browser.svelte';
   import { permissions } from './permissions.svelte';
-  import { overlayLease } from '$platform/layout.svelte';
+  import { overlayLease, overlaySurface } from '$platform/layout.svelte';
   import type { IconName } from '$shared/ui/icons';
 
   const LABELS: Record<string, { text: string; icon: IconName }> = {
@@ -28,7 +28,7 @@
 </script>
 
 {#if request && label}
-  <div class="prompt glass" use:overlayLease transition:fly={{ y: -10, duration: 160 }} role="alertdialog" aria-label="Permission request">
+  <div class="prompt glass" use:overlayLease use:overlaySurface={12} transition:fly={{ y: -10, duration: 160 }} role="alertdialog" aria-label="Permission request">
     <div class="icon"><Icon name={label.icon} size={20} /></div>
     <div class="body">
       <p><strong>{host}</strong> wants to {label.text}</p>

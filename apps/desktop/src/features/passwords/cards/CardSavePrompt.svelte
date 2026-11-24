@@ -9,7 +9,7 @@
   import NewMasterForm from '../NewMasterForm.svelte';
   import RecoveryKey from '../RecoveryKey.svelte';
   import { browser } from '$features/browser/browser.svelte';
-  import { overlayLease } from '$platform/layout.svelte';
+  import { overlayLease, overlaySurface } from '$platform/layout.svelte';
   import { openInternal } from '$features/browser/target';
   import { brandName, formatExpiry } from './cards';
   import { ui } from '$shared/ui/ui.svelte';
@@ -78,11 +78,11 @@
 </script>
 
 {#if step === 'recovery' && recoveryKey}
-  <div class="prompt glass wide" use:overlayLease transition:fly={{ y: -10, duration: 160 }} role="dialog" aria-label="Recovery key">
+  <div class="prompt glass wide" use:overlayLease use:overlaySurface={12} transition:fly={{ y: -10, duration: 160 }} role="dialog" aria-label="Recovery key">
     <RecoveryKey value={recoveryKey} ondone={finishSetup} doneLabel="Save card" />
   </div>
 {:else if offer}
-  <div class="prompt glass" class:wide={step === 'setup'} use:overlayLease transition:fly={{ y: -10, duration: 160 }} role="dialog" aria-label="Save card">
+  <div class="prompt glass" class:wide={step === 'setup'} use:overlayLease use:overlaySurface={12} transition:fly={{ y: -10, duration: 160 }} role="dialog" aria-label="Save card">
     <div class="top">
       <div class="icon"><Icon name="card" size={20} /></div>
       <div class="body">

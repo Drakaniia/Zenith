@@ -7,7 +7,7 @@
   import Icon from '$shared/ui/Icon.svelte';
   import MasterPasswordForm from './MasterPasswordForm.svelte';
   import { browser } from '$features/browser/browser.svelte';
-  import { overlayLease, paneRectOf } from '$platform/layout.svelte';
+  import { overlayLease, overlaySurface, paneRectOf } from '$platform/layout.svelte';
   import { webviewApi } from '$platform/webview-api';
   import { openInternal } from '$features/browser/target';
   import { settings } from '$features/settings/settings.svelte';
@@ -169,6 +169,7 @@
   <div class="backdrop" use:overlayLease role="presentation" onpointerdown={() => close()}></div>
   <div
     class="suggest glass"
+    use:overlaySurface={10}
     bind:this={el}
     style:left="{pos.x}px"
     style:top="{pos.y}px"

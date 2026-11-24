@@ -5,7 +5,7 @@
   import { slidePx } from '$shared/ui/motion';
   import WindowControls from '$shared/ui/WindowControls.svelte';
   import { ui } from '$shared/ui/ui.svelte';
-  import { overlayLease } from '$platform/layout.svelte';
+  import { followLayout, overlayLease, overlaySurface } from '$platform/layout.svelte';
   import BookmarksBar from '$features/bookmarks/BookmarksBar.svelte';
 
   let {
@@ -55,9 +55,12 @@
         class="reveal-bar"
         role="presentation"
         use:overlayLease
+        use:overlaySurface={10}
         onmouseenter={() => clearTimeout(captionTimer)}
         onmouseleave={() => hideCaptions()}
         transition:slidePx={{ y: -12, duration: 150, easing: cubicOut }}
+        onintrostart={() => followLayout(170)}
+        onoutrostart={() => followLayout(170)}
       >
         <BookmarksBar floating />
       </div>
@@ -66,9 +69,12 @@
       class="captions"
       role="presentation"
       use:overlayLease
+      use:overlaySurface={10}
       onmouseenter={() => clearTimeout(captionTimer)}
       onmouseleave={() => hideCaptions()}
       transition:slidePx={{ y: -12, duration: 150, easing: cubicOut }}
+      onintrostart={() => followLayout(170)}
+      onoutrostart={() => followLayout(170)}
     >
       <WindowControls />
     </div>

@@ -9,7 +9,7 @@
   import { browser } from '$features/browser/browser.svelte';
   import { ui } from '$shared/ui/ui.svelte';
   import { webviewApi } from '$platform/webview-api';
-  import { focusAfterLayout, overlayLease } from '$platform/layout.svelte';
+  import { focusAfterLayout, overlayLease, overlaySurface } from '$platform/layout.svelte';
   import { faviconFor } from '$shared/favicons';
   import { bookmarkTitle, formatTags, parseTags, tabsFolderName } from './bookmarks';
   import { isWebUrl } from '$shared/url';
@@ -164,6 +164,7 @@
     <div class="scrim" role="presentation" transition:fade={{ duration: 120 }} onpointerdown={close}></div>
     <div
       class="dialog glass"
+      use:overlaySurface={12}
       role="dialog"
       aria-modal="true"
       aria-label={heading}

@@ -3,7 +3,7 @@
 <script lang="ts">
   import { fly, fade } from 'svelte/transition';
   import Icon from '$shared/ui/Icon.svelte';
-  import { overlayLease } from '$platform/layout.svelte';
+  import { overlayLease, overlaySurface } from '$platform/layout.svelte';
   import { formatBytes } from '$shared/format';
   import { downloadsApi } from './api';
   import { downloads } from './downloads.svelte';
@@ -98,7 +98,7 @@
 {#if id !== null}
   <div class="root" use:overlayLease>
     <div class="catcher" role="presentation" transition:fade={{ duration: 100 }} onpointerdown={() => torrents.closePicker()}></div>
-    <div class="panel glass" role="dialog" aria-label="Torrent files" transition:fly={{ y: -8, duration: 160 }}>
+    <div class="panel glass" use:overlaySurface={10} role="dialog" aria-label="Torrent files" transition:fly={{ y: -8, duration: 160 }}>
       <header>
         <span class="badge"><Icon name="magnet" size={16} /></span>
         <div class="heading">

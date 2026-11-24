@@ -7,7 +7,7 @@
   import { profilesApi } from './api';
   import { webviewApi } from '$platform/webview-api';
   import { ui } from '$shared/ui/ui.svelte';
-  import { focusAfterLayout, overlayLease } from '$platform/layout.svelte';
+  import { focusAfterLayout, overlayLease, overlaySurface } from '$platform/layout.svelte';
   import { cleanProfileName, deleteBlocker, nextProfileColor } from './profiles';
   import { avatarEmoji, renderEmojiIcon } from './profile-picture';
   import type { ProfileEntry, ProfilesView } from './types';
@@ -168,6 +168,7 @@
     <div class="scrim" role="presentation" transition:fade={{ duration: 120 }} onpointerdown={close}></div>
     <div
       class="dialog glass"
+      use:overlaySurface={12}
       role="dialog"
       aria-modal="true"
       aria-label={spec.mode === 'manage' ? 'Profiles' : isNew ? 'New profile' : 'Edit profile'}

@@ -2,7 +2,7 @@
   import { fly } from 'svelte/transition';
   import Icon from '$shared/ui/Icon.svelte';
   import { extensions } from './extensions.svelte';
-  import { overlayLease } from '$platform/layout.svelte';
+  import { overlayLease, overlaySurface } from '$platform/layout.svelte';
 
   // Chrome's "Add <extension>?" dialog for extensions found in pages: one offer at a time.
   const offer = $derived(extensions.offers[0]);
@@ -10,7 +10,7 @@
 
 {#if offer}
   {#key offer.token}
-    <div class="prompt glass" use:overlayLease transition:fly={{ y: -10, duration: 160 }} role="alertdialog" aria-label="Add extension">
+    <div class="prompt glass" use:overlayLease use:overlaySurface={12} transition:fly={{ y: -10, duration: 160 }} role="alertdialog" aria-label="Add extension">
       <div class="icon">
         {#if offer.icon}<img src={offer.icon} alt="" width="32" height="32" />{:else}<Icon name="puzzle" size={22} />{/if}
       </div>

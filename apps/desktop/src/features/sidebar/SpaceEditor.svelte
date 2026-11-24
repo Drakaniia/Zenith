@@ -3,7 +3,7 @@
   import { tick } from 'svelte';
   import { browser, SPACE_COLORS, SPACE_ICONS } from '$features/browser/browser.svelte';
   import { ui } from '$shared/ui/ui.svelte';
-  import { overlayLease } from '$platform/layout.svelte';
+  import { overlayLease, overlaySurface } from '$platform/layout.svelte';
 
   const editing = $derived(ui.spaceEditor);
   const existing = $derived(editing?.spaceId ? browser.space(editing.spaceId) : undefined);
@@ -47,6 +47,7 @@
     <div class="backdrop" role="presentation" transition:fade={{ duration: 120 }} onpointerdown={() => (ui.spaceEditor = null)}></div>
     <form
       class="dialog glass"
+      use:overlaySurface={12}
       transition:scale={{ start: 0.96, duration: 150, opacity: 0 }}
       onsubmit={(e) => {
         e.preventDefault();

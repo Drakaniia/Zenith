@@ -3,7 +3,7 @@
   import Icon from '$shared/ui/Icon.svelte';
   import { browser } from '$features/browser/browser.svelte';
   import { extensions } from './extensions.svelte';
-  import { overlayLease } from '$platform/layout.svelte';
+  import { overlayLease, overlaySurface } from '$platform/layout.svelte';
   import { openInternal } from '$features/browser/target';
 
   // The toolbar's extensions menu (Chrome's puzzle menu): open an extension, pin it next to
@@ -27,6 +27,7 @@
     <div class="catcher" role="presentation" transition:fade={{ duration: 100 }} onpointerdown={close}></div>
     <div
       class="pop glass"
+      use:overlaySurface={10}
       style:left="{left}px"
       style:top={at.below ? `${at.y}px` : null}
       style:bottom={at.below ? null : `${window.innerHeight - at.y}px`}

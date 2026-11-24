@@ -1,7 +1,7 @@
 <script lang="ts">
   import { fly } from 'svelte/transition';
   import Icon from '$shared/ui/Icon.svelte';
-  import { overlayLease } from '$platform/layout.svelte';
+  import { overlayLease, overlaySurface } from '$platform/layout.svelte';
   import { appInfo, incognito } from './window.svelte';
   import { windowApi } from './api';
 
@@ -14,7 +14,7 @@
 </script>
 
 {#if visible}
-  <div class="notice glass" use:overlayLease transition:fly={{ y: -10, duration: 160 }} role="dialog" aria-label="CEF engine upgrade notice">
+  <div class="notice glass" use:overlayLease use:overlaySurface={12} transition:fly={{ y: -10, duration: 160 }} role="dialog" aria-label="CEF engine upgrade notice">
     <div class="icon"><Icon name="info" size={20} /></div>
     <div class="body">
       <p class="title">Zenith upgraded to the bundled CEF engine</p>

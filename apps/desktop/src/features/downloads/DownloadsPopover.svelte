@@ -6,7 +6,7 @@
   import Icon from '$shared/ui/Icon.svelte';
   import { ui } from '$shared/ui/ui.svelte';
   import { formatBytes } from '$shared/format';
-  import { overlayLease } from '$platform/layout.svelte';
+  import { overlayLease, overlaySurface } from '$platform/layout.svelte';
   import { openInternal } from '$features/browser/target';
   import DownloadRow from './DownloadRow.svelte';
   import PopoverRow from './PopoverRow.svelte';
@@ -68,6 +68,7 @@
     <div class="catcher" role="presentation" transition:fade={{ duration: 100 }} onpointerdown={close}></div>
     <div
       class="pop glass"
+      use:overlaySurface={10}
       style:left={place.left}
       style:right={place.right}
       style:top={place.top}

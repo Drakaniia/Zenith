@@ -7,7 +7,7 @@
   import { browser } from '$features/browser/browser.svelte';
   import { settings } from '$features/settings/settings.svelte';
   import { ui } from '$shared/ui/ui.svelte';
-  import { overlayLease } from '$platform/layout.svelte';
+  import { overlayLease, overlaySurface } from '$platform/layout.svelte';
   import { flights } from './flights.svelte';
   import { copyText } from '$shared/clipboard';
   import { openInternal } from '$features/browser/target';
@@ -154,6 +154,7 @@
     <div class="catcher" role="presentation" transition:fade={{ duration: 100 }} onpointerdown={close}></div>
     <div
       class="panel glass"
+      use:overlaySurface={10}
       class:centered={!anchor}
       style:left={anchor ? `${anchor.left}px` : null}
       style:top={anchor ? `${anchor.top}px` : null}

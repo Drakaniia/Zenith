@@ -5,7 +5,7 @@
   import { cubicOut } from 'svelte/easing';
   import { compactEase, slidePx, slideX } from '$shared/ui/motion';
   import { ui } from '$shared/ui/ui.svelte';
-  import { layoutApplied, overlayLease, raiseChrome } from '$platform/layout.svelte';
+  import { followLayout, layoutApplied, overlayLease, overlaySurface, raiseChrome } from '$platform/layout.svelte';
   import type { ToolbarMode } from '$features/settings/settings.svelte';
   import type { SidebarPosition } from '$features/sidebar/sidebar-position';
   import { extensions } from '$features/extensions/extensions.svelte';
@@ -121,10 +121,13 @@
       class="top-flyout"
       role="presentation"
       use:overlayLease
+      use:overlaySurface={10}
       onmouseenter={() => clearTimeout(topTimer)}
       onmouseleave={() => scheduleHideToolbar()}
       in:slidePx={{ y: -16, duration: 200, easing: compactEase }}
       out:slidePx={{ y: -16, duration: 150, easing: cubicOut }}
+      onintrostart={() => followLayout(220)}
+      onoutrostart={() => followLayout(170)}
     >
       <TopBar floating />
     </div>
@@ -147,10 +150,13 @@
         class="flyout strip {side}"
         role="presentation"
         use:overlayLease
+        use:overlaySurface={10}
         onmouseenter={keepFlyout}
         onmouseleave={scheduleHideFlyout}
         in:slidePx={{ y: side === 'top' ? -16 : 16, duration: 200, easing: compactEase }}
         out:slidePx={{ y: side === 'top' ? -16 : 16, duration: 150, easing: cubicOut }}
+        onintrostart={() => followLayout(220)}
+        onoutrostart={() => followLayout(170)}
       >
         <TabStrip floating edge={side === 'top' ? 'top' : 'bottom'} collapsed={mode === 'collapsed'} />
         {#if side === 'top' && hideToolbar}
@@ -162,10 +168,13 @@
         class="flyout {side}"
         role="presentation"
         use:overlayLease
+        use:overlaySurface={10}
         onmouseenter={keepFlyout}
         onmouseleave={scheduleHideFlyout}
         in:slideX={{ from: side === 'right' ? 1.08 : -1.08, duration: 250, easing: compactEase }}
         out:slideX={{ from: side === 'right' ? 1.08 : -1.08, duration: 150, easing: cubicOut }}
+        onintrostart={() => followLayout(270)}
+        onoutrostart={() => followLayout(170)}
       >
         <Sidebar floating />
       </div>
@@ -228,6 +237,9 @@
   }
   :global(.app:not(.single)) .flyout {
     top: var(--zen-toolbar-h);
+  }
+  :global(.app.single.has-bar) .flyout {
+    top: var(--bm-bar-h);
   }
   :global(.app.no-toolbar) .flyout {
     top: calc(var(--zen-sep) / 2);
