@@ -11,6 +11,7 @@
   import { prefersReducedMotion, revealTransition } from './reveal';
   import { ui } from '$shared/ui/ui.svelte';
   import { incognito } from '$features/window/window.svelte';
+  import { shortcutHint } from '$features/shortcuts/hints';
   import { SEARCH_ENGINES } from '$shared/url';
   import type { Tab } from '$features/browser/types';
 
@@ -109,8 +110,8 @@
   {#if p.showHints}
     <div class="foot" inert={startPage.cleared} transition:fade={{ duration: 160 }}>
       <span><span class="kbd">Alt</span> + click a link to Glance</span>
-      <span><span class="kbd">Ctrl K</span> commands</span>
-      <span><span class="kbd">Ctrl B</span> compact mode</span>
+      <span><span class="kbd">{(shortcutHint('commandPalette') ?? 'Ctrl+K').replaceAll('+', ' ')}</span> commands</span>
+      <span><span class="kbd">{(shortcutHint('toggleCompact') ?? 'Ctrl+Alt+C').replaceAll('+', ' ')}</span> compact mode</span>
     </div>
   {/if}
 

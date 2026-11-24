@@ -54,6 +54,8 @@ export function handleOther(cmd: string, a: Record<string, unknown>): unknown {
       return { state: "idle", currentVersion: "0.0.0-preview" };
     case "media_list":
       return { items: [], blobs: 0, drm: 0, ffmpeg: false };
+    case "media_tools":
+      return { ffmpeg: null };
     case "plugin:window|is_maximized":
     case "plugin:window|is_fullscreen":
       return false;

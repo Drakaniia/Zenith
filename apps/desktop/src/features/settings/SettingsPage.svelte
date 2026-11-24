@@ -153,8 +153,12 @@
 
   function onScroll() {
     if (!scroller) return;
-    const top = scroller.getBoundingClientRect().top;
     const visible = SECTIONS.filter((sec) => !matched || matched.has(sec.id));
+    if (scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - 4) {
+      current = visible.at(-1)?.id ?? current;
+      return;
+    }
+    const top = scroller.getBoundingClientRect().top;
     let best = visible[0]?.id ?? current;
     for (const sec of visible) {
       const el = scroller.querySelector(`#settings-${sec.id}`);
@@ -369,6 +373,9 @@
   .body {
     max-width: 760px;
     padding: 28px 36px 80px;
+  }
+  .body :global(section[id^="settings-"]) {
+    scroll-margin-top: 16px;
   }
   section {
     padding-top: 8px;

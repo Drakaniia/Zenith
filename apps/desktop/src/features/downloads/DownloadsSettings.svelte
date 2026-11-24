@@ -47,7 +47,7 @@
   }
 
   async function refreshTools() {
-    ffmpeg = (await downloadsApi.mediaTools().catch(() => ({ ffmpeg: null }))).ffmpeg;
+    ffmpeg = (await downloadsApi.mediaTools().catch(() => null))?.ffmpeg ?? null;
   }
 
   function setFfmpeg<K extends 'useFfmpeg' | 'ffmpegPath'>(key: K, value: Settings[K]) {

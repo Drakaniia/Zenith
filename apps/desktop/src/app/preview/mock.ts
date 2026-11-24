@@ -24,9 +24,7 @@ export function installPreviewMock() {
   // A stand-in page under each live tab's pane, since there are no native page views here.
   style.textContent = `
     html[data-preview] .web:not(.waiting) {
-      background:
-        linear-gradient(var(--page-bg), var(--page-bg)) padding-box,
-        var(--page-bg);
+      background-color: var(--page-bg);
       background-image:
         linear-gradient(180deg, color-mix(in srgb, var(--text) 6%, transparent) 0 64px, transparent 64px),
         repeating-linear-gradient(180deg, transparent 0 28px, color-mix(in srgb, var(--text) 5%, transparent) 28px 40px);
