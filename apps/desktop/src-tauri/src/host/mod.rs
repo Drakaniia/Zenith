@@ -69,6 +69,17 @@ pub struct PaneSpec {
     pub h: f64,
 }
 
+#[derive(Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct OverlayRect {
+    pub x: f64,
+    pub y: f64,
+    pub w: f64,
+    pub h: f64,
+    #[serde(default)]
+    pub r: f64,
+}
+
 #[derive(Deserialize, Clone, Debug, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct LayoutSpec {
@@ -78,6 +89,8 @@ pub struct LayoutSpec {
     pub glance: Option<PaneSpec>,
     #[serde(default)]
     pub overlay: bool,
+    #[serde(default)]
+    pub overlay_rects: Vec<OverlayRect>,
     pub viewport_w: f64,
     pub viewport_h: f64,
 }
@@ -93,6 +106,7 @@ pub struct Win {
     pub focus: Focus,
     pub fullscreen_tab: Option<String>,
     pub chrome_raised: Option<bool>,
+    pub chrome_rgn_key: Option<Vec<(i32, i32, i32, i32, i32)>>,
     pub chrome_target_id: String,
 }
 

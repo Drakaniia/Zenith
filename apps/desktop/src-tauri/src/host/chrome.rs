@@ -306,6 +306,7 @@ pub fn create_chrome_window(window: WindowHandle, private: bool) -> Result<(), S
                 focus: Focus::Chrome,
                 fullscreen_tab: None,
                 chrome_raised: None,
+                chrome_rgn_key: None,
                 chrome_target_id: String::new(),
             },
         );
@@ -332,7 +333,7 @@ pub fn create_chrome_window(window: WindowHandle, private: bool) -> Result<(), S
 
     let mut client = ChromeClient::new(label);
     let mut settings = BrowserSettings::default();
-    settings.background_color = 0xFF1E1E22;
+    settings.background_color = 0xFF131313;
     let url = trusted_ui_url();
     if browser_host_create_browser(
         Some(&win_info),

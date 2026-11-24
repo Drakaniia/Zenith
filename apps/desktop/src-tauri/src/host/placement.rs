@@ -4,6 +4,9 @@
 use std::collections::HashMap;
 
 use windows::Win32::Foundation::HWND;
+use windows::Win32::Graphics::Gdi::{
+    CombineRgn, CreateRectRgn, CreateRoundRectRgn, DeleteObject, SetWindowRgn, RGN_DIFF, RGN_OR,
+};
 use windows::Win32::UI::HiDpi::GetDpiForWindow;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
@@ -44,14 +47,38 @@ fn place_tab(
     });
     unsafe {
         if *content != Some(want) && !browser_hwnd.is_invalid() {
-            let _ = SetWindowPos(browser_hwnd, None, 0, 0, want.0, want.1, SWP_NOACTIVATE | SWP_NOZORDER);
+            let _ = SetWindowPos(
+                browser_hwnd,
+                None,
+                0,
+                0,
+                want.0,
+                want.1,
+                SWP_NOACTIVATE | SWP_NOZORDER | SWP_NOCOPYBITS,
+            );
             *content = Some(want);
         }
         if !container.is_invalid() {
             if same_size {
-                let _ = SetWindowPos(container, None, left, top, 0, 0, SWP_NOACTIVATE | SWP_NOZORDER | SWP_NOSIZE);
+                let _ = SetWindowPos(
+                    container,
+                    None,
+                    left,
+                    top,
+                    0,
+                    0,
+                    SWP_NOACTIVATE | SWP_NOZORDER | SWP_NOSIZE | SWP_NOCOPYBITS,
+                );
             } else {
-                let _ = SetWindowPos(container, None, left, top, w, h, SWP_NOACTIVATE | SWP_NOZORDER);
+                let _ = SetWindowPos(
+                    container,
+                    None,
+                    left,
+                    top,
+                    w,
+                    h,
+                    SWP_NOACTIVATE | SWP_NOZORDER | SWP_NOCOPYBITS,
+                );
             }
         }
     }
@@ -126,10 +153,55 @@ impl Host {
     }
 
     pub fn apply_zorder(&mut self, label: &str) {
+        let scale = self.scale(label);
         let Some(win) = self.wins.get_mut(label) else { return };
         let raise = win.layout.overlay && win.fullscreen_tab.is_none();
+        let rgn_key = if raise && !win.layout.panes.is_empty() {
+            let mut key = Vec::with_capacity(1 + win.layout.panes.len() + win.layout.overlay_rects.len());
+            let (_, _, vw, vh) = px_rect(0.0, 0.0, win.layout.viewport_w, win.layout.viewport_h, scale);
+            key.push((0, 0, vw, vh, 0));
+            for p in &win.layout.panes {
+                let (x, y, w, h) = px_rect(p.x, p.y, p.w, p.h, scale);
+                key.push((x, y, x + w, y + h, -1));
+            }
+            for o in &win.layout.overlay_rects {
+                let (x, y, w, h) = px_rect(o.x, o.y, o.w, o.h, scale);
+                let r = (o.r * scale).round().max(0.0) as i32;
+                key.push((x, y, x + w, y + h, r));
+            }
+            Some(key)
+        } else {
+            None
+        };
         unsafe {
             if !win.chrome_hwnd.is_invalid() {
+                if win.chrome_rgn_key != rgn_key {
+                    if let Some(ref key) = rgn_key {
+                        let (l, t, r, b, _) = key[0];
+                        let rgn = CreateRectRgn(l, t, r, b);
+                        if !rgn.is_invalid() {
+                            for &(pl, pt, pr, pb, kind) in &key[1..] {
+                                let part = if kind < 0 {
+                                    CreateRectRgn(pl, pt, pr, pb)
+                                } else if kind > 0 {
+                                    CreateRoundRectRgn(pl, pt, pr, pb, kind * 2, kind * 2)
+                                } else {
+                                    CreateRectRgn(pl, pt, pr, pb)
+                                };
+                                if !part.is_invalid() {
+                                    let _ = CombineRgn(Some(rgn), Some(rgn), Some(part), if kind < 0 { RGN_DIFF } else { RGN_OR });
+                                    let _ = DeleteObject(part.into());
+                                }
+                            }
+                            if SetWindowRgn(win.chrome_hwnd, Some(rgn), true) == 0 {
+                                let _ = DeleteObject(rgn.into());
+                            }
+                        }
+                    } else {
+                        let _ = SetWindowRgn(win.chrome_hwnd, None, true);
+                    }
+                    win.chrome_rgn_key = rgn_key;
+                }
                 if raise {
                     let _ = SetWindowPos(
                         win.chrome_hwnd,

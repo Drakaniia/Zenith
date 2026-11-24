@@ -22,11 +22,13 @@ use std::sync::{Arc, Mutex, RwLock};
 use cef::*;
 use serde::Serialize;
 use windows::core::w;
-use windows::Win32::Foundation::HWND;
+use windows::Win32::Foundation::{COLORREF, HWND, LPARAM, LRESULT, RECT, WPARAM};
+use windows::Win32::Graphics::Gdi::{CreateSolidBrush, DeleteObject, FillRect, HDC};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DestroyWindow, ShowWindow, SW_HIDE, SW_SHOWNOACTIVATE, WINDOW_EX_STYLE,
-    WS_CHILD, WS_CLIPCHILDREN, WS_CLIPSIBLINGS,
+    CreateWindowExW, DefWindowProcW, DestroyWindow, GetClientRect, RegisterClassW, ShowWindow,
+    SW_HIDE, SW_SHOWNOACTIVATE, WINDOW_EX_STYLE, WNDCLASSW, WS_CHILD, WS_CLIPCHILDREN,
+    WS_CLIPSIBLINGS, WM_ERASEBKGND,
 };
 
 use super::{config, emit_tab, incognito_context, maybe_drop_incognito_context, open_devtools, with_host, with_win};
@@ -218,12 +220,47 @@ impl Tab {
     }
 }
 
+static CONTAINER_CLASS_REGISTERED: AtomicBool = AtomicBool::new(false);
+
+unsafe extern "system" fn container_wnd_proc(
+    hwnd: HWND,
+    msg: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+) -> LRESULT {
+    if msg == WM_ERASEBKGND {
+        let (r, g, b) = super::HOST
+            .with(|c| c.try_borrow().ok().map(|h| h.page_bg))
+            .unwrap_or((32, 32, 36));
+        let mut rect = RECT::default();
+        if GetClientRect(hwnd, &mut rect).is_ok() {
+            let color = COLORREF((r as u32) | ((g as u32) << 8) | ((b as u32) << 16));
+            let brush = CreateSolidBrush(color);
+            if !brush.is_invalid() {
+                let _ = FillRect(HDC(wparam.0 as *mut _), &rect, brush);
+                let _ = DeleteObject(brush.into());
+            }
+        }
+        return LRESULT(1);
+    }
+    DefWindowProcW(hwnd, msg, wparam, lparam)
+}
+
 pub(crate) fn create_container(parent: HWND, x: i32, y: i32, w: i32, h: i32) -> Result<HWND, String> {
     unsafe {
         let hinstance = GetModuleHandleW(None).map_err(|e| format!("GetModuleHandleW: {e}"))?;
+        if !CONTAINER_CLASS_REGISTERED.swap(true, Ordering::SeqCst) {
+            let wc = WNDCLASSW {
+                lpfnWndProc: Some(container_wnd_proc),
+                hInstance: hinstance.into(),
+                lpszClassName: w!("ZenithTabContainer"),
+                ..Default::default()
+            };
+            RegisterClassW(&wc);
+        }
         CreateWindowExW(
             WINDOW_EX_STYLE(0),
-            w!("STATIC"),
+            w!("ZenithTabContainer"),
             w!(""),
             WS_CHILD | WS_CLIPCHILDREN | WS_CLIPSIBLINGS,
             x,
