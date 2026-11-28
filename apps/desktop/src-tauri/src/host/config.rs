@@ -17,8 +17,11 @@ pub struct RuntimeConfig {
     pub block_popups: bool,
     pub blocker_enabled: bool,
     pub media_button: bool,
+    pub media_disabled_sites: Vec<String>,
     pub use_ffmpeg: bool,
     pub ffmpeg_path: Option<PathBuf>,
+    pub use_ytdlp: bool,
+    pub ytdlp_path: Option<PathBuf>,
     pub auto_update: bool,
     pub preview_updates: bool,
     pub torrents_enabled: bool,
@@ -50,8 +53,11 @@ impl Default for RuntimeConfig {
             block_popups: true,
             blocker_enabled: true,
             media_button: true,
+            media_disabled_sites: Vec::new(),
             use_ffmpeg: true,
             ffmpeg_path: None,
+            use_ytdlp: true,
+            ytdlp_path: None,
             auto_update: true,
             preview_updates: false,
             torrents_enabled: true,
@@ -100,7 +106,7 @@ pub fn apply_config(cfg: RuntimeConfig) {
     let mut ext_private_changed = false;
     let changed = match CONFIG.write() {
         Ok(mut c) => {
-            let changed = c.media_button != button;
+            let changed = c.media_button != button || c.media_disabled_sites != cfg.media_disabled_sites;
             ext_private_changed = c.extensions_in_incognito != ext_private;
             *c = cfg;
             changed

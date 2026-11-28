@@ -127,7 +127,7 @@ impl Progress {
         }
         s
     }
-    pub(super) fn set_stage(&self, text: &str) {
+    pub fn set_stage(&self, text: &str) {
         *lock(&self.stage) = text.to_string();
     }
 }

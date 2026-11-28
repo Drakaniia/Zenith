@@ -8,8 +8,11 @@ export interface RuntimeConfig {
   blockPopups: boolean;
   blockerEnabled: boolean;
   mediaButton: boolean;
+  mediaDisabledSites: string[];
   useFfmpeg: boolean;
   ffmpegPath: string | null;
+  useYtdlp: boolean;
+  ytdlpPath: string | null;
   autoUpdate: boolean;
   previewUpdates: boolean;
   /** Torrents (see settings.svelte.ts). */
@@ -38,13 +41,14 @@ export interface RuntimeConfig {
 
 export interface Appearance {
   theme: string;
+  material: string;
   pageBackground: [number, number, number];
   contentScheme: string;
 }
 
 export const settingsApi = {
   applySettings: (config: RuntimeConfig, appearance: Appearance) =>
-    invoke<void>("apply_settings", { config, appearance }),
+    invoke<boolean | null>("apply_settings", { config, appearance }),
   clearBrowsingData: (
     kinds: string[],
     sinceMs: number | null,

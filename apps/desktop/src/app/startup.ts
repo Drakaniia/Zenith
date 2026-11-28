@@ -23,6 +23,7 @@ import { onboarding } from '../features/onboarding/onboarding.svelte';
 import { shouldOnboard } from '../features/onboarding/onboarding-flow';
 
 export async function startup(onMotionReady: () => void) {
+  const savedPromise = incognito ? null : tabsApi.sessionLoad().catch(() => null);
   await settings.load();
   // Appearance must be applied before the window is first shown.
   const pushed = settings.push().catch((e) => console.warn('apply_settings failed', e));
@@ -45,7 +46,7 @@ export async function startup(onMotionReady: () => void) {
   requestAnimationFrame(() => onMotionReady());
   if (incognito) browser.startPrivate();
   else {
-    const saved = await tabsApi.sessionLoad().catch(() => null);
+    const saved = await savedPromise;
     browser.restore(saved?.data ?? null, saved?.keep ?? s.restoreSession, saved?.fresh ?? false);
     // The main window brings back the other windows that were open when Zenith quit.
     void windowApi.windowsRestore(s.restoreSession).catch(() => {});

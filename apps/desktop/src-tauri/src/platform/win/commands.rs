@@ -30,5 +30,9 @@ pub async fn memory_stats() -> CmdResult<win::MemoryStats> {
 }
 
 pub async fn system_memory_load() -> CmdResult<u32> {
-    Ok(win::system_memory_load())
+    let load = win::system_memory_load();
+    if load >= crate::host::tab::warm::MEMORY_PRESSURE_LOAD_PCT {
+        let _ = crate::app::runtime::post_ui(move || crate::host::tab::release_if_pressured(load));
+    }
+    Ok(load)
 }

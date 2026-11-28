@@ -82,6 +82,7 @@ pub fn debug_layout(label: &str) -> Option<DebugLayout> {
             focus: match &win.focus {
                 Focus::Chrome => "chrome".into(),
                 Focus::Tab(id) => id.clone(),
+                Focus::DevTools(id) => format!("devtools:{id}"),
             },
             tabs,
             zombies: 0,

@@ -158,7 +158,7 @@ pub fn on_message(sh: &Arc<TabShared>, name: &str, uri: &str, user: bool, main_f
     match name {
         "_zenith_pw_field" if user => on_field(sh, &origin, &msg),
         "_zenith_pw_type" if user => on_type(sh, &origin, &msg),
-        "_zenith_pw_dismiss" => close_suggestions(&sh.id),
+        "_zenith_pw_dismiss" => close_suggestions(&sh.id()),
         "_zenith_pw_capture" if user => on_capture(sh, &origin, &msg),
         "_zenith_pw_form" => on_form(sh, &origin),
         "_zenith_card_field" if user => on_card_field(sh, &origin, &msg),

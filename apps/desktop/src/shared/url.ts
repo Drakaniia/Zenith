@@ -74,8 +74,17 @@ const LONG_TLDS = new Set(
   ).split(" "),
 );
 
+/** The PDF viewer: a sandboxed page in the tab's own webview, not a chrome page. */
+export const PDF_VIEWER = "zenith://pdf/";
+
 export function isInternal(url: string | undefined | null): boolean {
-  return !!url && url.startsWith("zenith://");
+  return !!url && url.startsWith("zenith://") && !url.startsWith(PDF_VIEWER);
+}
+
+/** The address a tab shows: for the PDF viewer, the PDF's own address. */
+export function viewedUrl(url: string): string {
+  if (!url.startsWith(PDF_VIEWER)) return url;
+  return new URLSearchParams(url.split("?")[1] ?? "").get("src") || url;
 }
 
 export function internalPage(url: string): InternalPage | null {
@@ -159,6 +168,7 @@ export function hostOf(url: string): string {
 
 /** "www.example.com" -> "example.com" */
 export function displayHost(url: string): string {
+  url = viewedUrl(url);
   if (isInternal(url)) return "Zenith";
   const host = hostOf(url);
   return host.replace(/^www\./, "") || url;
@@ -166,6 +176,7 @@ export function displayHost(url: string): string {
 
 /** URL without scheme and trailing slash, for compact display. */
 export function prettyUrl(url: string): string {
+  url = viewedUrl(url);
   if (isInternal(url)) return url;
   return url
     .replace(/^https?:\/\//, "")

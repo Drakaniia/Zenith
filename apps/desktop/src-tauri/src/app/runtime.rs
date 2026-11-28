@@ -7,11 +7,16 @@ use std::sync::{Arc, LazyLock, Mutex, RwLock};
 use cef::*;
 use windows::core::{BOOL, HSTRING};
 use windows::Win32::Foundation::{HWND, LPARAM, POINT, RECT, WPARAM};
-use windows::Win32::Graphics::Dwm::{DwmSetWindowAttribute, DWMWA_USE_IMMERSIVE_DARK_MODE};
+use windows::Win32::Graphics::Dwm::{
+    DwmExtendFrameIntoClientArea, DwmSetWindowAttribute, DWMWA_SYSTEMBACKDROP_TYPE,
+    DWMWA_USE_IMMERSIVE_DARK_MODE, DWMSBT_MAINWINDOW, DWMSBT_NONE, DWMSBT_TRANSIENTWINDOW,
+    DWM_SYSTEMBACKDROP_TYPE,
+};
 use windows::Win32::Graphics::Gdi::{
     EnumDisplayMonitors, GetMonitorInfoW, MonitorFromWindow, HDC, HMONITOR, MONITORINFO, MONITOR_DEFAULTTONEAREST,
 };
 use windows::Win32::System::Com::CoTaskMemFree;
+use windows::Win32::UI::Controls::MARGINS;
 use windows::Win32::UI::HiDpi::GetDpiForWindow;
 use windows::Win32::UI::Input::KeyboardAndMouse::ReleaseCapture;
 use windows::Win32::UI::Shell::{FOLDERID_Downloads, SHGetKnownFolderPath, KF_FLAG_DEFAULT};
@@ -338,6 +343,42 @@ impl WindowHandle {
             );
         }
         Ok(())
+    }
+
+    /// Configures Windows 11 DWM backdrop material (`mica`, `acrylic`, `solid`). Returns `false`
+    /// when DWM rejects a translucent backdrop so the UI falls back to opaque solid CSS colours.
+    pub fn set_material(&self, material: &str) -> bool {
+        let hwnd = self.hwnd();
+        let (backdrop, margins) = match material {
+            "mica" => (
+                DWMSBT_MAINWINDOW,
+                MARGINS { cxLeftWidth: -1, cxRightWidth: -1, cyTopHeight: -1, cyBottomHeight: -1 },
+            ),
+            "acrylic" => (
+                DWMSBT_TRANSIENTWINDOW,
+                MARGINS { cxLeftWidth: -1, cxRightWidth: -1, cyTopHeight: -1, cyBottomHeight: -1 },
+            ),
+            _ => (
+                DWMSBT_NONE,
+                MARGINS { cxLeftWidth: 1, cxRightWidth: 1, cyTopHeight: 1, cyBottomHeight: 1 },
+            ),
+        };
+        unsafe {
+            let _ = DwmExtendFrameIntoClientArea(hwnd, &margins);
+            let ok = DwmSetWindowAttribute(
+                hwnd,
+                DWMWA_SYSTEMBACKDROP_TYPE,
+                &backdrop as *const DWM_SYSTEMBACKDROP_TYPE as *const _,
+                std::mem::size_of::<DWM_SYSTEMBACKDROP_TYPE>() as u32,
+            )
+            .is_ok();
+            if !ok && backdrop != DWMSBT_NONE {
+                let solid = MARGINS { cxLeftWidth: 1, cxRightWidth: 1, cyTopHeight: 1, cyBottomHeight: 1 };
+                let _ = DwmExtendFrameIntoClientArea(hwnd, &solid);
+                return false;
+            }
+            true
+        }
     }
 
     pub fn set_icon(&self, icon: HICON) -> Result<(), String> {

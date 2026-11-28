@@ -18,7 +18,10 @@ pub mod hls;
 pub mod http;
 pub mod job;
 pub mod mp4;
+pub mod probe;
 pub mod sniff;
+pub mod tools;
+pub mod ytdlp;
 
 mod choices;
 mod naming;
@@ -147,16 +150,13 @@ pub struct Report {
     pub blobs: u32,
     pub drm: u32,
     pub ffmpeg: bool,
+    pub ytdlp: bool,
 }
 
-#[derive(Serialize, Clone, Debug)]
-#[serde(rename_all = "camelCase")]
-pub struct Tools {
-    pub ffmpeg: Option<String>,
-}
+pub use tools::Tools;
 
 pub fn tools() -> Tools {
-    Tools { ffmpeg: job::find_ffmpeg().map(|p| p.display().to_string()) }
+    tools::status()
 }
 
 fn report(tab_id: &str) -> Result<Report, String> {
@@ -164,7 +164,13 @@ fn report(tab_id: &str) -> Result<Report, String> {
         .flatten()
         .ok_or("This tab is not loaded")?;
     let media = shared.media.lock().map_err(|_| "media state unavailable")?;
-    Ok(Report { items: media.items(), blobs: media.blobs, drm: media.drm, ffmpeg: job::find_ffmpeg().is_some() })
+    Ok(Report {
+        items: media.items(),
+        blobs: media.blobs,
+        drm: media.drm,
+        ffmpeg: tools::find_ffmpeg().is_some(),
+        ytdlp: tools::find_ytdlp().is_some(),
+    })
 }
 
 /// Lists a tab's media; with `scan`, the page is searched first. Runs on the UI thread.
@@ -178,17 +184,28 @@ pub fn list(tab_id: &str, scan: bool, done: impl FnOnce(Result<Report, String>) 
 }
 
 /// Starts downloading an item. Runs on the UI thread.
-pub fn download(tab_id: &str, item_id: u32, variant: Option<String>, audio: Option<String>) -> Result<i64, String> {
+pub fn download(
+    tab_id: &str,
+    item_id: u32,
+    variant: Option<String>,
+    audio: Option<String>,
+    audio_format: Option<String>,
+) -> Result<i64, String> {
     let shared = crate::host::with_host(|h| h.tabs.get(tab_id).map(|t| t.shared.clone()))
         .flatten()
         .ok_or("This tab is not loaded")?;
+    let fmt = audio_format.as_deref().and_then(job::AudioFormat::parse);
     let ua = sniff::default_user_agent();
     let request = shared
         .media
         .lock()
         .map_err(|_| "media state unavailable")?
-        .request(tab_id, item_id, variant.as_deref(), audio.as_deref(), &ua)?;
-    if !shared.private {
+        .request(tab_id, item_id, variant.as_deref(), audio.as_deref(), fmt, &ua)?;
+    // If extracting audio from a video (not already an audio-only stream) requires FFmpeg, fail fast.
+    if request.audio_format.is_some() && !request.source_is_audio && tools::find_ffmpeg().is_none() {
+        return Err("Install FFmpeg in Settings → Downloads to extract audio from this video".into());
+    }
+    if !shared.private && request.audio_format.is_none() {
         if let Some(name) = crate::downloads::already_downloaded(&request.source_url) {
             return Err(crate::downloads::already_message(&name));
         }

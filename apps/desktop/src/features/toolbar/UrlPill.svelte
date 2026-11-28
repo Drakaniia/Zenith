@@ -10,14 +10,14 @@
   import { withHint } from '$features/shortcuts/hints';
   import { bookmarkPage } from '$features/bookmarks/bookmark-actions';
   import { pageMenu } from './menus';
-  import { displayHost, hostOf, isInternal, isNewTab, isSecure, isWebUrl, siteOf, titleFor } from '$shared/url';
+  import { displayHost, hostOf, isInternal, isNewTab, isSecure, isWebUrl, siteOf, titleFor, viewedUrl } from '$shared/url';
 
   // Zen's address bar. In the sidebar (single toolbar) its page actions fade in while the
   // sidebar is hovered; in the top toolbar it sits centred and always shows them.
   let { variant = 'sidebar' }: { variant?: 'sidebar' | 'toolbar' } = $props();
 
   const tab = $derived(browser.activeTab);
-  const url = $derived(tab?.url ?? '');
+  const url = $derived(viewedUrl(tab?.url ?? ''));
   const web = $derived(isWebUrl(url));
   const empty = $derived(!tab || isNewTab(url));
   const label = $derived(empty ? 'Search or enter address' : isInternal(url) ? titleFor(url, '') : displayHost(url));

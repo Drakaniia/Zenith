@@ -10,11 +10,14 @@
   import { openInternal } from '$features/browser/target';
   import DownloadRow from './DownloadRow.svelte';
   import PopoverRow from './PopoverRow.svelte';
+  import DownloadVideoUrl from './video/DownloadVideoUrl.svelte';
   import { downloads } from './downloads.svelte';
 
   const SHOWN = 8;
   const WIDTH = 380;
   const GAP = 8;
+
+  let addingVideo = $state(false);
 
   const recent = $derived(downloads.items.slice(0, SHOWN));
   const finished = $derived(downloads.items.some((d) => d.state !== 'progress'));
@@ -41,6 +44,7 @@
   });
 
   function close() {
+    addingVideo = false;
     ui.downloadsOpen = false;
   }
 
@@ -83,10 +87,23 @@
           <h3>Downloads</h3>
           {#if summary}<span class="summary">{summary}</span>{/if}
         </div>
-        {#if finished}
-          <button class="btn ghost sm" title="Remove finished downloads from the list" onclick={clear}>Clear</button>
-        {/if}
+        <div class="head-actions">
+          <button
+            class="icon-btn sm"
+            class:on={addingVideo}
+            title="Download video from URL"
+            onclick={() => (addingVideo = !addingVideo)}
+          >
+            <Icon name="film" size={14} />
+          </button>
+          {#if finished}
+            <button class="btn ghost sm" title="Remove finished downloads from the list" onclick={clear}>Clear</button>
+          {/if}
+        </div>
       </div>
+      {#if addingVideo}
+        <DownloadVideoUrl compact onclose={() => (addingVideo = false)} />
+      {/if}
       {#if recent.length}
         <div class="list" role="list">
           {#each recent as d (d.id)}
@@ -138,6 +155,15 @@
     justify-content: space-between;
     gap: 8px;
     padding: 8px 6px 8px 10px;
+  }
+  .head-actions {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .head-actions .on {
+    background: var(--hover);
+    color: var(--text);
   }
   .title {
     display: flex;

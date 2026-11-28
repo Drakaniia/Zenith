@@ -3,6 +3,7 @@
   import Icon from '$shared/ui/Icon.svelte';
   import DownloadRow from './DownloadRow.svelte';
   import AddTorrent from './AddTorrent.svelte';
+  import DownloadVideoUrl from './video/DownloadVideoUrl.svelte';
   import { downloads } from './downloads.svelte';
   import { torrents } from './torrents.svelte';
   import { findMagnet } from './torrent';
@@ -12,6 +13,7 @@
 
   let query = $state('');
   let adding = $state(false);
+  let addingVideo = $state(false);
   /** A file or link is being dragged over the page. */
   let dropping = $state(false);
   let dragDepth = 0;
@@ -72,13 +74,31 @@
     <header>
       <h1>Downloads</h1>
       <div class="tools">
-        {#if torrentsOn}<button class="btn" class:on={adding} onclick={() => (adding = !adding)}><Icon name="magnet" size={15} />Add torrent</button>{/if}
+        <button
+          class="btn"
+          class:on={addingVideo}
+          onclick={() => {
+            addingVideo = !addingVideo;
+            if (addingVideo) adding = false;
+          }}><Icon name="film" size={15} />Download video</button
+        >
+        {#if torrentsOn}<button
+            class="btn"
+            class:on={adding}
+            onclick={() => {
+              adding = !adding;
+              if (adding) addingVideo = false;
+            }}><Icon name="magnet" size={15} />Add torrent</button
+          >{/if}
         {#if folder}<button class="btn" onclick={() => void shell.openPath(folder)}><Icon name="folder" size={15} />Open folder</button>{/if}
         <button class="btn" onclick={() => downloads.remove(null)} disabled={!downloads.items.some((d) => d.state !== 'progress')}>
           <Icon name="eraser" size={15} />Clear list
         </button>
       </div>
     </header>
+    {#if addingVideo}
+      <DownloadVideoUrl onclose={() => (addingVideo = false)} />
+    {/if}
     {#if adding && torrentsOn}
       <AddTorrent onclose={() => (adding = false)} />
     {/if}

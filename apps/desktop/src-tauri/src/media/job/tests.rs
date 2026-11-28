@@ -350,7 +350,7 @@ fn real_stream_from_env() {
     }
     let item = media.items().remove(0);
     println!("item: {} {:?} variants={:?} audio={:?}", item.kind, item.duration, item.variants.iter().map(|v| &v.label).collect::<Vec<_>>(), item.audio_tracks.len());
-    let req = media.request("t", item.id, None, None, "ZenithTest/1.0").unwrap();
+    let req = media.request("t", item.id, None, None, None, "ZenithTest/1.0").unwrap();
     println!("plan: {:?}", req.plan);
     let work = out.join("work");
     fs::create_dir_all(&work).unwrap();

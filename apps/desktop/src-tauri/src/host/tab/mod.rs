@@ -9,29 +9,29 @@ mod permissions;
 mod requests;
 mod scripts;
 mod sleep;
+pub mod warm;
 
 pub use find::find;
 pub use permissions::{respond_permission, PendingPermission};
 pub use requests::{apply_blocking, create_request_context_handler, TOTAL_BLOCKED};
 pub use scripts::{EXT_POPUP_SCRIPT, PAGE_SCRIPT, STORE_SCRIPT};
 pub use sleep::{content_size, sleep};
+pub use warm::{ensure_warm, release_if_pressured, WarmTab};
 
 use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 
 use cef::*;
 use serde::Serialize;
-use windows::core::w;
-use windows::Win32::Foundation::{COLORREF, HWND, LPARAM, LRESULT, RECT, WPARAM};
-use windows::Win32::Graphics::Gdi::{CreateSolidBrush, DeleteObject, FillRect, HDC};
-use windows::Win32::System::LibraryLoader::GetModuleHandleW;
-use windows::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DefWindowProcW, DestroyWindow, GetClientRect, RegisterClassW, ShowWindow,
-    SW_HIDE, SW_SHOWNOACTIVATE, WINDOW_EX_STYLE, WNDCLASSW, WS_CHILD, WS_CLIPCHILDREN,
-    WS_CLIPSIBLINGS, WM_ERASEBKGND,
-};
+use windows::Win32::Foundation::HWND;
+use windows::Win32::UI::WindowsAndMessaging::{DestroyWindow, ShowWindow, SW_HIDE, SW_SHOWNOACTIVATE};
 
-use super::{config, emit_tab, incognito_context, maybe_drop_incognito_context, open_devtools, with_host, with_win};
+pub(crate) use super::placement::create_container;
+
+use super::{
+    config, emit_devtools_changed, emit_tab, handle_devtools_command, incognito_context,
+    maybe_drop_incognito_context, with_host, with_win, TabDevTools,
+};
 use crate::platform::urls::host_of;
 
 #[derive(Serialize, Clone, Default)]
@@ -92,8 +92,9 @@ pub(crate) struct TabRef {
 
 /// Thread-safe per-tab state shared across CEF UI and IO thread handlers.
 pub struct TabShared {
-    pub id: String,
-    pub window: String,
+    id: RwLock<String>,
+    window: RwLock<String>,
+    warm: AtomicBool,
     pub private: bool,
     pub glance: AtomicBool,
     pub light_bg: bool,
@@ -115,8 +116,9 @@ pub struct TabShared {
 impl TabShared {
     pub(crate) fn new(id: &str, window: &str, glance: bool, light_bg: bool) -> Self {
         Self {
-            id: id.to_string(),
-            window: window.to_string(),
+            id: RwLock::new(id.to_string()),
+            window: RwLock::new(window.to_string()),
+            warm: AtomicBool::new(false),
             private: super::is_private_window(window),
             glance: AtomicBool::new(glance),
             light_bg,
@@ -134,6 +136,37 @@ impl TabShared {
             target_id: RwLock::new(String::new()),
             media: Mutex::new(Default::default()),
         }
+    }
+
+    pub(crate) fn new_warm(id: &str, window: &str) -> Self {
+        let s = Self::new(id, window, false, false);
+        s.warm.store(true, Ordering::Release);
+        s
+    }
+
+    pub fn id(&self) -> String {
+        self.id.read().map(|s| s.clone()).unwrap_or_default()
+    }
+
+    pub fn window(&self) -> String {
+        self.window.read().map(|s| s.clone()).unwrap_or_default()
+    }
+
+    pub fn is_warm(&self) -> bool {
+        self.warm.load(Ordering::Acquire)
+    }
+
+    pub fn rebind(&self, id: &str, window: &str, scroll: Option<(f64, f64)>) {
+        if let Ok(mut slot) = self.id.write() {
+            *slot = id.to_string();
+        }
+        if let Ok(mut slot) = self.window.write() {
+            *slot = window.to_string();
+        }
+        if let Ok(mut s) = self.restore_scroll.lock() {
+            *s = scroll;
+        }
+        self.warm.store(false, Ordering::Release);
     }
 
     pub fn is_glance(&self) -> bool {
@@ -186,10 +219,12 @@ pub struct Tab {
     pub container_hwnd: HWND,
     pub browser: Option<Browser>,
     pub browser_hwnd: HWND,
+    pub devtools: Option<TabDevTools>,
     pub shared: Arc<TabShared>,
     pub visible: bool,
     pub last_rect: Option<(f64, f64, f64, f64)>,
     pub content_px: Option<(i32, i32)>,
+    pub rgn_px: Option<(i32, i32, i32)>,
     pub pending_url: Option<String>,
     pub pending_muted: bool,
     pub pending_zoom: Option<f64>,
@@ -198,8 +233,8 @@ pub struct Tab {
 }
 
 impl Tab {
-    pub fn window(&self) -> &str {
-        &self.shared.window
+    pub fn window(&self) -> String {
+        self.shared.window()
     }
 
     pub fn set_visible(&mut self, show: bool) {
@@ -217,62 +252,6 @@ impl Tab {
                 let _ = DestroyWindow(self.container_hwnd);
             }
         }
-    }
-}
-
-static CONTAINER_CLASS_REGISTERED: AtomicBool = AtomicBool::new(false);
-
-unsafe extern "system" fn container_wnd_proc(
-    hwnd: HWND,
-    msg: u32,
-    wparam: WPARAM,
-    lparam: LPARAM,
-) -> LRESULT {
-    if msg == WM_ERASEBKGND {
-        let (r, g, b) = super::HOST
-            .with(|c| c.try_borrow().ok().map(|h| h.page_bg))
-            .unwrap_or((32, 32, 36));
-        let mut rect = RECT::default();
-        if GetClientRect(hwnd, &mut rect).is_ok() {
-            let color = COLORREF((r as u32) | ((g as u32) << 8) | ((b as u32) << 16));
-            let brush = CreateSolidBrush(color);
-            if !brush.is_invalid() {
-                let _ = FillRect(HDC(wparam.0 as *mut _), &rect, brush);
-                let _ = DeleteObject(brush.into());
-            }
-        }
-        return LRESULT(1);
-    }
-    DefWindowProcW(hwnd, msg, wparam, lparam)
-}
-
-pub(crate) fn create_container(parent: HWND, x: i32, y: i32, w: i32, h: i32) -> Result<HWND, String> {
-    unsafe {
-        let hinstance = GetModuleHandleW(None).map_err(|e| format!("GetModuleHandleW: {e}"))?;
-        if !CONTAINER_CLASS_REGISTERED.swap(true, Ordering::SeqCst) {
-            let wc = WNDCLASSW {
-                lpfnWndProc: Some(container_wnd_proc),
-                hInstance: hinstance.into(),
-                lpszClassName: w!("ZenithTabContainer"),
-                ..Default::default()
-            };
-            RegisterClassW(&wc);
-        }
-        CreateWindowExW(
-            WINDOW_EX_STYLE(0),
-            w!("ZenithTabContainer"),
-            w!(""),
-            WS_CHILD | WS_CLIPCHILDREN | WS_CLIPSIBLINGS,
-            x,
-            y,
-            w.max(1),
-            h.max(1),
-            Some(parent),
-            None,
-            Some(hinstance.into()),
-            None,
-        )
-        .map_err(|e| format!("CreateWindowExW tab container: {e}"))
     }
 }
 
@@ -321,9 +300,18 @@ pub fn create(opts: CreateOptions) -> Result<(), String> {
         return Ok(());
     }
 
-    super::set_tab_window(&opts.id, &label);
     let private = super::is_private_window(&label);
     let light_bg = opts.url.as_deref().is_some_and(|u| u.starts_with("chrome-extension://"));
+    if let Some(claimed) = warm::try_claim(&opts, parent_hwnd, light_bg) {
+        let id = opts.id.clone();
+        with_host(move |h| {
+            h.tabs.insert(id, claimed);
+            h.apply_layout(&label);
+        });
+        return Ok(());
+    }
+
+    super::set_tab_window(&opts.id, &label);
     let shared = Arc::new(TabShared::new(&opts.id, &label, opts.glance, light_bg));
     if let Ok(mut s) = shared.restore_scroll.lock() {
         *s = opts.scroll;
@@ -380,10 +368,12 @@ pub fn create(opts: CreateOptions) -> Result<(), String> {
         container_hwnd,
         browser: None,
         browser_hwnd: HWND::default(),
+        devtools: None,
         shared,
         visible: false,
         last_rect: None,
         content_px: None,
+        rgn_px: None,
         pending_url: None,
         pending_muted: opts.muted,
         pending_zoom: opts.zoom,
@@ -450,7 +440,33 @@ pub fn close(id: &str) {
     })
     .flatten();
 
-    if let Some(tab) = removed {
+    if let Some(mut tab) = removed {
+        if let Some(mut dt) = tab.devtools.take() {
+            dt.shared.closed.store(true, Ordering::SeqCst);
+            dt.set_visible(false);
+            let closed_via_host = tab
+                .browser
+                .as_ref()
+                .and_then(|b| b.host())
+                .is_some_and(|h| {
+                    if h.has_dev_tools() != 0 {
+                        h.close_dev_tools();
+                        true
+                    } else {
+                        false
+                    }
+                });
+            if !closed_via_host {
+                if let Some(b) = dt.browser {
+                    if let Some(h) = b.host() {
+                        h.close_browser(1);
+                    }
+                } else {
+                    dt.destroy_container();
+                }
+            }
+            emit_devtools_changed(&label, id, false, false);
+        }
         if let Some(b) = tab.browser {
             if let Some(host) = b.host() {
                 // Defer destroying `container_hwnd` until `on_before_close` so Chromium
@@ -506,6 +522,9 @@ pub fn set_glance(id: &str, glance: bool) {
 }
 
 pub fn command(id: &str, cmd: &str, arg: Option<serde_json::Value>) -> Result<serde_json::Value, String> {
+    if cmd == "devtools" {
+        return handle_devtools_command(id, arg.as_ref());
+    }
     let browser = with_host(|h| h.tabs.get(id).and_then(|t| t.browser.clone()))
         .flatten()
         .ok_or("tab has no browser")?;
@@ -517,7 +536,6 @@ pub fn command(id: &str, cmd: &str, arg: Option<serde_json::Value>) -> Result<se
         "reload" => browser.reload(),
         "hardReload" => browser.reload_ignore_cache(),
         "stop" => browser.stop_load(),
-        "devtools" => open_devtools(&browser)?,
         "print" => host.print(),
         "saveAs" => {
             if let Some(frame) = browser.main_frame() {

@@ -40,8 +40,7 @@ wrap_download_image_callback! {
                 return;
             }
             let Some(img) = image else { return };
-            let mut pw = 0;
-            let mut ph = 0;
+            let (mut pw, mut ph) = (0, 0);
             if let Some(bin) = img.as_png(1.0, 1, Some(&mut pw), Some(&mut ph)) {
                 let len = bin.size();
                 if len > 0 && len <= 512 * 1024 {
@@ -49,11 +48,7 @@ wrap_download_image_callback! {
                     let copied = bin.data(Some(&mut buf), 0);
                     if copied > 0 {
                         let b64 = base64::engine::general_purpose::STANDARD.encode(&buf[..copied]);
-                        TabPatch {
-                            favicon: Some(format!("data:image/png;base64,{b64}")),
-                            ..TabPatch::new(&self.tab_id)
-                        }
-                        .send();
+                        TabPatch { favicon: Some(format!("data:image/png;base64,{b64}")), ..TabPatch::new(&self.tab_id) }.send();
                     }
                 }
             }
@@ -103,28 +98,21 @@ wrap_life_span_handler! {
             let Some(browser) = browser else { return };
             let bid = browser.identifier();
             track_browser(browser);
-            let gen = GENERATIONS
-                .lock()
-                .map(|mut g| {
-                    g.register(
-                        bid,
-                        BrowserRole::UntrustedPage {
-                            tab_id: self.shared.id.clone(),
-                            window: self.shared.window.clone(),
-                        },
-                    )
-                })
-                .unwrap_or(0);
+            let (id, window) = (self.shared.id(), self.shared.window());
+            let role = BrowserRole::UntrustedPage { tab_id: id.clone(), window: window.clone() };
+            let gen = GENERATIONS.lock().map(|mut g| g.register(bid, role)).unwrap_or(0);
             self.shared.generation.store(gen, Ordering::SeqCst);
 
-            let browser_hwnd = browser
-                .host()
-                .map(|h| HWND(h.window_handle().0.cast()))
-                .unwrap_or_default();
-            let id = self.shared.id.clone();
-            let window = self.shared.window.clone();
+            let browser_hwnd = browser.host().map(|h| HWND(h.window_handle().0.cast())).unwrap_or_default();
             let scheme = with_host(|h| {
                 let scheme = h.content_scheme.clone();
+                if self.shared.is_warm() {
+                    if let Some(warm) = h.warm_tab.as_mut().filter(|w| Arc::ptr_eq(&w.shared, &self.shared)) {
+                        warm.browser = Some(browser.clone());
+                        warm.browser_hwnd = browser_hwnd;
+                        return scheme;
+                    }
+                }
                 if let Some(tab) = h.tabs.get_mut(&id) {
                     tab.browser = Some(browser.clone());
                     tab.browser_hwnd = browser_hwnd;
@@ -141,20 +129,16 @@ wrap_life_span_handler! {
                             frame.load_url(Some(&CefString::from(url.as_str())));
                         }
                     }
-                    // Force resize of the newly created browser HWND into its container.
                     tab.content_px = None;
                     h.apply_layout(&window);
                 }
                 scheme
-            });
+            })
+            .unwrap_or_default();
 
-            if let Some(s) = scheme {
-                if s == "light" || s == "dark" {
-                    let params = format!(
-                        r#"{{"features":[{{"name":"prefers-color-scheme","value":"{s}"}}]}}"#
-                    );
-                    cdp_call(browser, "Emulation.setEmulatedMedia", &params, |_| {});
-                }
+            if scheme == "light" || scheme == "dark" {
+                let params = format!(r#"{{"features":[{{"name":"prefers-color-scheme","value":"{scheme}"}}]}}"#);
+                cdp_call(browser, "Emulation.setEmulatedMedia", &params, |_| {});
             }
 
             let sh = self.shared.clone();
@@ -169,9 +153,13 @@ wrap_life_span_handler! {
 
         fn do_close(&self, browser: Option<&mut Browser>) -> ::std::os::raw::c_int {
             if !self.shared.closed.load(Ordering::SeqCst) {
+                if self.shared.is_warm() {
+                    return 1;
+                }
+                let id = self.shared.id();
                 // Page requested `window.close()` itself: ask the chrome UI to close the tab.
                 // Return 1 so CEF does NOT send WM_CLOSE to the top-level Zenith window.
-                emit_tab(&self.shared.id, "tab-close-request", TabRef { id: self.shared.id.clone() });
+                emit_tab(&id, "tab-close-request", TabRef { id: id.clone() });
                 return 1;
             }
             // Tab close initiated by Zenith: destroy only this child browser's HWND on the next
@@ -232,18 +220,19 @@ wrap_load_handler! {
             can_go_back: ::std::os::raw::c_int,
             can_go_forward: ::std::os::raw::c_int,
         ) {
-            if self.shared.closed.load(Ordering::SeqCst) {
+            if self.shared.closed.load(Ordering::SeqCst) || self.shared.is_warm() {
                 return;
             }
             let loading = is_loading != 0;
             let url = self.shared.url();
             let title = self.shared.title();
+            let id = self.shared.id();
             TabPatch {
                 loading: Some(loading),
                 can_go_back: Some(can_go_back != 0),
                 can_go_forward: Some(can_go_forward != 0),
                 blocked: (!loading).then(|| self.shared.blocked()),
-                ..TabPatch::new(&self.shared.id)
+                ..TabPatch::new(&id)
             }
             .send();
 
@@ -274,13 +263,14 @@ wrap_load_handler! {
             frame: Option<&mut Frame>,
             _http_status_code: ::std::os::raw::c_int,
         ) {
-            if self.shared.closed.load(Ordering::SeqCst) {
+            if self.shared.closed.load(Ordering::SeqCst) || self.shared.is_warm() {
                 return;
             }
             if let Some(frame) = frame {
                 if frame.is_main() != 0 {
                     let url = cef_str(frame.url());
                     super::requests::inject_cosmetic_css(frame, &url);
+                    crate::media::sniff::sync_frame_button(frame, &url);
                 }
             }
         }
@@ -293,7 +283,7 @@ wrap_load_handler! {
             error_text: Option<&CefString>,
             _failed_url: Option<&CefString>,
         ) {
-            if self.shared.closed.load(Ordering::SeqCst) {
+            if self.shared.closed.load(Ordering::SeqCst) || self.shared.is_warm() {
                 return;
             }
             if frame.is_some_and(|f| f.is_main() == 0) {
@@ -303,10 +293,11 @@ wrap_load_handler! {
                 return;
             }
             let err = opt_cef_str(error_text);
+            let id = self.shared.id();
             TabPatch {
                 loading: Some(false),
                 error: Some(if err.is_empty() { format!("{error_code:?}") } else { err }),
-                ..TabPatch::new(&self.shared.id)
+                ..TabPatch::new(&id)
             }
             .send();
         }
@@ -325,18 +316,19 @@ wrap_display_handler! {
             frame: Option<&mut Frame>,
             url: Option<&CefString>,
         ) {
-            if self.shared.closed.load(Ordering::SeqCst) || frame.is_some_and(|f| f.is_main() == 0) {
+            if self.shared.closed.load(Ordering::SeqCst) || self.shared.is_warm() || frame.is_some_and(|f| f.is_main() == 0) {
                 return;
             }
             let uri = opt_cef_str(url);
             if let Ok(mut u) = self.shared.url.write() {
                 *u = uri.clone();
             }
-            TabPatch { url: Some(uri), ..TabPatch::new(&self.shared.id) }.send();
+            let id = self.shared.id();
+            TabPatch { url: Some(uri), ..TabPatch::new(&id) }.send();
         }
 
         fn on_title_change(&self, _browser: Option<&mut Browser>, title: Option<&CefString>) {
-            if self.shared.closed.load(Ordering::SeqCst) {
+            if self.shared.closed.load(Ordering::SeqCst) || self.shared.is_warm() {
                 return;
             }
             let title = opt_cef_str(title);
@@ -350,7 +342,8 @@ wrap_display_handler! {
                     let _ = crate::history::history_set_title(c, &url, &t);
                 });
             }
-            TabPatch { title: Some(title), ..TabPatch::new(&self.shared.id) }.send();
+            let id = self.shared.id();
+            TabPatch { title: Some(title), ..TabPatch::new(&id) }.send();
         }
 
         fn on_favicon_urlchange(
@@ -358,18 +351,19 @@ wrap_display_handler! {
             browser: Option<&mut Browser>,
             icon_urls: Option<&mut CefStringList>,
         ) {
-            if self.shared.closed.load(Ordering::SeqCst) {
+            if self.shared.closed.load(Ordering::SeqCst) || self.shared.is_warm() {
                 return;
             }
+            let id = self.shared.id();
             let first = icon_urls
                 .and_then(|list| list.clone().into_iter().next())
                 .unwrap_or_default();
             if first.is_empty() {
-                TabPatch { favicon: Some(String::new()), ..TabPatch::new(&self.shared.id) }.send();
+                TabPatch { favicon: Some(String::new()), ..TabPatch::new(&id) }.send();
                 return;
             }
             if let Some(host) = browser.and_then(|b| b.host()) {
-                let mut cb = FaviconDownloadCb::new(self.shared.id.clone());
+                let mut cb = FaviconDownloadCb::new(id);
                 host.download_image(Some(&CefString::from(first.as_str())), 1, 64, 0, Some(&mut cb));
             }
         }
@@ -379,10 +373,14 @@ wrap_display_handler! {
             _browser: Option<&mut Browser>,
             fullscreen: ::std::os::raw::c_int,
         ) {
+            if self.shared.is_warm() {
+                return;
+            }
             let on = fullscreen != 0;
-            let id = self.shared.id.clone();
-            post(move || set_fullscreen_tab(&id, on));
-            TabPatch { fullscreen: Some(on), ..TabPatch::new(&self.shared.id) }.send();
+            let id = self.shared.id();
+            let id2 = id.clone();
+            post(move || set_fullscreen_tab(&id2, on));
+            TabPatch { fullscreen: Some(on), ..TabPatch::new(&id) }.send();
         }
     }
 }
@@ -394,9 +392,12 @@ wrap_focus_handler! {
 
     impl FocusHandler {
         fn on_got_focus(&self, _browser: Option<&mut Browser>) {
-            let id = self.shared.id.clone();
+            if self.shared.is_warm() {
+                return;
+            }
+            let id = self.shared.id();
             let focused = id.clone();
-            let window = self.shared.window.clone();
+            let window = self.shared.window();
             post(move || {
                 with_win(&window, |w| w.focus = Focus::Tab(focused));
             });
@@ -419,7 +420,8 @@ wrap_keyboard_handler! {
             _is_keyboard_shortcut: Option<&mut ::std::os::raw::c_int>,
         ) -> ::std::os::raw::c_int {
             let Some(ev) = event else { return 0 };
-            if handle_pre_key_event(ev, Some(&self.shared), &self.shared.window) { 1 } else { 0 }
+            let window = self.shared.window();
+            if handle_pre_key_event(ev, Some(&self.shared), &window) { 1 } else { 0 }
         }
     }
 }
@@ -439,12 +441,14 @@ wrap_request_handler! {
             _is_redirect: ::std::os::raw::c_int,
         ) -> ::std::os::raw::c_int {
             let is_main = frame.is_some_and(|f| f.is_main() != 0);
-            if !is_main {
+            if !is_main || self.shared.is_warm() {
                 return 0;
             }
             let uri = request.map(|r| cef_str(r.url())).unwrap_or_default();
-            if crate::torrents::open_from_page(&uri, &self.shared.id, self.shared.private, &self.shared.window)
-                || crate::security::intercept_navigation(&self.shared.id, &uri)
+            let tab_id = self.shared.id();
+            let window = self.shared.window();
+            if crate::torrents::open_from_page(&uri, &tab_id, self.shared.private, &window)
+                || crate::security::intercept_navigation(&tab_id, &uri)
             {
                 return 1;
             }
@@ -460,15 +464,15 @@ wrap_request_handler! {
                 media.reset();
             }
             crate::media::sniff::notify(&self.shared);
-            let tab_id = self.shared.id.clone();
-            post(move || crate::host::autofill::on_navigation(&tab_id));
+            let nav_tab_id = tab_id.clone();
+            post(move || crate::host::autofill::on_navigation(&nav_tab_id));
             TabPatch {
                 loading: Some(true),
                 audible: Some(false),
                 blocked: Some(0),
                 crashed: Some(String::new()),
                 error: Some(String::new()),
-                ..TabPatch::new(&self.shared.id)
+                ..TabPatch::new(&tab_id)
             }
             .send();
             0
@@ -495,8 +499,9 @@ wrap_request_handler! {
             _ssl_info: Option<&mut Sslinfo>,
             callback: Option<&mut Callback>,
         ) -> ::std::os::raw::c_int {
+            let id = self.shared.id();
             match callback {
-                Some(cb) if crate::security::queue_cert_error(&self.shared.id, cert_error, opt_cef_str(request_url), cb.clone()) => 1,
+                Some(cb) if crate::security::queue_cert_error(&id, cert_error, opt_cef_str(request_url), cb.clone()) => 1,
                 _ => 0,
             }
         }
@@ -515,14 +520,18 @@ wrap_request_handler! {
                     }
                 }
             }
+            if self.shared.is_warm() {
+                return;
+            }
             let state = match status {
                 TerminationStatus::PROCESS_WAS_KILLED | TerminationStatus::PROCESS_CRASHED | TerminationStatus::PROCESS_OOM => "crashed",
                 _ => "crashed",
             };
+            let id = self.shared.id();
             TabPatch {
                 crashed: Some(state.into()),
                 loading: Some(false),
-                ..TabPatch::new(&self.shared.id)
+                ..TabPatch::new(&id)
             }
             .send();
         }

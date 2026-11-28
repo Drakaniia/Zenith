@@ -1,6 +1,9 @@
 <script lang="ts">
   import Pane from './Pane.svelte';
   import FindBar from '$features/page/FindBar.svelte';
+  import DevToolsPanel from '$features/page/DevToolsPanel.svelte';
+  import { devtools } from '$features/page/devtools.svelte';
+  import { clampDevToolsSize } from '$features/page/devtools';
   import NewTab from '$features/startpage/NewTab.svelte';
   import Favicon from '$shared/ui/Favicon.svelte';
   import BookmarksPanel from '$features/bookmarks/BookmarksPanel.svelte';
@@ -9,12 +12,24 @@
   import { ui } from '$shared/ui/ui.svelte';
   import { dnd } from '$features/sidebar/sidebar-dnd.svelte';
 
+  let { panelAnimating = false }: { panelAnimating?: boolean } = $props();
+  const showPanel = $derived((settings.value.bookmarksPanel || panelAnimating) && !browser.fullscreenTabId);
   const split = $derived(browser.activeSplit);
   const ids = $derived(browser.visibleIds);
   const layout = $derived(split?.layout ?? 'vsep');
   /** Two panes side by side or stacked share the space by the split ratio, with a draggable
    *  divider; more panes, and the grid, share it equally. */
   const resizable = $derived(!!split && ids.length === 2 && layout !== 'grid');
+  const devtoolsTabId = $derived(
+    !browser.fullscreenTabId &&
+      browser.activeTab?.live &&
+      !browser.activeTab.crashed &&
+      devtools.isOpen(browser.activeTab.id)
+      ? browser.activeTab.id
+      : null,
+  );
+  const dtBottom = $derived(devtools.dock === 'bottom');
+  let stageEl: HTMLDivElement | undefined = $state();
   let panesEl: HTMLDivElement | undefined = $state();
   let hoverSide = $state<'left' | 'right' | null>(null);
 
@@ -34,6 +49,22 @@
     el.addEventListener('pointerup', up, { once: true });
   }
 
+  function startDevToolsResize(e: PointerEvent) {
+    if (!stageEl) return;
+    const el = e.currentTarget as HTMLElement;
+    el.setPointerCapture(e.pointerId);
+    const rect = stageEl.getBoundingClientRect();
+    const side = devtools.dock;
+    const move = (ev: PointerEvent) => {
+      const desired = side === 'bottom' ? rect.bottom - ev.clientY : rect.right - ev.clientX;
+      const total = side === 'bottom' ? rect.height : rect.width;
+      devtools.setSize(side, clampDevToolsSize(desired, total));
+    };
+    const up = () => el.removeEventListener('pointermove', move);
+    el.addEventListener('pointermove', move);
+    el.addEventListener('pointerup', up, { once: true });
+  }
+
 
 </script>
 
@@ -41,11 +72,15 @@
   {#if ui.find.open && browser.tabs[ui.find.tabId]}
     <FindBar />
   {/if}
-  <!-- Zen's bookmarks sidebar sits beside the page card; the page view follows its width. -->
+  <!-- Zen's bookmarks sidebar sits beside the page card; its slot slides on --lay-panel while
+       the page webview clips at its endpoint width without mid-slide Blink reflows. -->
   <div class="row">
-  {#if settings.value.bookmarksPanel && !browser.fullscreenTabId}
-    <BookmarksPanel />
-  {/if}
+  <div class="panel-slot">
+    {#if showPanel}
+      <BookmarksPanel />
+    {/if}
+  </div>
+  <div class="stage" class:dt-bottom={dtBottom} bind:this={stageEl}>
   <div
     class="panes"
     class:hsep={!!split && layout === 'hsep'}
@@ -104,6 +139,23 @@
       </div>
     {/if}
   </div>
+  {#if devtoolsTabId}
+    <div
+      class="divider"
+      class:h={dtBottom}
+      role="separator"
+      aria-orientation={dtBottom ? 'horizontal' : 'vertical'}
+      aria-label="Resize developer tools"
+      onpointerdown={startDevToolsResize}
+    ><span></span></div>
+    <DevToolsPanel
+      tabId={devtoolsTabId}
+      style={dtBottom
+        ? `height:${devtools.height}px;max-height:calc(100% - 240px)`
+        : `width:${devtools.width}px;max-width:calc(100% - 240px)`}
+    />
+  {/if}
+  </div>
   </div>
 </section>
 
@@ -120,7 +172,28 @@
     min-height: 0;
     min-width: 0;
     display: flex;
-    gap: var(--zen-sep);
+  }
+  .panel-slot {
+    position: relative;
+    flex: none;
+    width: var(--lay-panel);
+    min-height: 0;
+    overflow: clip;
+  }
+  .panel-slot > :global(aside.panel) {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    right: var(--zen-sep);
+  }
+  .stage {
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
+    display: flex;
+  }
+  .stage.dt-bottom {
+    flex-direction: column;
   }
   .panes {
     position: relative;

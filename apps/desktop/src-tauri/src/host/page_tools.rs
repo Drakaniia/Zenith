@@ -8,14 +8,14 @@ use std::path::{Path, PathBuf};
 use base64::Engine as _;
 use cef::Browser;
 
-use super::{cdp_call, eval_js, open_devtools, with_host};
+use super::{cdp_call, eval_js, with_host};
 
 pub type Done = Box<dyn FnOnce(Result<serde_json::Value, String>)>;
 
 pub fn handles(cmd: &str) -> bool {
     matches!(
         cmd,
-        "reader" | "pip" | "textDirection" | "screenshot" | "responsive" | "taskManager" | "devtools"
+        "reader" | "pip" | "textDirection" | "screenshot" | "responsive" | "taskManager"
     )
 }
 
@@ -46,9 +46,6 @@ pub fn run(id: &str, cmd: &str, _arg: Option<serde_json::Value>, done: Done) {
             // shortcut: Chromium's built-in Task Manager dialog isn't exposed in stock CEF;
             // open Windows Task Manager or report cleanly until Phase 4 task-manager UI.
             done(Ok(serde_json::Value::Null));
-        }
-        "devtools" => {
-            done(open_devtools(&browser).map(|_| serde_json::Value::Null));
         }
         other => done(Err(format!("unknown tab command {other}"))),
     }

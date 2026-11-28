@@ -9,14 +9,14 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use cef::*;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use super::detect::{self, Sniffed};
 use super::{dash, hls, Found, Scan};
 use crate::app::runtime::{post_ui, post_ui_delayed};
 use crate::host::cef_app::cef_str;
 use crate::host::tab::TabShared;
-use crate::host::{emit_tab, eval_js, with_host};
+use crate::host::{config, emit_tab, eval_js, with_host};
 use crate::platform::urls::{host_of, site_of};
 
 const MAX_MANIFEST: usize = 16 << 20;
@@ -28,29 +28,144 @@ struct MediaChanged {
     count: u32,
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct MediaAnchor {
+    pub x: f64,
+    pub y: f64,
+    pub w: f64,
+    pub h: f64,
+    pub dpr: f64,
+}
+
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 struct MediaRequest {
     tab_id: String,
     hint: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    anchor: Option<MediaAnchor>,
 }
 
 pub fn notify(shared: &TabShared) {
+    if shared.is_warm() {
+        return;
+    }
+    let id = shared.id();
     let count = shared.media.lock().map(|m| m.count()).unwrap_or(0);
-    emit_tab(&shared.id, "media-changed", MediaChanged { tab_id: shared.id.clone(), count });
+    emit_tab(&id, "media-changed", MediaChanged { tab_id: id.clone(), count });
 }
 
 pub fn request_panel(tab_id: &str, hint: &str) {
     let hint = if hint.len() > 4096 { String::new() } else { hint.to_string() };
-    emit_tab(tab_id, "media-request", MediaRequest { tab_id: tab_id.to_string(), hint });
+    emit_tab(tab_id, "media-request", MediaRequest { tab_id: tab_id.to_string(), hint, anchor: None });
+}
+
+#[derive(Deserialize)]
+struct ButtonSignal {
+    #[serde(default)]
+    src: String,
+    #[serde(default)]
+    x: f64,
+    #[serde(default)]
+    y: f64,
+    #[serde(default)]
+    w: f64,
+    #[serde(default)]
+    h: f64,
+    #[serde(default)]
+    dpr: f64,
+}
+
+/// Decodes the `_zenith_media` payload from the in-page hover button (with video rect anchor),
+/// falling back to a plain hint URL.
+pub fn parse_button_signal(uri: &str) -> (String, Option<MediaAnchor>) {
+    if let Some(frag) = uri.strip_prefix("https://zenith.invalid/#") {
+        if frag.len() <= 8192 {
+            if let Some(decoded) = percent_decode(frag) {
+                if let Ok(sig) = serde_json::from_str::<ButtonSignal>(&decoded) {
+                    let hint = if sig.src.len() <= 4096 { sig.src } else { String::new() };
+                    let anchor = (sig.w > 0.0 && sig.h > 0.0 && sig.dpr > 0.0 && sig.x.is_finite() && sig.y.is_finite())
+                        .then_some(MediaAnchor { x: sig.x, y: sig.y, w: sig.w, h: sig.h, dpr: sig.dpr });
+                    return (hint, anchor);
+                }
+            }
+        }
+        return (String::new(), None);
+    }
+    let hint = if uri.len() > 4096 { String::new() } else { uri.to_string() };
+    (hint, None)
+}
+
+fn percent_decode(s: &str) -> Option<String> {
+    let b = s.as_bytes();
+    let mut out = Vec::with_capacity(b.len());
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] == b'%' {
+            let hi = (*b.get(i + 1)? as char).to_digit(16)?;
+            let lo = (*b.get(i + 2)? as char).to_digit(16)?;
+            out.push(((hi << 4) | lo) as u8);
+            i += 3;
+        } else {
+            out.push(b[i]);
+            i += 1;
+        }
+    }
+    String::from_utf8(out).ok()
+}
+
+pub fn request_from_button(tab_id: &str, uri: &str) {
+    let (hint, anchor) = parse_button_signal(uri);
+    emit_tab(tab_id, "media-request", MediaRequest { tab_id: tab_id.to_string(), hint, anchor });
 }
 
 pub fn default_user_agent() -> String {
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36".into()
 }
 
+pub fn button_allowed_for_url(url: &str) -> bool {
+    let cfg = config();
+    if !cfg.media_button {
+        return false;
+    }
+    let Some(host) = host_of(url) else {
+        return true;
+    };
+    let h = host.trim_start_matches("www.").to_ascii_lowercase();
+    !cfg.media_disabled_sites
+        .iter()
+        .any(|s| s.trim().trim_start_matches("www.").eq_ignore_ascii_case(&h))
+}
+
+/// Immediately hides or shows the in-page video download button on all open tabs when settings change.
 pub fn apply_button_setting(_enabled: bool) {
-    // Applied automatically to newly created tabs via `extra_info` in `host::tab::create`.
+    let tabs: Vec<(Browser, String)> = with_host(|h| {
+        h.tabs
+            .values()
+            .filter_map(|t| Some((t.browser.clone()?, t.shared.url())))
+            .collect()
+    })
+    .unwrap_or_default();
+    for (browser, url) in tabs {
+        let off = !button_allowed_for_url(&url);
+        let js = format!(
+            "(() => {{ window.__zenithMediaBtnOff = {off}; if ({off}) {{ const el = document.querySelector('zenith-media-button'); if (el) el.style.setProperty('display', 'none', 'important'); }} }})()"
+        );
+        eval_js(&browser, &js, false, false, |_| {});
+    }
+}
+
+/// Syncs the per-site button disabled flag when a tab finishes loading.
+pub fn sync_frame_button(frame: &mut Frame, url: &str) {
+    if !button_allowed_for_url(url) {
+        let js = "window.__zenithMediaBtnOff = true; (() => { const el = document.querySelector('zenith-media-button'); if (el) el.style.setProperty('display', 'none', 'important'); })();";
+        frame.execute_java_script(
+            Some(&CefString::from(js)),
+            Some(&CefString::from("zenith://internal/media-btn-sync.js")),
+            1,
+        );
+    }
 }
 
 #[derive(Clone)]
@@ -194,7 +309,7 @@ pub fn on_cef_response(shared: &Arc<TabShared>, req: &mut Request, resp: &mut Re
     }
 
     fetch_manifest(PendingManifest {
-        tab: shared.id.clone(),
+        tab: shared.id(),
         epoch,
         uri,
         kind,
@@ -257,7 +372,7 @@ pub fn scan(tab_id: &str, done: impl FnOnce() + 'static) {
         };
         for (uri, kind) in fetch {
             fetch_manifest(PendingManifest {
-                tab: shared.id.clone(),
+                tab: shared.id(),
                 epoch,
                 uri,
                 kind,
@@ -356,4 +471,21 @@ pub fn cookie_header(url: &str, page_site: &str) -> Option<String> {
     })
     .ok()?;
     rx.recv_timeout(Duration::from_secs(3)).ok().flatten().filter(|c| !c.is_empty())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_button_signal_with_anchor_and_plain_url() {
+        let (h1, a1) = parse_button_signal("https://cdn.example/v.mp4");
+        assert_eq!(h1, "https://cdn.example/v.mp4");
+        assert_eq!(a1, None);
+
+        let uri = "https://zenith.invalid/#%7B%22src%22%3A%22https%3A%2F%2Fa.test%2Fv.mp4%22%2C%22x%22%3A10%2C%22y%22%3A20%2C%22w%22%3A640%2C%22h%22%3A360%2C%22dpr%22%3A1.5%7D";
+        let (h2, a2) = parse_button_signal(uri);
+        assert_eq!(h2, "https://a.test/v.mp4");
+        assert_eq!(a2, Some(MediaAnchor { x: 10.0, y: 20.0, w: 640.0, h: 360.0, dpr: 1.5 }));
+    }
 }

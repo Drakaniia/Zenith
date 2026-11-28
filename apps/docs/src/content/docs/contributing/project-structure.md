@@ -22,6 +22,8 @@ Run everything from the repository root: `pnpm app:dev`, `pnpm app:build`, `pnpm
 
 ## The UI: `apps/desktop/src/`
 
+`index.html` (entry `main.ts`) is the chrome UI, loaded only by the trusted window webview. `pdf.html` (entry `features/pdf/viewer.ts`) is the PDF viewer, an untrusted page served at `zenith://pdf/` inside tab webviews; it gets no IPC bridge.
+
 The UI is organized by feature. Dependencies point one way:
 
 ```
@@ -36,7 +38,7 @@ main.ts → app/ → features/<domain>/ → shared/, platform/
 | `platform/` | The bridge to the backend: typed backend events (`ipc.ts`), page-webview placement and overlay leases (`layout.svelte.ts`, `webview-api.ts`), Windows shell services (`shell.ts`) and the action registry (`actions.ts`). No domain logic, no imports from features or shared. |
 | `styles/` | Global CSS (`app.css`: tokens and base styles). |
 
-Features today: `blocker`, `bookmarks`, `browser` (tabs, spaces, split view, Glance, session), `chatbot`, `default-browser`, `downloads` (with the video downloader), `extensions`, `history`, `notes`, `onboarding`, `page` (find in page, permissions, page tools), `palette` (address bar and command palette), `passwords` (with `cards/` for the wallet), `profiles`, `settings`, `shortcuts`, `sidebar`, `startpage`, `toolbar`, `updates`, `window` (this window, incognito, new windows, quit).
+Features today: `blocker`, `bookmarks`, `browser` (tabs, spaces, split view, Glance, session), `chatbot`, `default-browser`, `downloads` (with the video downloader), `extensions`, `history`, `notes`, `onboarding`, `page` (find in page, permissions, page tools), `palette` (address bar and command palette), `passwords` (with `cards/` for the wallet), `pdf` (the PDF viewer and editor), `profiles`, `settings`, `shortcuts`, `sidebar`, `startpage`, `toolbar`, `updates`, `window` (this window, incognito, new windows, quit).
 
 ### Conventions
 
@@ -71,6 +73,7 @@ One folder per domain, in the `mod.rs` style. Each domain keeps its Tauri comman
 | `history/`, `bookmarks/`, `notes/`, `downloads/`, `importer/` | Their data and commands. |
 | `media/` | The video downloader: detection, HLS, DASH, MP4 merging, jobs. |
 | `torrents/` | Torrent and magnet downloads on librqbit: engine, file choice, seeding, streaming server. |
+| `pdf/` | The PDF viewer: taking over main-frame PDFs, document tokens and the `zenith://pdf/` handler that serves the viewer, the file and in-place saves. |
 | `blocker/`, `extensions/`, `vault/`, `updates/`, `search/` | Ad blocking, extensions, the password manager and wallet, app updates, search suggestions. |
 | `platform/` | WinHTTP (`net.rs`), URL validation (`urls.rs`), Windows integration (`win/`). |
 

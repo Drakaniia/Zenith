@@ -46,7 +46,7 @@ pub(super) fn handle_before_popup(
     settings: Option<&mut BrowserSettings>,
     extra_info: Option<&mut Option<DictionaryValue>>,
 ) -> ::std::os::raw::c_int {
-    let opener = sh.id.clone();
+    let opener = sh.id();
     let main_frame = frame.is_some_and(|f| f.is_main() != 0);
 
     match name {
@@ -70,7 +70,7 @@ pub(super) fn handle_before_popup(
         }
         "_zenith_media" => {
             if user {
-                crate::media::sniff::request_panel(&opener, uri);
+                crate::media::sniff::request_from_button(&opener, uri);
             }
             return 1;
         }
@@ -104,7 +104,8 @@ pub(super) fn handle_before_popup(
         _ => {}
     }
 
-    if user && crate::torrents::open_from_page(uri, &opener, sh.private, &sh.window) {
+    let window = sh.window();
+    if user && crate::torrents::open_from_page(uri, &opener, sh.private, &window) {
         return 1;
     }
 
@@ -116,7 +117,6 @@ pub(super) fn handle_before_popup(
     // Real popup or target=_blank preserving `window.opener`: embed directly as a child tab!
     let popup = popup_features.is_some_and(|f| f.width_set != 0 || f.height_set != 0);
     let id = format!("w{}", NEXT_POPUP.fetch_add(1, Ordering::Relaxed));
-    let window = sh.window.clone();
     let parent_hwnd = with_host(|h| h.wins.get(&window).map(|w| w.hwnd)).flatten();
     let Some(parent_hwnd) = parent_hwnd else {
         return 1;
@@ -164,10 +164,12 @@ pub(super) fn handle_before_popup(
         container_hwnd,
         browser: None,
         browser_hwnd: HWND::default(),
+        devtools: None,
         shared: child_shared,
         visible: false,
         last_rect: None,
         content_px: None,
+        rgn_px: None,
         pending_url: None,
         pending_muted: false,
         pending_zoom: None,

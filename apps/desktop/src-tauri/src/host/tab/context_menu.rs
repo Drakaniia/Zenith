@@ -14,6 +14,10 @@ const CMD_LINK_BACKGROUND: i32 = 26501;
 const CMD_LINK_GLANCE: i32 = 26502;
 const CMD_LINK_SPLIT: i32 = 26503;
 const CMD_LINK_INCOGNITO: i32 = 26504;
+const CMD_INSPECT_ELEMENT: i32 = 26505;
+/// Chromium's built-in `IDC_CONTENT_CONTEXT_INSPECTELEMENT` command ID, intercepted so it opens
+/// Zenith's docked DevTools instead of a detached popup.
+const IDC_INSPECT_ELEMENT: i32 = 50154;
 
 wrap_context_menu_handler! {
     pub(super) struct TabContextMenuHandler {
@@ -54,6 +58,13 @@ wrap_context_menu_handler! {
                 }
                 model.insert_separator_at(idx);
             }
+
+            if model.index_of(IDC_INSPECT_ELEMENT) < 0 && model.index_of(CMD_INSPECT_ELEMENT) < 0 {
+                if model.count() > 0 {
+                    model.add_separator();
+                }
+                model.add_item(CMD_INSPECT_ELEMENT, Some(&CefString::from("Inspect")));
+            }
         }
 
         fn on_context_menu_command(
@@ -65,10 +76,11 @@ wrap_context_menu_handler! {
             _event_flags: EventFlags,
         ) -> ::std::os::raw::c_int {
             let Some(params) = params else { return 0 };
+            let id = self.shared.id();
             match command_id {
                 CMD_DOWNLOAD_MEDIA => {
                     let src = cef_str(params.source_url());
-                    crate::media::sniff::request_panel(&self.shared.id, &src);
+                    crate::media::sniff::request_panel(&id, &src);
                     1
                 }
                 CMD_LINK_BACKGROUND | CMD_LINK_GLANCE | CMD_LINK_SPLIT | CMD_LINK_INCOGNITO => {
@@ -86,14 +98,19 @@ wrap_context_menu_handler! {
                         _ => "background",
                     };
                     emit_tab(
-                        &self.shared.id,
+                        &id,
                         "tab-open-request",
                         OpenRequest {
                             url: link,
-                            opener_id: Some(self.shared.id.clone()),
+                            opener_id: Some(id.clone()),
                             kind: kind.into(),
                         },
                     );
+                    1
+                }
+                CMD_INSPECT_ELEMENT | IDC_INSPECT_ELEMENT => {
+                    let pt = Point { x: params.xcoord(), y: params.ycoord() };
+                    let _ = crate::host::open_tab_devtools(&id, Some(pt), true);
                     1
                 }
                 _ => 0,

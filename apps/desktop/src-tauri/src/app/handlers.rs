@@ -169,9 +169,14 @@ pub async fn dispatch(
         "torrent_choose_files" => call!(crate::torrents::commands::torrent_choose_files, (id: i64, files: Vec<usize>), app, win, args),
         "torrent_stream_url" => call!(crate::torrents::commands::torrent_stream_url, (id: i64, file: usize), app, win, args),
         "media_list" => call!(crate::media::commands::media_list, (@app, tab_id: String, scan: Option<bool>), app, win, args),
-        "media_download" => call!(crate::media::commands::media_download, (@app, tab_id: String, item_id: u32, variant: Option<String>, audio: Option<String>), app, win, args),
+        "media_download" => call!(crate::media::commands::media_download, (@app, tab_id: String, item_id: u32, variant: Option<String>, audio: Option<String>, audio_format: Option<String>), app, win, args),
         "media_tools" => call!(crate::media::commands::media_tools, (), app, win, args),
         "media_pick_ffmpeg" => call!(crate::media::commands::media_pick_ffmpeg, (@app), app, win, args),
+        "media_pick_ytdlp" => call!(crate::media::commands::media_pick_ytdlp, (@app), app, win, args),
+        "media_install_tool" => call!(crate::media::commands::media_install_tool, (tool: String), app, win, args),
+        "media_remove_tool" => call!(crate::media::commands::media_remove_tool, (tool: String), app, win, args),
+        "media_probe_url" => call!(crate::media::commands::media_probe_url, (url: String, prefer_ytdlp: Option<bool>), app, win, args),
+        "media_download_probed" => call!(crate::media::commands::media_download_probed, (probe_id: String, item_id: u32, variant: Option<String>, audio: Option<String>, audio_format: Option<String>, tab_id: Option<String>), app, win, args),
 
         // Blocker & extensions
         "blocker_configure" => call!(crate::blocker::commands::blocker_configure, (lists: Vec<crate::blocker::commands::FilterList>, update: bool, disabled_sites: Vec<String>), app, win, args),

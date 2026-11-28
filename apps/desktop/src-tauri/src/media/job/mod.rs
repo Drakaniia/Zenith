@@ -59,6 +59,33 @@ pub enum Source {
     Download { url: String, ext: String },
 }
 
+/// Requested audio-only output format.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AudioFormat {
+    M4a,
+    Opus,
+    Mp3,
+}
+
+impl AudioFormat {
+    pub fn parse(s: &str) -> Option<Self> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "m4a" | "aac" => Some(Self::M4a),
+            "opus" => Some(Self::Opus),
+            "mp3" => Some(Self::Mp3),
+            _ => None,
+        }
+    }
+
+    pub fn ext(self) -> &'static str {
+        match self {
+            Self::M4a => "m4a",
+            Self::Opus => "opus",
+            Self::Mp3 => "mp3",
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Plan {
     pub main: Source,
@@ -78,6 +105,8 @@ pub struct Output {
 pub struct Job {
     pub plan: Plan,
     tracks: Vec<Track>,
+    audio_format: Option<AudioFormat>,
+    source_is_audio: bool,
 }
 
 impl Job {
@@ -86,7 +115,13 @@ impl Job {
         if let Some(a) = &plan.audio {
             tracks.push(Track::new(1, a.clone(), work));
         }
-        Job { plan, tracks }
+        Job { plan, tracks, audio_format: None, source_is_audio: false }
+    }
+
+    pub fn with_audio_format(mut self, fmt: Option<AudioFormat>, source_is_audio: bool) -> Self {
+        self.audio_format = fmt;
+        self.source_is_audio = source_is_audio;
+        self
     }
 
     /// Downloads (or records) every track. Can be called again after `Paused`/`Failed` to
@@ -168,6 +203,10 @@ pub struct Request {
     pub headers: Vec<(String, String)>,
     pub user_agent: String,
     pub plan: Plan,
+    /// When set, produce an audio-only file in this format (native when already matching, else FFmpeg).
+    pub audio_format: Option<AudioFormat>,
+    /// True when `plan.main` is already an audio-only stream/file.
+    pub source_is_audio: bool,
 }
 
 /// The default downloads folder, or the one chosen in settings.
@@ -179,17 +218,9 @@ pub fn download_dir() -> PathBuf {
         .unwrap_or_else(|| crate::host::paths().local.join("Downloads"))
 }
 
-/// FFmpeg from settings or PATH, if the user allows it.
+/// FFmpeg from settings, Zenith's managed tools folder, or PATH, if the user allows it.
 pub fn find_ffmpeg() -> Option<PathBuf> {
-    let cfg = crate::host::config();
-    if !cfg.use_ffmpeg {
-        return None;
-    }
-    if let Some(p) = cfg.ffmpeg_path.filter(|p| p.is_file()) {
-        return Some(p);
-    }
-    let path = std::env::var_os("PATH")?;
-    std::env::split_paths(&path).map(|d| d.join("ffmpeg.exe")).find(|p| p.is_file())
+    super::tools::find_ffmpeg()
 }
 
 struct HostEnv {
@@ -229,6 +260,91 @@ pub fn start(req: Request) -> Result<i64, String> {
 /// Starts a page download taken over by fast mode: saved in `dir`, listed as an ordinary file.
 pub fn start_download(req: Request, dir: PathBuf, origin: Option<crate::host::downloads::Origin>) -> Result<i64, String> {
     launch(req, dir, "file", origin)
+}
+
+/// Runs an external tool job (e.g. `yt-dlp`) inside Zenith's downloads list with progress & cancel.
+pub fn start_external<F>(
+    tab: String,
+    source_url: String,
+    provisional_path: PathBuf,
+    mime: String,
+    live: bool,
+    worker: F,
+) -> Result<i64, String>
+where
+    F: FnOnce(Arc<Control>, Arc<Progress>) -> Result<Output, Halt> + Send + 'static,
+{
+    let id = crate::host::downloads::next_id();
+    let control = Arc::new(Control::default());
+    let progress = Arc::new(Progress::default());
+    let record = DownloadRecord {
+        id,
+        url: source_url.clone(),
+        path: provisional_path.display().to_string(),
+        mime,
+        total: 0,
+        received: 0,
+        state: "progress".into(),
+        started: now_ms(),
+        ended: None,
+    };
+    lock(&JOBS).insert(
+        id,
+        Running {
+            record,
+            tab,
+            control: control.clone(),
+            progress: progress.clone(),
+            live,
+            paused: false,
+            reason: String::new(),
+            note: String::new(),
+            last_emit: Instant::now(),
+            resumable: false,
+            persisted: String::new(),
+            kind: "media",
+            origin: None,
+        },
+    );
+    publish(id, true);
+    std::thread::Builder::new()
+        .name(format!("zenith-ext-media-{id}"))
+        .spawn(move || {
+            let done = Arc::new(AtomicBool::new(false));
+            {
+                let done = done.clone();
+                std::thread::spawn(move || {
+                    while !done.load(Ordering::Relaxed) {
+                        std::thread::sleep(Duration::from_millis(400));
+                        publish(id, false);
+                    }
+                });
+            }
+            let res = worker(control, progress);
+            done.store(true, Ordering::Relaxed);
+            match res {
+                Ok(out) => {
+                    for f in &out.files {
+                        output::mark_of_the_web(f, &source_url, &source_url);
+                    }
+                    let size = out.files.first().and_then(|f| fs::metadata(f).ok()).map(|m| m.len()).unwrap_or(0) as i64;
+                    settle(id, "completed", "", false, |j| {
+                        j.record.path = out.files.first().map(|f| f.display().to_string()).unwrap_or_default();
+                        j.record.received = size;
+                        j.record.total = size;
+                        j.note = out.note;
+                    });
+                }
+                Err(Halt::Canceled) => settle(id, "canceled", "", false, |_| {}),
+                Err(Halt::Failed(reason)) => settle(id, "interrupted", &reason, false, |_| {}),
+                Err(_) => settle(id, "canceled", "", false, |_| {}),
+            }
+        })
+        .map_err(|e| {
+            lock(&JOBS).remove(&id);
+            e.to_string()
+        })?;
+    Ok(id)
 }
 
 fn launch(req: Request, dir: PathBuf, kind: &'static str, origin: Option<crate::host::downloads::Origin>) -> Result<i64, String> {
@@ -318,7 +434,7 @@ fn run(id: i64, req: Request, dir: PathBuf, control: Arc<Control>, progress: Arc
             progress.fast.store(true, Ordering::Relaxed);
         }
     }
-    let mut job = Job::new(req.plan.clone(), &work);
+    let mut job = Job::new(req.plan.clone(), &work).with_audio_format(req.audio_format, req.source_is_audio);
     loop {
         let result = job.run(&ctx).and_then(|()| job.finish(&ctx, &dir, &req.stem));
         match result {

@@ -9,11 +9,17 @@ use crate::app::runtime::{AppHandle, Theme, WindowHandle};
 use crate::host::{self, paths, RuntimeConfig};
 use crate::storage;
 
+fn default_material() -> String {
+    "mica".into()
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Appearance {
     /// "system" | "light" | "dark"
     theme: String,
+    #[serde(default = "default_material")]
+    material: String,
     page_background: [u8; 3],
     /// prefers-color-scheme for web content: "system" | "light" | "dark"
     content_scheme: String,
@@ -24,7 +30,7 @@ pub async fn apply_settings(
     window: WindowHandle,
     config: RuntimeConfig,
     appearance: Appearance,
-) -> CmdResult<()> {
+) -> CmdResult<bool> {
     // App-wide settings come from the normal window; an incognito window only styles itself
     // (its settings changes last only as long as it is open).
     if !private(&window) {
@@ -38,16 +44,23 @@ pub async fn apply_settings(
         _ => None,
     };
     let _ = window.set_theme(theme);
+    let material_win = window.clone();
+    let material = appearance.material;
     let bg = appearance.page_background;
     let scheme = appearance.content_scheme;
     on_main(&app, move || {
+        let ok = material_win.set_material(&material);
         host::set_page_background((bg[0], bg[1], bg[2]));
         host::set_content_color_scheme(&scheme);
+        ok
     })
     .await
 }
 
 pub async fn settings_load() -> CmdResult<Option<String>> {
+    if let Some(warm) = storage::take_warm_settings() {
+        return Ok(warm);
+    }
     blocking(|| storage::read_text(&paths().settings())).await
 }
 
@@ -63,6 +76,7 @@ pub async fn settings_save(window: WindowHandle, data: String) -> CmdResult<()> 
     if private(&window) {
         return Ok(());
     }
+    storage::clear_warm_settings();
     blocking(move || storage::write_atomic(&paths().settings(), data.as_bytes()).map_err(|e| e.to_string())).await??;
     host::emit("settings-changed", SettingsChanged { origin: window.label().to_string() });
     Ok(())

@@ -9,7 +9,8 @@ use windows::Win32::Foundation::{HWND, RECT};
 use windows::Win32::UI::WindowsAndMessaging::{GetClientRect, SetWindowPos, SWP_NOACTIVATE, SWP_NOZORDER};
 
 use super::cef_app::cef_str;
-use super::devtools::{cdp_call, open_devtools, target_id_of};
+use super::devtools::{cdp_call, target_id_of};
+use super::devtools_view::open_popup_devtools;
 use super::state::{APP, DB, PATHS};
 use super::{track_browser, untrack_browser, with_host, with_win, Focus, LayoutSpec, Win};
 use crate::app::bridge::{bridge_token, handle_invoke_message, trusted_ui_url, GENERATIONS, IPC_INVOKE_MSG};
@@ -35,6 +36,7 @@ pub fn init_services(app: &AppHandle) -> Result<(), String> {
     }
     let _ = APP.set(app.clone());
     let _ = DB.set(Db::open(paths.db()));
+    crate::storage::warm_startup_snapshots(&paths);
     let _ = PATHS.set(paths);
     crate::incognito::sweep_stale();
     crate::media::job::cleanup_temp();
@@ -333,7 +335,8 @@ pub fn create_chrome_window(window: WindowHandle, private: bool) -> Result<(), S
 
     let mut client = ChromeClient::new(label);
     let mut settings = BrowserSettings::default();
-    settings.background_color = 0xFF131313;
+    // Premultiplied-alpha DirectComposition surface so DWM Mica/Acrylic shows beneath SpaceTint.
+    settings.background_color = 0x0000_0000;
     let url = trusted_ui_url();
     if browser_host_create_browser(
         Some(&win_info),
@@ -353,7 +356,7 @@ pub fn open_chrome_devtools(label: &str) -> Result<(), String> {
     let browser = with_host(|h| h.wins.get(label).and_then(|w| w.chrome.clone()))
         .flatten()
         .ok_or("chrome UI is not ready")?;
-    open_devtools(&browser)
+    open_popup_devtools(&browser)
 }
 
 /// Detaches a closing window and closes its chrome and tab CEF browsers.
@@ -367,6 +370,9 @@ pub fn detach_window(label: &str) {
             if let Some(b) = win.chrome {
                 browsers.push(b);
             }
+        }
+        if let Some(b) = super::tab::warm::drop_for_window(h, label) {
+            browsers.push(b);
         }
         let ids: Vec<String> = h
             .tabs
@@ -382,9 +388,17 @@ pub fn detach_window(label: &str) {
             if let Ok(mut sb) = crate::security::SAFE_BROWSING.write() {
                 sb.drop_tab(&id);
             }
-            if let Some(tab) = h.tabs.remove(&id) {
+            if let Some(mut tab) = h.tabs.remove(&id) {
                 tab.shared.closed.store(true, std::sync::atomic::Ordering::SeqCst);
-                if let Some(b) = tab.browser {
+                if let Some(dt) = tab.devtools.take() {
+                    dt.shared.closed.store(true, std::sync::atomic::Ordering::SeqCst);
+                    if let Some(b) = dt.browser {
+                        browsers.push(b);
+                    } else {
+                        dt.destroy_container();
+                    }
+                }
+                if let Some(b) = tab.browser.take() {
                     browsers.push(b);
                 } else {
                     tab.destroy_container();
@@ -416,9 +430,20 @@ pub fn shutdown() {
         h.protocol_prompts.clear();
         h.pending_downloads.clear();
         let mut out = Vec::new();
-        for (_, tab) in h.tabs.drain() {
+        if let Some(b) = super::tab::warm::drain_warm(h) {
+            out.push(b);
+        }
+        for (_, mut tab) in h.tabs.drain() {
             tab.shared.closed.store(true, std::sync::atomic::Ordering::SeqCst);
-            if let Some(b) = tab.browser {
+            if let Some(dt) = tab.devtools.take() {
+                dt.shared.closed.store(true, std::sync::atomic::Ordering::SeqCst);
+                if let Some(b) = dt.browser {
+                    out.push(b);
+                } else {
+                    dt.destroy_container();
+                }
+            }
+            if let Some(b) = tab.browser.take() {
                 out.push(b);
             } else {
                 tab.destroy_container();

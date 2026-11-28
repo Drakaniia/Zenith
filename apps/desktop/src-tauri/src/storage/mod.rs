@@ -13,11 +13,55 @@ pub mod migration;
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::sync::mpsc;
+use std::sync::{mpsc, LazyLock, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
+
+static WARM_SETTINGS: LazyLock<Mutex<Option<Option<String>>>> = LazyLock::new(|| Mutex::new(None));
+static WARM_SESSION: LazyLock<Mutex<Option<Option<String>>>> = LazyLock::new(|| Mutex::new(None));
+
+/// Pre-reads `settings.json` and `session.json` on a background thread while CEF initializes so
+/// the initial window's startup calls return from memory without waiting on disk I/O.
+pub fn warm_startup_snapshots(paths: &Paths) {
+    let settings_path = paths.settings();
+    let session_path = paths.session();
+    std::thread::spawn(move || {
+        let settings = read_text(&settings_path);
+        let session = read_text(&session_path);
+        if let Ok(mut slot) = WARM_SETTINGS.lock() {
+            if slot.is_none() {
+                *slot = Some(settings);
+            }
+        }
+        if let Ok(mut slot) = WARM_SESSION.lock() {
+            if slot.is_none() {
+                *slot = Some(session);
+            }
+        }
+    });
+}
+
+pub fn take_warm_settings() -> Option<Option<String>> {
+    WARM_SETTINGS.lock().ok().and_then(|mut s| s.take())
+}
+
+pub fn clear_warm_settings() {
+    if let Ok(mut s) = WARM_SETTINGS.lock() {
+        *s = None;
+    }
+}
+
+pub fn take_warm_session() -> Option<Option<String>> {
+    WARM_SESSION.lock().ok().and_then(|mut s| s.take())
+}
+
+pub fn clear_warm_session() {
+    if let Ok(mut s) = WARM_SESSION.lock() {
+        *s = None;
+    }
+}
 
 #[derive(Clone, Debug)]
 pub struct Paths {

@@ -1,7 +1,5 @@
 <script lang="ts">
   import { tick, onMount } from 'svelte';
-  import { cubicOut } from 'svelte/easing';
-  import { revealX } from '$shared/ui/motion';
   import Icon from '$shared/ui/Icon.svelte';
   import Favicon from '$shared/ui/Favicon.svelte';
   import BookmarksPanelHistory from './BookmarksPanelHistory.svelte';
@@ -193,7 +191,7 @@
   // The keyboard goes to the search box when the sidebar opens.
   onMount(() => {
     void webviewApi.focusView(null);
-    void tick().then(() => search?.focus());
+    void tick().then(() => search?.focus({ preventScroll: true }));
   });
 
   // ---------------------------------------------------------------- resizing
@@ -202,7 +200,7 @@
     if (e.button !== 0) return;
     const el = e.currentTarget as HTMLElement;
     const startX = e.clientX;
-    const startW = el.parentElement?.offsetWidth ?? settings.value.bookmarksPanelWidth;
+    const startW = el.closest('aside.panel')?.getBoundingClientRect().width ?? settings.value.bookmarksPanelWidth;
     el.setPointerCapture(e.pointerId);
     resizing = true;
     const move = (ev: PointerEvent) => {
@@ -224,13 +222,10 @@
       .join(' / ');
 </script>
 
-<!-- It slides in and out of its own slot; the page beside it resizes once (Zen-style). -->
+<!-- Docked inside Content.svelte's --lay-panel slot; fixed width avoids text reflow while sliding. -->
 <aside
   class="panel"
   aria-label={view === 'history' ? 'History' : 'Bookmarks'}
-  style:--panel-w="{settings.value.bookmarksPanelWidth}px"
-  in:revealX={{ duration: 250 }}
-  out:revealX={{ duration: 180, easing: cubicOut }}
 >
   <header>
     <button class="title" onclick={viewMenu} aria-haspopup="menu">
@@ -364,7 +359,6 @@
     position: relative;
     flex: none;
     width: var(--panel-w);
-    max-width: 60%;
     min-height: 0;
     display: flex;
     flex-direction: column;
@@ -372,6 +366,7 @@
     background: var(--page-bg);
     box-shadow: var(--zen-big-shadow);
     overflow: hidden;
+    contain: layout style paint;
   }
   header {
     flex: none;

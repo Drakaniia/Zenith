@@ -1,6 +1,6 @@
 //! Native CEF DevTools protocol bridge (`execute_dev_tools_method` + `DevToolsMessageObserver`).
 //! Used for `cdp_call`, `eval_js` with JSON return values, `Target.getTargetInfo`, screenshots,
-//! responsive emulation, and opening DevTools windows without needing a remote debugging port.
+//! responsive emulation, and browser-target CDP without needing a remote debugging port.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -151,18 +151,6 @@ pub(crate) fn target_id_of(json: &str) -> Option<String> {
     serde_json::from_str::<serde_json::Value>(json).ok()?["targetInfo"]["targetId"]
         .as_str()
         .map(str::to_string)
-}
-
-/// Opens a popup DevTools window inspecting `browser`.
-pub fn open_devtools(browser: &Browser) -> Result<(), String> {
-    let Some(host) = browser.host() else {
-        return Err("browser host unavailable".into());
-    };
-    let info = WindowInfo::default().set_as_popup(cef::sys::HWND(std::ptr::null_mut()), "DevTools");
-    let settings = BrowserSettings::default();
-    let inspect_at = Point::default();
-    host.show_dev_tools(Some(&info), None, Some(&settings), Some(&inspect_at));
-    Ok(())
 }
 
 fn json_to_dictionary(params_json: &str) -> Option<DictionaryValue> {

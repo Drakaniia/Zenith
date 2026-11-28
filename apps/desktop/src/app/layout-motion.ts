@@ -13,6 +13,7 @@ export interface LayoutState {
   compact: boolean;
   mode: string;
   barOn: boolean;
+  panelOn?: boolean;
   hideToolbar: boolean;
   side: string;
 }
@@ -22,39 +23,57 @@ export interface LayoutMotion {
   side: number;
   /** Duration of the toolbar row's move and of the page's top edge, in ms. */
   bar: number;
+  /** Duration of the docked bookmarks/history panel's (Ctrl+B) slide, in ms. */
+  panel: number;
   /** The toolbar folds into the top edge (Zen's hidden toolbar) instead of sliding. */
   fold: boolean;
 }
 
-export const STILL: LayoutMotion = { side: 0, bar: 0, fold: false };
+export const STILL: LayoutMotion = { side: 0, bar: 0, panel: 0, fold: false };
 export const LAYOUT_MS = 300;
 export const COMPACT_MS = 100;
 export const TOOLBAR_FOLD_MS = 150;
+export const PANEL_OPEN_MS = 250;
+export const PANEL_CLOSE_MS = 180;
 
 export function sameLayout(a: LayoutState, b: LayoutState): boolean {
-  return a.compact === b.compact && a.mode === b.mode && a.barOn === b.barOn && a.hideToolbar === b.hideToolbar && a.side === b.side;
+  return (
+    a.compact === b.compact &&
+    a.mode === b.mode &&
+    a.barOn === b.barOn &&
+    !!a.panelOn === !!b.panelOn &&
+    a.hideToolbar === b.hideToolbar &&
+    a.side === b.side
+  );
 }
 
 /** The motion for a change from `prev` to `next`. `flyoutOpen`: the floating sidebar of compact
  *  mode is showing as the change happens. */
 export function layoutMotion(prev: LayoutState, next: LayoutState, flyoutOpen: boolean): LayoutMotion {
-  const same = (k: keyof LayoutState) => prev[k] === next[k];
+  const same = (k: keyof LayoutState) =>
+    k === "panelOn" ? !!prev.panelOn === !!next.panelOn : prev[k] === next[k];
   if (sameLayout(prev, next)) return STILL;
+  const panel = !same("panelOn") ? (next.panelOn ? PANEL_OPEN_MS : PANEL_CLOSE_MS) : 0;
+  // Only the docked bookmarks/history sidebar (Ctrl+B / Ctrl+H) toggled: slide its slot alone.
+  if (same("compact") && same("mode") && same("barOn") && same("hideToolbar") && same("side")) {
+    return { side: 0, bar: 0, panel, fold: false };
+  }
   // Anything beyond compact mode and its hidden toolbar: the general layout motion.
   if (!(same("mode") && same("barOn") && same("side")))
-    return { side: LAYOUT_MS, bar: LAYOUT_MS, fold: false };
+    return { side: LAYOUT_MS, bar: LAYOUT_MS, panel, fold: false };
   const toggled = !same("compact");
-  if (toggled && !next.compact && flyoutOpen) return STILL;
+  if (toggled && !next.compact && flyoutOpen) return panel ? { side: 0, bar: 0, panel, fold: false } : STILL;
   const fold = !same("hideToolbar");
   return {
     side: toggled ? COMPACT_MS : 0,
     bar: fold ? TOOLBAR_FOLD_MS : toggled ? COMPACT_MS : 0,
+    panel,
     fold,
   };
 }
 
 /** How long the page webviews follow the layout frame by frame for `m`. */
 export function followMs(m: LayoutMotion): number {
-  const ms = Math.max(m.side, m.bar);
+  const ms = Math.max(m.side, m.bar, m.panel);
   return ms ? ms + 80 : 0;
 }

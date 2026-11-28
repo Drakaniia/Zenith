@@ -23,6 +23,8 @@ export function kindLabel(
     return item.audioOnly ? "Audio stream (HLS)" : "Video stream (HLS)";
   if (item.kind === "dash")
     return item.audioOnly ? "Audio stream (DASH)" : "Video stream (DASH)";
+  if (item.kind === "ytdlp")
+    return item.audioOnly ? "Audio (yt-dlp)" : "Video (yt-dlp)";
   const ext = (item.ext || (item.audioOnly ? "audio" : "video")).toUpperCase();
   return `${ext} ${item.audioOnly ? "audio" : "video"}`;
 }

@@ -7,10 +7,17 @@
 //!   receive ONLY Zenith's unprivileged page scripts (modified-click, autofill, Web Store,
 //!   media button, extension popup helper).
 
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use cef::*;
+
+thread_local! {
+    /// Registered V8 message callbacks for `TrustedUi` main frames on `TID_RENDERER`, avoiding
+    /// per-message `execute_java_script` JS source compilation on IPC replies and events.
+    static RECV_CBS: RefCell<HashMap<i32, (V8Context, V8Value)>> = RefCell::new(HashMap::new());
+}
 
 use crate::app::bridge::{
     bridge_init_script, ui_dist_dir, ZenithSchemeFactory, IPC_EVENT_MSG, IPC_INVOKE_MSG,
@@ -91,6 +98,34 @@ wrap_v8_handler! {
     }
 }
 
+wrap_v8_handler! {
+    struct NativeRecvHandler {
+        browser_id: i32,
+        context: V8Context,
+    }
+
+    impl V8Handler {
+        fn execute(
+            &self,
+            _name: Option<&CefString>,
+            _object: Option<&mut V8Value>,
+            arguments: Option<&[Option<V8Value>]>,
+            retval: Option<&mut Option<V8Value>>,
+            _exception: Option<&mut CefString>,
+        ) -> ::std::os::raw::c_int {
+            if let Some(cb) = arguments.and_then(|a| a.first()).and_then(|v| v.as_ref()).filter(|v| v.is_function() != 0) {
+                RECV_CBS.with(|m| {
+                    m.borrow_mut().insert(self.browser_id, (self.context.clone(), cb.clone()));
+                });
+            }
+            if let Some(ret) = retval {
+                *ret = v8_value_create_undefined();
+            }
+            1
+        }
+    }
+}
+
 wrap_render_process_handler! {
     struct ZenithRenderHandler {
         state: Arc<Mutex<RenderState>>,
@@ -129,9 +164,28 @@ wrap_render_process_handler! {
         fn on_browser_destroyed(&self, browser: Option<&mut Browser>) {
             let Some(browser) = browser else { return };
             let id = browser.identifier();
+            RECV_CBS.with(|m| {
+                m.borrow_mut().remove(&id);
+            });
             if let Ok(mut st) = self.state.lock() {
                 st.trusted.remove(&id);
                 st.pages.remove(&id);
+            }
+        }
+
+        fn on_context_released(
+            &self,
+            browser: Option<&mut Browser>,
+            frame: Option<&mut Frame>,
+            _context: Option<&mut V8Context>,
+        ) {
+            if frame.is_some_and(|f| f.is_main() != 0) {
+                if let Some(browser) = browser {
+                    let id = browser.identifier();
+                    RECV_CBS.with(|m| {
+                        m.borrow_mut().remove(&id);
+                    });
+                }
             }
         }
 
@@ -163,6 +217,11 @@ wrap_render_process_handler! {
                 if let Some(mut func) = v8_value_create_function(Some(&fn_name), Some(&mut handler)) {
                     global.set_value_bykey(Some(&fn_name), Some(&mut func), V8Propertyattribute::default());
                 }
+                let mut recv_handler = NativeRecvHandler::new(id, context.clone());
+                let recv_name = CefString::from("__zenith_native_on_msg");
+                if let Some(mut func) = v8_value_create_function(Some(&recv_name), Some(&mut recv_handler)) {
+                    global.set_value_bykey(Some(&recv_name), Some(&mut func), V8Propertyattribute::default());
+                }
                 let init_js = bridge_init_script(&meta.token, &meta.window, meta.incognito);
                 eval_v8(context, &init_js, "zenith://internal/bridge.js");
                 return;
@@ -190,24 +249,42 @@ wrap_render_process_handler! {
 
         fn on_process_message_received(
             &self,
-            _browser: Option<&mut Browser>,
+            browser: Option<&mut Browser>,
             frame: Option<&mut Frame>,
             _source_process: ProcessId,
             message: Option<&mut ProcessMessage>,
         ) -> ::std::os::raw::c_int {
             let (Some(frame), Some(msg)) = (frame, message) else { return 0 };
             let name = cef_str(msg.name());
+            if name != IPC_RESPONSE_MSG && name != IPC_EVENT_MSG {
+                return 0;
+            }
             let payload = msg
                 .argument_list()
                 .map(|a| cef_str(a.string(0)))
                 .unwrap_or_default();
 
+            if let Some(bid) = browser.map(|b| b.identifier()) {
+                let entry = RECV_CBS.with(|m| m.borrow().get(&bid).cloned());
+                if let Some((mut ctx, cb)) = entry {
+                    if ctx.enter() != 0 {
+                        let kind_v = v8_value_create_string(Some(&CefString::from(name.as_str())));
+                        let data_v = v8_value_create_string(Some(&CefString::from(payload.as_str())));
+                        let _ = cb.execute_function_with_context(
+                            Some(&mut ctx),
+                            None,
+                            Some(&[kind_v, data_v]),
+                        );
+                        let _ = ctx.exit();
+                        return 1;
+                    }
+                }
+            }
+
             let js = if name == IPC_RESPONSE_MSG {
                 format!("window.__ZENITH_BRIDGE__ && window.__ZENITH_BRIDGE__._recvResponse({payload});")
-            } else if name == IPC_EVENT_MSG {
-                format!("window.__ZENITH_BRIDGE__ && window.__ZENITH_BRIDGE__._recvEvent({payload});")
             } else {
-                return 0;
+                format!("window.__ZENITH_BRIDGE__ && window.__ZENITH_BRIDGE__._recvEvent({payload});")
             };
             frame.execute_java_script(
                 Some(&CefString::from(js.as_str())),
@@ -240,7 +317,7 @@ wrap_life_span_handler! {
                 super::track_browser(browser);
                 if let Some(frame) = browser.main_frame() {
                     let url = cef_str(frame.url());
-                    if !url.is_empty() && url != "about:blank" {
+                    if !url.is_empty() && url != "about:blank" && !url.starts_with("devtools://") {
                         crate::extensions::bridge::adopt_external_url(url);
                         if let Some(host) = browser.host() {
                             host.close_browser(1);
@@ -272,7 +349,7 @@ wrap_display_handler! {
                 return;
             }
             let uri = opt_cef_str(url);
-            if uri.is_empty() || uri == "about:blank" {
+            if uri.is_empty() || uri == "about:blank" || uri.starts_with("devtools://") {
                 return;
             }
             crate::extensions::bridge::adopt_external_url(uri);
@@ -329,6 +406,7 @@ wrap_browser_process_handler! {
                 Some(&CefString::from(TRUSTED_HOST)),
                 Some(&mut factory),
             );
+            crate::pdf::scheme::register(ui_dist_dir());
             if let Some(label) = take_initial_window() {
                 crate::app::create_initial_window(&label);
             }

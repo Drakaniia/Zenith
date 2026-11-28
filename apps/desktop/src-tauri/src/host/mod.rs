@@ -14,13 +14,18 @@ mod chrome;
 mod config;
 mod debug;
 mod devtools;
+mod devtools_view;
 mod fast_download;
 mod focus;
+pub mod perf;
 mod placement;
 mod profile;
 mod state;
 
-pub use accelerators::{bound_action, emit_shortcut, handle_pre_key_event, key_down, set_bindings, ShortcutEvent};
+pub use accelerators::{
+    bound_action, emit_shortcut, handle_devtools_key_event, handle_pre_key_event, key_down,
+    set_bindings, ShortcutEvent,
+};
 pub use chrome::{
     close_all_for_exit, create_chrome_window, detach_window, init_services, open_chrome_devtools,
     profile_override, shutdown, STARTED,
@@ -28,9 +33,12 @@ pub use chrome::{
 pub use config::{apply_config, blocker_enabled, config, set_extensions_in_incognito, RuntimeConfig, BLOCKER};
 pub use debug::{debug_layout, DebugLayout};
 pub(crate) use devtools::{
-    browser_cdp_pipe_arg, close_browser_cdp_pipes, eval_js, init_browser_cdp_pipes, open_devtools, target_id_of,
+    browser_cdp_pipe_arg, close_browser_cdp_pipes, eval_js, init_browser_cdp_pipes, target_id_of,
 };
 pub use devtools::{browser_cdp, cdp_call, chrome_cdp};
+pub(crate) use devtools_view::{
+    emit_devtools_changed, handle_devtools_command, open_tab_devtools, TabDevTools,
+};
 pub use focus::focus_view;
 pub use placement::{set_fullscreen_tab, set_layout};
 pub use profile::{clear_browsing_data, incognito_context, maybe_drop_incognito_context, set_content_color_scheme, set_page_background};
@@ -53,6 +61,7 @@ use tab::Tab;
 pub enum Focus {
     Chrome,
     Tab(String),
+    DevTools(String),
 }
 
 #[derive(Deserialize, Clone, Debug, Default)]
@@ -88,6 +97,8 @@ pub struct LayoutSpec {
     #[serde(default)]
     pub glance: Option<PaneSpec>,
     #[serde(default)]
+    pub devtools: Option<PaneSpec>,
+    #[serde(default)]
     pub overlay: bool,
     #[serde(default)]
     pub overlay_rects: Vec<OverlayRect>,
@@ -113,6 +124,7 @@ pub struct Win {
 pub struct Host {
     pub wins: HashMap<String, Win>,
     pub tabs: HashMap<String, Tab>,
+    pub warm_tab: Option<tab::WarmTab>,
     /// Shared non-persistent in-memory CEF RequestContext for incognito tabs.
     pub incognito_ctx: Option<RequestContext>,
     /// Every live CEF browser (trusted, tab, or extension-created) so shutdown closes all cleanly.
@@ -133,6 +145,7 @@ impl Default for Host {
         Self {
             wins: HashMap::new(),
             tabs: HashMap::new(),
+            warm_tab: None,
             incognito_ctx: None,
             all_browsers: HashMap::new(),
             page_bg: (32, 32, 36),

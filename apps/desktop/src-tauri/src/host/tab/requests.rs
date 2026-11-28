@@ -113,7 +113,7 @@ fn schedule_block_flush(s: &Arc<TabShared>) {
     if s.flush_pending.swap(true, Ordering::SeqCst) {
         return;
     }
-    let id = s.id.clone();
+    let id = s.id();
     post_ui_delayed(350, move || {
         let count = with_host(|h| {
             let t = h.tabs.get(&id)?;
@@ -174,17 +174,44 @@ wrap_resource_request_handler! {
 
         fn on_resource_response(
             &self,
-            _browser: Option<&mut Browser>,
+            browser: Option<&mut Browser>,
             _frame: Option<&mut Frame>,
             request: Option<&mut Request>,
             response: Option<&mut Response>,
         ) -> ::std::os::raw::c_int {
-            if let (Some(req), Some(resp)) = (request, response) {
-                crate::media::sniff::on_cef_response(&self.shared, req, resp);
+            let (Some(req), Some(resp)) = (request, response) else { return 0 };
+            crate::media::sniff::on_cef_response(&self.shared, req, resp);
+            if req.resource_type() == ResourceType::MAIN_FRAME && resp.status() < 400 && crate::pdf::is_pdf(&cef_str(resp.mime_type())) {
+                open_in_pdf_viewer(browser.map(|b| b.clone()), req);
             }
             0
         }
     }
+}
+
+/// Sends a main-frame PDF to Zenith's viewer instead of Chromium's. A local file opens where
+/// it is; a web PDF shows the viewer's waiting page while CEF downloads the same address with
+/// the page's cookies (see `crate::pdf`).
+fn open_in_pdf_viewer(browser: Option<Browser>, req: &Request) {
+    let (Some(browser), src) = (browser, cef_str(req.url())) else { return };
+    let viewer = if let Some(path) = crate::pdf::file_path(&src) {
+        crate::pdf::open(path.clone(), true, &src, &crate::pdf::file_name(&path))
+    } else if src.starts_with("https://") || src.starts_with("http://") {
+        let Some(waiting) = crate::pdf::request(&src) else { return };
+        waiting
+    } else {
+        return;
+    };
+    crate::host::post(move || {
+        if let Some(frame) = browser.main_frame() {
+            frame.load_url(Some(&CefString::from(viewer.as_str())));
+        }
+        if !src.starts_with("file:") {
+            if let Some(host) = browser.host() {
+                host.start_download(Some(&CefString::from(src.as_str())));
+            }
+        }
+    });
 }
 
 /// Unsolicited Chromium vendor background endpoints blocked when no user page browser owns the

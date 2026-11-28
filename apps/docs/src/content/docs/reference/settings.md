@@ -73,9 +73,9 @@ Under **Manage** you can open the bookmarks library, import from another browser
 | Setting | What it does | Default |
 | --- | --- | --- |
 | Save files to | The download folder. **Reset** goes back to your Windows Downloads folder. | Downloads |
-| Show a download button on videos | Appears when you point at a video. Applies to pages loaded after you change it. | On |
-| Use FFmpeg when it is installed | Lets FFmpeg convert `.ts` recordings to `.mp4` and merge audio and video Zenith can't merge itself. | On |
-| FFmpeg location | Found automatically on your `PATH`, or choose `ffmpeg.exe`. | Automatic |
+| Show a download button on videos | Appears when you point at a video, opening an inline quality and audio picker. Individual sites can be hidden from the dropdown and cleared here. | On |
+| FFmpeg (audio extraction & stream muxing) | One-click managed install, `PATH` discovery, or manual `ffmpeg.exe` path. Adds audio extraction (M4A/MP3/Opus), `.ts` to `.mp4` conversion and WebM/mixed-track merging. | On |
+| yt-dlp (complex sites & pasted URLs) | One-click managed install, `PATH` discovery, or manual `yt-dlp.exe` path. Fallback extractor for complex video sites and pasted URLs. | On |
 | Download torrents in Zenith | Magnet links you click and `.torrent` files you download start in the downloads list. Off: magnet links go to another app. | On |
 | Ask which files to download | For torrents with several files. | On |
 | Seed after downloading | Share a finished torrent until it uploaded half, once, twice or five times its size, or not at all. | Its size (ratio 1) |

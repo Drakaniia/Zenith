@@ -54,6 +54,7 @@
   /** The bookmarks toolbar has a row of its own. In the single-toolbar layout, when it hasn't, it
    *  still appears next to the window controls while the pointer is at the top edge. */
   const barOn = $derived(!pageFullscreen && barPinned());
+  const panelOn = $derived(!pageFullscreen && settings.value.bookmarksPanel);
   const revealBar = $derived(single && !barOn && settings.value.bookmarksBar !== 'never');
   const space = $derived(browser.activeSpace);
 
@@ -63,21 +64,21 @@
   let winW = $state(window.innerWidth);
   const sideW = $derived(Math.max(SIDEBAR_MIN, Math.min(settings.value.sidebarWidth, winW - MIN_PAGE_W[mode])));
 
-  // Layout changes (compact mode, single/multiple toolbars, collapsed sidebar) animate: the
-  // layout variables in app.css transition while the page webviews follow frame by frame.
-  // Compact mode moves on Zen's timing (layout-motion.ts).
+  // Layout changes (compact mode, single/multiple toolbars, collapsed sidebar, Ctrl+B panel)
+  // animate: the layout variables in app.css transition while the page webviews follow frame by
+  // frame. Compact mode moves on Zen's timing (layout-motion.ts).
   let motion = $state<LayoutMotion>(STILL);
-  const animating = $derived(motion.side > 0 || motion.bar > 0);
+  const animating = $derived(motion.side > 0 || motion.bar > 0 || motion.panel > 0);
   let motionReady = false;
   let lastLayout: LayoutState | null = null;
   let motionRevision = 0;
   $effect.pre(() => {
-    const next: LayoutState = { compact, mode, barOn, hideToolbar, side };
+    const next: LayoutState = { compact, mode, barOn, panelOn, hideToolbar, side };
     const prev = lastLayout;
     if (prev && sameLayout(prev, next)) return;
     lastLayout = next;
 
-    if (!prev || !motionReady || pageFullscreen) return;
+    if (!prev || !motionReady || pageFullscreen || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
     // The floating sidebar is still flagged open here when compact mode was left from it.
     const m = layoutMotion(prev, next, untrack(() => ui.flyout));
     motion = m;
@@ -154,6 +155,8 @@
     void settings.value.sidebarWidth;
     void settings.value.toolbarMode;
     void settings.value.sidebarPosition;
+    void settings.value.bookmarksPanel;
+    void settings.value.bookmarksPanelWidth;
     void hideToolbar;
     void barOn;
     void ui.find.open;
@@ -255,6 +258,7 @@
   class:fullscreen={pageFullscreen}
   class:single
   class:has-bar={barOn}
+  class:has-panel={panelOn}
   class:collapsed-mode={mode === 'collapsed'}
   class:no-toolbar={hideToolbar}
   class:side-right={side === 'right'}
@@ -264,8 +268,10 @@
   class:animating
   inert={onboarding.open}
   style:--sidebar-w="{sideW}px"
+  style:--panel-w="{Math.min(settings.value.bookmarksPanelWidth, Math.round(winW * 0.55))}px"
   style:--lay-side-ms="{motion.side}ms"
   style:--lay-bar-ms="{motion.bar}ms"
+  style:--lay-panel-ms="{motion.panel}ms"
   style:--lay-bar-ease={motion.fold ? 'ease-in-out' : 'var(--zen-spring)'}
   oncontextmenu={(e) => {
     if (!(e.target as HTMLElement).closest('input, textarea, [contenteditable]')) e.preventDefault();
@@ -286,7 +292,7 @@
 
   <ChromeSlots {showSidebar} {strip} {side} {mode} {stripHasControls} {stripIsToolbar} {showTopBar} {barOn} motion={() => motion} />
   <main class="stage">
-    <Content />
+    <Content panelAnimating={motion.panel > 0} />
   </main>
 
   <CaptionReveal {single} {pageFullscreen} {barOn} {revealBar} />
@@ -323,7 +329,11 @@
     --lay-bar-top: 0px;
     --lay-side-top: 0px;
     --lay-glass: var(--sidebar-w);
+    --lay-panel: 0px;
     --strip-bottom: 0px;
+  }
+  .app.has-panel {
+    --lay-panel: calc(var(--panel-w) + var(--zen-sep));
   }
   .app.incognito {
     --glass: var(--glass-incognito);
@@ -408,16 +418,19 @@
     --strip-bottom: 0px;
   }
 
-  .app.animating {
-    transition:
-      --lay-left var(--lay-side-ms) var(--zen-spring),
-      --lay-right var(--lay-side-ms) var(--zen-spring),
-      --lay-top var(--lay-bar-ms) var(--lay-bar-ease),
-      --lay-bottom var(--lay-side-ms) var(--zen-spring),
-      --lay-bar-top var(--lay-side-ms) var(--zen-spring),
-      --lay-bar-left var(--lay-side-ms) var(--zen-spring),
-      --lay-side-top var(--lay-side-ms) var(--zen-spring),
-      --lay-glass var(--lay-side-ms) var(--zen-spring);
+  @media (prefers-reduced-motion: no-preference) {
+    .app.animating {
+      transition:
+        --lay-left var(--lay-side-ms) var(--zen-spring),
+        --lay-right var(--lay-side-ms) var(--zen-spring),
+        --lay-top var(--lay-bar-ms) var(--lay-bar-ease),
+        --lay-bottom var(--lay-side-ms) var(--zen-spring),
+        --lay-bar-top var(--lay-side-ms) var(--zen-spring),
+        --lay-bar-left var(--lay-side-ms) var(--zen-spring),
+        --lay-side-top var(--lay-side-ms) var(--zen-spring),
+        --lay-glass var(--lay-side-ms) var(--zen-spring),
+        --lay-panel var(--lay-panel-ms) var(--zen-spring);
+    }
   }
   .stage {
     position: absolute;

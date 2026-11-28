@@ -4,15 +4,19 @@
   import Toggle from '$shared/ui/Toggle.svelte';
   import { settings, type Settings } from '$features/settings/settings.svelte';
   import { downloadsApi } from './api';
+  import { on } from '$platform/ipc';
   import { shell } from '$platform/shell';
+  import { formatBytes } from '$shared/format';
   import { appInfo } from '$features/window/window.svelte';
   import { ui } from '$shared/ui/ui.svelte';
   import { FAST_CONNECTIONS_LABEL, tapCounter } from './secret';
+  import type { MediaToolName, MediaToolProgress, MediaTools } from './types';
 
   const s = $derived(settings.value);
   const info = $derived(appInfo.info);
-  /** FFmpeg the media downloader would use (undefined while checking). */
-  let ffmpeg = $state<string | null | undefined>(undefined);
+  let tools = $state<MediaTools | null | undefined>(undefined);
+  let installing = $state<Record<MediaToolName, boolean>>({ ffmpeg: false, ytdlp: false });
+  let progress = $state<Partial<Record<MediaToolName, MediaToolProgress>>>({});
 
   function set<K extends keyof Settings>(key: K, value: Settings[K]) {
     settings.update({ [key]: value } as Partial<Settings>);
@@ -47,10 +51,10 @@
   }
 
   async function refreshTools() {
-    ffmpeg = (await downloadsApi.mediaTools().catch(() => null))?.ffmpeg ?? null;
+    tools = await downloadsApi.mediaTools().catch(() => null);
   }
 
-  function setFfmpeg<K extends 'useFfmpeg' | 'ffmpegPath'>(key: K, value: Settings[K]) {
+  function setTool<K extends 'useFfmpeg' | 'ffmpegPath' | 'useYtdlp' | 'ytdlpPath'>(key: K, value: Settings[K]) {
     set(key, value);
     // The backend sees the new value once the settings push lands.
     setTimeout(() => void refreshTools(), 400);
@@ -58,11 +62,64 @@
 
   async function pickFfmpeg() {
     const path = await downloadsApi.mediaPickFfmpeg();
-    if (path) setFfmpeg('ffmpegPath', path);
+    if (path) setTool('ffmpegPath', path);
+  }
+
+  async function pickYtdlp() {
+    const path = await downloadsApi.mediaPickYtdlp();
+    if (path) setTool('ytdlpPath', path);
+  }
+
+  async function installTool(tool: MediaToolName) {
+    if (installing[tool]) return;
+    installing[tool] = true;
+    try {
+      await downloadsApi.mediaInstallTool(tool);
+      if (tool === 'ffmpeg' && !s.useFfmpeg) set('useFfmpeg', true);
+      if (tool === 'ytdlp' && !s.useYtdlp) set('useYtdlp', true);
+      await refreshTools();
+      ui.toast(`${tool === 'ffmpeg' ? 'FFmpeg' : 'yt-dlp'} installed`, { icon: 'check' });
+    } catch (e) {
+      ui.toast(String(e), { icon: 'alert', timeout: 6000 });
+    } finally {
+      installing[tool] = false;
+      delete progress[tool];
+    }
+  }
+
+  async function removeTool(tool: MediaToolName) {
+    if (installing[tool]) return;
+    try {
+      await downloadsApi.mediaRemoveTool(tool);
+      await refreshTools();
+      ui.toast(`${tool === 'ffmpeg' ? 'FFmpeg' : 'yt-dlp'} removed`, { icon: 'check' });
+    } catch (e) {
+      ui.toast(String(e), { icon: 'alert', timeout: 5000 });
+    }
+  }
+
+  function progressText(tool: MediaToolName): string {
+    const p = progress[tool];
+    if (!p || !p.stage) return 'Preparing…';
+    if (p.total > 0) return `${p.stage} ${formatBytes(p.received)} / ${formatBytes(p.total)}`;
+    if (p.received > 0) return `${p.stage} ${formatBytes(p.received)}`;
+    return p.stage;
+  }
+
+  function unhideSite(site: string) {
+    set(
+      'mediaDisabledSites',
+      s.mediaDisabledSites.filter((x) => x !== site),
+    );
   }
 
   onMount(() => {
     void refreshTools();
+    const unlisten = on('media-tool-progress', (p) => {
+      if (p.stage) progress[p.tool] = p;
+      else delete progress[p.tool];
+    });
+    return () => void unlisten.then((f) => f());
   });
 </script>
 
@@ -92,24 +149,79 @@
     <div class="row">
       <div class="text">
         <b>Show a download button on videos</b>
-        <span>Appears when you point at a video in a page. Applies to pages loaded after you change it. Videos can also be saved from the address bar, the page menu or by right-clicking a video.</span>
+        <span>Appears when you point at a video in a page, with an inline quality and audio picker. Videos can also be saved from the address bar, the page menu or by right-clicking a video.</span>
       </div>
       <Toggle checked={s.mediaButton} onchange={(v) => set('mediaButton', v)} label="Download button on videos" />
     </div>
+    {#if s.mediaDisabledSites.length > 0}
+      <div class="row">
+        <div class="text">
+          <b>Button hidden on sites</b>
+          <div class="chips">
+            {#each s.mediaDisabledSites as site (site)}
+              <button class="chip" title="Show video button on {site} again" onclick={() => unhideSite(site)}>
+                {site} <Icon name="close" size={11} />
+              </button>
+            {/each}
+          </div>
+        </div>
+        <button class="btn ghost" onclick={() => set('mediaDisabledSites', [])}>Clear all</button>
+      </div>
+    {/if}
     <div class="row">
       <div class="text">
-        <b>Use FFmpeg when it is installed</b>
-        <span
-          >{#if ffmpeg === undefined}Checking…{:else if ffmpeg}Found: {ffmpeg}{:else}Not found. Streams are still saved; FFmpeg only adds .ts to .mp4 conversion and merging of audio and video that Zenith can't merge itself.{/if}</span
-        >
+        <b>FFmpeg (audio extraction &amp; stream muxing)</b>
+        <span class="ellipsis">
+          {#if installing.ffmpeg}
+            {progressText('ffmpeg')}
+          {:else if tools === undefined}
+            Checking…
+          {:else if tools?.ffmpeg}
+            Found: {tools.ffmpeg}
+          {:else}
+            Not installed. Native fMP4 merging works without it; FFmpeg adds MP3/audio extraction, .ts to .mp4 conversion and WebM/mixed-track merging.
+          {/if}
+        </span>
       </div>
-      <Toggle checked={s.useFfmpeg} onchange={(v) => setFfmpeg('useFfmpeg', v)} label="Use FFmpeg" />
+      <div class="inline">
+        {#if tools?.ffmpegManaged && !s.ffmpegPath}
+          <button class="btn ghost" disabled={installing.ffmpeg} onclick={() => void removeTool('ffmpeg')}>Remove</button>
+        {:else if !tools?.ffmpeg}
+          <button class="btn primary" disabled={installing.ffmpeg} onclick={() => void installTool('ffmpeg')}>
+            <Icon name="download" size={14} />{installing.ffmpeg ? 'Installing…' : 'Install'}
+          </button>
+        {/if}
+        {#if s.ffmpegPath}<button class="btn ghost" onclick={() => setTool('ffmpegPath', null)}>Reset</button>{/if}
+        <button class="btn" disabled={installing.ffmpeg} onclick={pickFfmpeg}><Icon name="folder" size={14} />Choose</button>
+        <Toggle checked={s.useFfmpeg} onchange={(v) => setTool('useFfmpeg', v)} label="Use FFmpeg" />
+      </div>
     </div>
     <div class="row">
-      <div class="text"><b>FFmpeg location</b><span class="ellipsis">{s.ffmpegPath ?? 'Found automatically (PATH)'}</span></div>
+      <div class="text">
+        <b>yt-dlp (complex sites &amp; pasted URLs)</b>
+        <span class="ellipsis">
+          {#if installing.ytdlp}
+            {progressText('ytdlp')}
+          {:else if tools === undefined}
+            Checking…
+          {:else if tools?.ytdlp}
+            Found: {tools.ytdlp}
+          {:else}
+            Not installed. Zenith uses its built-in native extractor first; optional yt-dlp adds fallback support for sites like YouTube, TikTok, X and Twitch.
+          {/if}
+        </span>
+      </div>
       <div class="inline">
-        {#if s.ffmpegPath}<button class="btn ghost" onclick={() => setFfmpeg('ffmpegPath', null)}>Reset</button>{/if}
-        <button class="btn" onclick={pickFfmpeg}><Icon name="folder" size={15} />Choose ffmpeg.exe</button>
+        {#if tools?.ytdlpManaged && !s.ytdlpPath}
+          <button class="btn ghost" disabled={installing.ytdlp} onclick={() => void removeTool('ytdlp')}>Remove</button>
+        {:else if !tools?.ytdlp}
+          <button class="btn primary" disabled={installing.ytdlp} onclick={() => void installTool('ytdlp')}>
+            <Icon name="download" size={14} />{installing.ytdlp ? 'Installing…' : 'Install'}
+          </button>
+        {/if}
+        {#if s.ytdlpPath}<button class="btn ghost" onclick={() => setTool('ytdlpPath', null)}>Reset</button>{/if}
+        <button class="btn" disabled={installing.ytdlp} onclick={pickYtdlp}><Icon name="folder" size={14} />Choose</button>
+        <Toggle checked={s.useYtdlp} onchange={(v) => setTool('useYtdlp', v)} label="Use yt-dlp" />
       </div>
     </div>
     <p class="note">DRM-protected video (Netflix, Disney+ and similar) is never downloaded.</p>
@@ -219,6 +331,28 @@
   }
   .inline {
     display: flex;
+    align-items: center;
     gap: 6px;
+  }
+  .chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 4px;
+  }
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    height: 24px;
+    padding: 0 8px;
+    border-radius: 999px;
+    background: var(--hover);
+    color: var(--text-2);
+    font-size: 11.5px;
+  }
+  .chip:hover {
+    color: var(--text);
+    background: var(--line-strong);
   }
 </style>

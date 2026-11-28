@@ -37,10 +37,11 @@ wrap_find_handler! {
             } else {
                 -1
             };
+            let id = self.shared.id();
             emit_tab(
-                &self.shared.id,
+                &id,
                 "find-result",
-                FindResult { id: self.shared.id.clone(), matches: count, active },
+                FindResult { id: id.clone(), matches: count, active },
             );
         }
     }
