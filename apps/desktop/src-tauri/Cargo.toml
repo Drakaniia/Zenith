@@ -1,6 +1,6 @@
 [package]
 name = "zenith"
-version = "0.3.0"
+version = "0.3.1"
 description = "Zenith: a lightweight Zen-style web browser for Windows"
 edition = "2021"
 rust-version = "1.90"
