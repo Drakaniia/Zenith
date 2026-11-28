@@ -51,40 +51,37 @@ Zenith finds peers through trackers, the DHT network, peer exchange and local di
 
 ## The video downloader
 
-Zenith can save the videos and audio a page plays: plain files as well as HLS and DASH streams. It notices media as the page loads it.
+Zenith can save videos and audio that pages play (progressive files, HLS and DASH streams) as well as links you paste directly into **Downloads**.
 
 ### Start a download
 
-- Point at a video on the page and click the download button that appears over it.
-- Click the download button in the address pill.
-- Choose the video download item in the page menu.
-- Right-click a video.
+- Point at a video on the page and click the floating **Download** button to open the inline quality and audio picker right over the video.
+- Click the download button in the address pill, choose the video download item in the page menu, or right-click a video.
+- On the **Downloads** page (or in the downloads popover), click **Download video** and paste a direct stream link or a video page URL.
 
 The **Download video on this page** action has no default shortcut; you can set one in **Settings › Keyboard shortcuts**.
 
 ### Choose what to save
 
-A panel lists what the page has played. For streams you can pick the **quality** and the **audio language**. Live HLS streams are recorded from close to the live edge until you stop the recording or the stream ends; the recording is kept either way.
+The picker lists what the page has played (or what a pasted link resolves to). For streams you can pick the **quality**, the **audio language**, and the output format (**Video**, **Audio · M4A**, **Audio · MP3**, or **Audio · Opus**). Live HLS streams are recorded from close to the live edge until you stop the recording or the stream ends; the recording is kept either way.
 
-Media downloads appear in the regular downloads list. Finished files are named after the page title and quality. A failed download waits in the list so you can retry it.
+Media downloads appear in the regular downloads list. Finished files are named after the page title and quality. A failed native download waits in the list so you can retry it.
 
-### FFmpeg
+### FFmpeg and yt-dlp
 
-Zenith merges separate video and audio tracks into one `.mp4` on its own when both are fragmented MP4. If [FFmpeg](https://ffmpeg.org/) is installed, Zenith also uses it to:
+Zenith runs its native Rust extractor and fMP4 merger first, with no external tools required. In **Settings › Downloads › Video downloader** you can install or point Zenith at two optional tools with one click:
 
-- convert MPEG-TS (`.ts`) recordings to `.mp4`, and
-- merge audio and video it can't merge itself (such as WebM).
-
-Without FFmpeg, `.ts` streams stay `.ts`, and WebM audio and video that need merging are saved as two files. Zenith finds FFmpeg on your `PATH`, or you can choose `ffmpeg.exe` in **Settings › Downloads › FFmpeg location**. Turn **Use FFmpeg when it is installed** off to never use it.
+- **[FFmpeg](https://ffmpeg.org/)**: adds MP3/Opus/M4A audio extraction from videos, `.ts` to `.mp4` conversion, and merging of audio and video tracks Zenith can't merge itself (such as WebM).
+- **[yt-dlp](https://github.com/yt-dlp/yt-dlp)**: acts as a fallback when a page doesn't expose a direct stream (such as YouTube, TikTok, X, or Twitch) and powers pasted URLs from those sites.
 
 ### Settings
 
-**Settings › Downloads › Show a download button on videos** controls the button over videos. It applies to pages loaded after you change it.
+**Settings › Downloads › Show a download button on videos** toggles the floating button globally. You can also hide it on individual sites from the **Hide on …** button in the video dropdown, and re-enable hidden sites in Settings.
 
 ## Limitations
 
 - DRM-protected video (Netflix, Disney+ and similar, or anything using encrypted streams) is never downloaded.
-- Sites that use their own streaming protocols, YouTube for example, can't be saved.
+- Sites that use proprietary streaming protocols require optional **yt-dlp** to be installed in Settings.
 - Live DASH streams can't be recorded.
 - Video downloads don't survive a restart of Zenith. Torrents do.
 - Torrents saved into a folder that already holds files with the same names continue from those files.

@@ -14,6 +14,7 @@ pub mod importer;
 pub mod incognito;
 pub mod media;
 pub mod notes;
+pub mod pdf;
 pub mod platform;
 pub mod profiles;
 pub mod search;

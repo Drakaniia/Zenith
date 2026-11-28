@@ -53,9 +53,18 @@ export function handleOther(cmd: string, a: Record<string, unknown>): unknown {
     case "update_status":
       return { state: "idle", currentVersion: "0.0.0-preview" };
     case "media_list":
-      return { items: [], blobs: 0, drm: 0, ffmpeg: false };
+      return { items: [], blobs: 0, drm: 0, ffmpeg: false, ytdlp: false };
     case "media_tools":
-      return { ffmpeg: null };
+      return { ffmpeg: null, ffmpegManaged: false, ytdlp: null, ytdlpManaged: false };
+    case "media_probe_url":
+      return {
+        probeId: "",
+        engine: "none",
+        items: [],
+        ffmpeg: false,
+        ytdlp: false,
+        hint: "Preview mode cannot probe external URLs.",
+      };
     case "plugin:window|is_maximized":
     case "plugin:window|is_fullscreen":
       return false;

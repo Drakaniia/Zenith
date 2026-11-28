@@ -43,6 +43,8 @@ test("kinds are described plainly", () => {
     "Audio stream (DASH)",
   );
   assert.equal(kindLabel(item({ kind: "hls", live: true })), "Live stream");
+  assert.equal(kindLabel(item({ kind: "ytdlp" })), "Video (yt-dlp)");
+  assert.equal(kindLabel(item({ kind: "ytdlp", audioOnly: true })), "Audio (yt-dlp)");
 });
 
 test("item facts and titles", () => {

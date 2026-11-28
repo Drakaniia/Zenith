@@ -30,7 +30,8 @@ struct CardSaveOffer {
 /// A card number, name or expiry field was clicked: the saved cards are listed under it. Cards
 /// are only offered on HTTPS pages.
 pub(super) fn on_card_field(sh: &Arc<TabShared>, origin: &str, m: &Msg) {
-    with_tab(&sh.id, |t| t.muted = false);
+    let tab_id = sh.id();
+    with_tab(&tab_id, |t| t.muted = false);
     let cfg = config();
     if !cfg.autofill_cards || !origin.starts_with("https://") {
         return;
@@ -39,16 +40,16 @@ pub(super) fn on_card_field(sh: &Arc<TabShared>, origin: &str, m: &Msg) {
     if list.is_empty() {
         return;
     }
-    with_tab(&sh.id, |t| {
+    with_tab(&tab_id, |t| {
         t.generated = None;
         t.suggesting = true;
     });
     let finite = |v: f64| if v.is_finite() { v } else { 0.0 };
     emit_tab(
-        &sh.id,
+        &tab_id,
         "password-suggest",
         Suggest {
-            tab_id: sh.id.clone(),
+            tab_id: tab_id.clone(),
             site: vault::display_site(origin),
             field: "card".into(),
             new_password: false,
@@ -65,6 +66,7 @@ pub(super) fn on_card_field(sh: &Arc<TabShared>, origin: &str, m: &Msg) {
 /// A card was submitted on a payment form: offer to save it (or its new expiry). The number never
 /// reaches the chrome UI; the offer tells it only the brand, last four digits and expiry.
 pub(super) fn on_card_capture(sh: &Arc<TabShared>, origin: &str, m: &Msg) {
+    let tab_id = sh.id();
     let cfg = config();
     if !cfg.cards_offer_save || sh.private || !origin.starts_with("https://") {
         return;
@@ -92,19 +94,19 @@ pub(super) fn on_card_capture(sh: &Arc<TabShared>, origin: &str, m: &Msg) {
         cards::CardCapture::Update(id) => Some(id),
         cards::CardCapture::New => None,
     };
+    let is_update = update.is_some();
+    let offer = cards::CardOffer::new(&tab_id, origin, number.clone(), cvc, &holder, month, year, update);
     let payload = CardSaveOffer {
-        offer_id: 0,
-        tab_id: sh.id.clone(),
+        offer_id: cards::add_card_offer(offer),
+        tab_id,
         site: vault::display_site(origin),
         brand: cards::brand_of(&number).to_string(),
         last4: number[number.len() - 4..].to_string(),
         exp_month: month,
         exp_year: year,
         has_cvc,
-        update: update.is_some(),
+        update: is_update,
     };
-    let offer = cards::CardOffer::new(&sh.id, origin, number, cvc, &holder, month, year, update);
-    let payload = CardSaveOffer { offer_id: cards::add_card_offer(offer), ..payload };
     // Let the page react first (a declined payment re-renders; a good one navigates).
     std::thread::spawn(move || {
         std::thread::sleep(Duration::from_millis(700));

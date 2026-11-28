@@ -10,6 +10,15 @@ type TabId = string;
 /** `search`: Zen's Focus Search, where the typed text is always a web search. */
 export type PaletteMode = "navigate" | "newTab" | "command" | "search";
 
+/** Screen-space anchor of a hovered `<video>` element reported by the in-page download button. */
+export interface MediaAnchor {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  dpr: number;
+}
+
 /** The "Edit bookmark" panel under the address bar's bookmark button. */
 export interface BookmarkPopupState {
   /** The bookmark being edited. */
@@ -66,8 +75,8 @@ class UiStore {
   /** Compact mode's floating toolbar is showing (it was hidden with Ctrl+Alt+T). */
   topReveal = $state(false);
   downloadsOpen = $state(false);
-  /** The media downloader panel: which tab, and the media the user pointed at (if any). */
-  media = $state<{ tabId: TabId; hint: string } | null>(null);
+  /** The media downloader panel: which tab, the media pointed at (if any), and optional video rect. */
+  media = $state<{ tabId: TabId; hint: string; anchor?: MediaAnchor | null } | null>(null);
   spaceEditor = $state<{ spaceId: string | null } | null>(null);
   dragging = $state(false);
   /** A tab label is being edited inline (Zen: zen-renaming-tab). */
@@ -99,11 +108,11 @@ class UiStore {
     this.palette.open = false;
   }
 
-  openMedia(tabId: TabId, hint = "") {
+  openMedia(tabId: TabId, hint = "", anchor: MediaAnchor | null = null) {
     this.menu = null;
     this.downloadsOpen = false;
     this.palette.open = false;
-    this.media = { tabId, hint };
+    this.media = { tabId, hint, anchor };
     void webviewApi.focusView(null);
   }
 

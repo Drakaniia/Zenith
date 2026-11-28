@@ -14,6 +14,7 @@ import type { Tab } from "../browser/types";
 import { notes } from "../notes/notes.svelte";
 import { settings } from "../settings/settings.svelte";
 import { pageApi } from "./api";
+import { devtools } from "./devtools.svelte";
 
 const ZOOM_LEVELS = [
   0.25, 0.33, 0.5, 0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3, 4,
@@ -128,8 +129,14 @@ function copyMarkdownLink(tab: Tab | undefined) {
   void copyText(`[${title}](${url})`).then(() => ui.toast("Markdown link copied", { icon: "link" }));
 }
 
-const devtoolsPanel = (source: string | null | undefined, action: string) =>
-  void pageTool(liveTab(source), "devtools", DEVTOOLS_PANELS[action]);
+const devtoolsPanel = (source: string | null | undefined, action: string) => {
+  const live = liveTab(source);
+  if (!live) {
+    ui.toast("Open a web page first", { icon: "info" });
+    return;
+  }
+  void devtools.open(live.id, DEVTOOLS_PANELS[action]);
+};
 
 const findStep = (source: string | null | undefined, action: string) => {
   if (!ui.find.open) return openFind(liveTab(source));
@@ -239,7 +246,7 @@ registerActions(
     },
     devtools: (source) => {
       const live = liveTab(source);
-      return live && tabsApi.tabCommand(live.id, "devtools");
+      return live && devtools.toggle(live.id);
     },
     viewSource: async (source) => {
       const live = liveTab(source);

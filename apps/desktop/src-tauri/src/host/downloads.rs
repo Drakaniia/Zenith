@@ -131,7 +131,7 @@ fn take_over_crx(browser: Option<&Browser>, shared: &TabShared, uri: String, nam
         .filter(|h| !h.is_empty())
         .unwrap_or("this page")
         .to_string();
-    let tab = shared.id.clone();
+    let tab = shared.id();
     if shared.private {
         return refuse(
             &tab,
@@ -246,7 +246,7 @@ pub(crate) fn register_download(s: Started, shared: &TabShared) -> i64 {
         started: now_ms(),
         ended: None,
     };
-    let tab = shared.id.clone();
+    let tab = shared.id();
     with_host(|h| {
         h.downloads.insert(
             id,
@@ -266,6 +266,12 @@ pub(crate) fn register_download(s: Started, shared: &TabShared) -> i64 {
     });
     publish(id, true);
     id
+}
+/// Opens the PDF viewer in the tab that started the download.
+fn load_viewer(browser: Option<&Browser>, url: &str) {
+    if let Some(frame) = browser.and_then(|b| b.main_frame()) {
+        frame.load_url(Some(&CefString::from(url)));
+    }
 }
 
 wrap_download_handler! {
@@ -306,10 +312,23 @@ wrap_download_handler! {
                 return 1; // Do not call cb.cont -> download is cancelled.
             }
 
+            if crate::pdf::is_viewer_blob(&uri) {
+                // Save As from the PDF viewer: the user picks where the edited file goes.
+                let target = unique_path(&crate::media::job::download_dir(), &name);
+                cb.cont(Some(&CefString::from(target.display().to_string().as_str())), 1);
+                return 1;
+            }
+            if crate::pdf::take_request(&uri) {
+                let tmp = crate::pdf::start_capture(item.id(), uri, name);
+                cb.cont(Some(&CefString::from(tmp.display().to_string().as_str())), 0);
+                return 1;
+            }
+
             if !self.shared.private {
                 if let Some(existing) = crate::downloads::already_downloaded(&uri) {
+                    let tab_id = self.shared.id();
                     super::emit_tab(
-                        &self.shared.id,
+                        &tab_id,
                         "download-exists",
                         crate::downloads::already_message(&existing),
                     );
@@ -323,12 +342,13 @@ wrap_download_handler! {
             let path = target.display().to_string();
             let cef_id = item.id();
             let total = item.total_bytes();
-            let origin = pointer_in(&self.shared.window);
+            let win_label = self.shared.window();
+            let origin = pointer_in(&win_label);
 
             let started = Started { cef_id, uri: uri.clone(), path: path.clone(), mime, total, origin };
             if let Some(risk) = crate::security::classify_download(&name, &uri) {
                 let req_id = crate::security::NEXT_SECURITY_REQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                let tab = self.shared.id.clone();
+                let tab = self.shared.id();
                 let pending = crate::security::PendingDownloadConfirm::new(tab.clone(), self.shared.clone(), started, cb.clone());
                 if with_host(move |h| { h.pending_downloads.insert(req_id, pending); }).is_some() {
                     super::emit_tab(&tab, "download-warning", serde_json::json!({
@@ -359,6 +379,15 @@ wrap_download_handler! {
         ) {
             let Some(item) = download_item else { return };
             let cef_id = item.id();
+            if crate::pdf::is_capture(cef_id) {
+                let done = item.is_complete() != 0;
+                if done || item.is_canceled() != 0 || item.is_interrupted() != 0 {
+                    if let Some(viewer) = crate::pdf::finish_capture(cef_id, done) {
+                        load_viewer(_browser.as_deref(), &viewer);
+                    }
+                }
+                return;
+            }
             let received = item.received_bytes();
             let total = item.total_bytes();
             let full_path = cef_str(item.full_path());

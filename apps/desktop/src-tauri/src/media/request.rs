@@ -1,12 +1,20 @@
 //! Turning a listed item and the user's choices into a download request.
 
-use super::job::{self, Plan, Request, Source};
+use super::job::{self, AudioFormat, Plan, Request, Source};
 use super::naming::stem_from_url;
 use super::{dash, mime_for, sanitize_stem, Manifest, TabMedia};
 
 impl TabMedia {
     /// Turns a listed item and the user's choices into a download request.
-    pub fn request(&self, tab: &str, item_id: u32, variant: Option<&str>, audio: Option<&str>, user_agent: &str) -> Result<Request, String> {
+    pub fn request(
+        &self,
+        tab: &str,
+        item_id: u32,
+        variant: Option<&str>,
+        audio: Option<&str>,
+        audio_format: Option<AudioFormat>,
+        user_agent: &str,
+    ) -> Result<Request, String> {
         let e = self.entries.iter().find(|e| e.item.id == item_id).ok_or("This item is no longer on the page; reload the list")?;
         if e.item.protected {
             return Err(job::PROTECTED.into());
@@ -14,7 +22,7 @@ impl TabMedia {
         let title = Some(sanitize_stem(&e.item.title)).filter(|t| t != "video" || e.item.title.trim() == "video");
         let stem = title.unwrap_or_else(|| sanitize_stem(&stem_from_url(&e.item.url)));
         let index = |id: Option<&str>, prefix: char| id.and_then(|s| s.strip_prefix(prefix)).and_then(|n| n.parse::<usize>().ok());
-        let (plan, suffix, ext, audio_only) = match &e.manifest {
+        let (plan, suffix, ext, source_is_audio) = match &e.manifest {
             Manifest::None => (
                 Plan { main: Source::File { url: e.item.url.clone(), ext: e.item.ext.clone() }, audio: None, live: false },
                 String::new(),
@@ -38,18 +46,48 @@ impl TabMedia {
                 let rendition = wanted
                     .and_then(|w| group.iter().find(|r| r.language == w.language && r.name == w.name).copied())
                     .or_else(|| m.default_audio(v));
-                let audio_src = if v.audio_only() { None } else { rendition.and_then(|r| r.uri.clone()).map(Source::Hls) };
-                let suffix = if v.audio_only() {
-                    "audio".to_string()
+                if audio_format.is_some() {
+                    if let Some(uri) = rendition.and_then(|r| r.uri.clone()) {
+                        (
+                            Plan { main: Source::Hls(uri), audio: None, live: e.item.live },
+                            String::new(),
+                            "m4a".to_string(),
+                            true,
+                        )
+                    } else if let Some(av) = m.variants.iter().filter(|v| v.audio_only()).max_by_key(|v| v.bandwidth) {
+                        (
+                            Plan { main: Source::Hls(av.uri.clone()), audio: None, live: e.item.live },
+                            String::new(),
+                            "m4a".to_string(),
+                            true,
+                        )
+                    } else {
+                        // Muxed HLS only: pick lowest-bandwidth video variant to avoid wasted bandwidth when extracting audio.
+                        let chosen = index(variant, 'v')
+                            .and_then(|i| m.variants.get(i))
+                            .or_else(|| m.variants.iter().min_by_key(|v| v.bandwidth))
+                            .unwrap_or(v);
+                        (
+                            Plan { main: Source::Hls(chosen.uri.clone()), audio: None, live: e.item.live },
+                            String::new(),
+                            "mp4".to_string(),
+                            chosen.audio_only(),
+                        )
+                    }
                 } else {
-                    v.resolution.map(|r| format!("{}p", r.1)).unwrap_or_default()
-                };
-                (
-                    Plan { main: Source::Hls(v.uri.clone()), audio: audio_src, live: e.item.live },
-                    suffix,
-                    if v.audio_only() { "m4a".to_string() } else { "mp4".to_string() },
-                    v.audio_only(),
-                )
+                    let audio_src = if v.audio_only() { None } else { rendition.and_then(|r| r.uri.clone()).map(Source::Hls) };
+                    let suffix = if v.audio_only() {
+                        "audio".to_string()
+                    } else {
+                        v.resolution.map(|r| format!("{}p", r.1)).unwrap_or_default()
+                    };
+                    (
+                        Plan { main: Source::Hls(v.uri.clone()), audio: audio_src, live: e.item.live },
+                        suffix,
+                        if v.audio_only() { "m4a".to_string() } else { "mp4".to_string() },
+                        v.audio_only(),
+                    )
+                }
             }
             Manifest::Dash(mpd) => {
                 if mpd.dynamic {
@@ -57,17 +95,7 @@ impl TabMedia {
                 }
                 let reps = &mpd.representations;
                 let usable = |i: &usize| matches!(reps[*i].kind, dash::Kind::Video | dash::Kind::Audio) && !reps[*i].protected;
-                let main = index(variant, 'r')
-                    .filter(|i| *i < reps.len() && usable(i))
-                    .or_else(|| {
-                        (0..reps.len())
-                            .filter(|i| usable(i) && reps[*i].kind == dash::Kind::Video)
-                            .max_by_key(|&i| (reps[i].height, reps[i].bandwidth))
-                    })
-                    .or_else(|| (0..reps.len()).filter(usable).max_by_key(|&i| reps[i].bandwidth))
-                    .ok_or(job::PROTECTED)?;
-                let rep = &reps[main];
-                let audio_rep = if rep.kind == dash::Kind::Video {
+                let pick_audio = || {
                     index(audio, 'r')
                         .filter(|i| *i < reps.len() && usable(i) && reps[*i].kind == dash::Kind::Audio)
                         .or_else(|| {
@@ -76,8 +104,6 @@ impl TabMedia {
                                 .filter(|i| usable(i) && reps[*i].kind == dash::Kind::Audio && Some(&reps[*i].lang) == first_lang.as_ref())
                                 .max_by_key(|&i| reps[i].bandwidth)
                         })
-                } else {
-                    None
                 };
                 let source = |r: &dash::Representation| match &r.segments {
                     dash::Segments::Single(url) => Source::File { url: url.clone(), ext: r.container().to_string() },
@@ -85,15 +111,49 @@ impl TabMedia {
                         Source::Segments { init: init.clone(), media: media.clone(), ext: r.container().to_string() }
                     }
                 };
-                let is_audio = rep.kind == dash::Kind::Audio;
-                (
-                    Plan { main: source(rep), audio: audio_rep.map(|i| source(&reps[i])), live: false },
-                    if is_audio { "audio".into() } else { rep.height.map(|h| format!("{h}p")).unwrap_or_default() },
-                    rep.container().to_string(),
-                    is_audio,
-                )
+                if audio_format.is_some() {
+                    if let Some(ai) = pick_audio() {
+                        let ar = &reps[ai];
+                        (
+                            Plan { main: source(ar), audio: None, live: false },
+                            String::new(),
+                            ar.container().to_string(),
+                            true,
+                        )
+                    } else {
+                        let fallback = (0..reps.len()).filter(usable).min_by_key(|&i| reps[i].bandwidth).ok_or(job::PROTECTED)?;
+                        let rep = &reps[fallback];
+                        (
+                            Plan { main: source(rep), audio: None, live: false },
+                            String::new(),
+                            rep.container().to_string(),
+                            rep.kind == dash::Kind::Audio,
+                        )
+                    }
+                } else {
+                    let main = index(variant, 'r')
+                        .filter(|i| *i < reps.len() && usable(i))
+                        .or_else(|| {
+                            (0..reps.len())
+                                .filter(|i| usable(i) && reps[*i].kind == dash::Kind::Video)
+                                .max_by_key(|&i| (reps[i].height, reps[i].bandwidth))
+                        })
+                        .or_else(|| (0..reps.len()).filter(usable).max_by_key(|&i| reps[i].bandwidth))
+                        .ok_or(job::PROTECTED)?;
+                    let rep = &reps[main];
+                    let audio_rep = if rep.kind == dash::Kind::Video { pick_audio() } else { None };
+                    let is_audio = rep.kind == dash::Kind::Audio;
+                    (
+                        Plan { main: source(rep), audio: audio_rep.map(|i| source(&reps[i])), live: false },
+                        if is_audio { "audio".into() } else { rep.height.map(|h| format!("{h}p")).unwrap_or_default() },
+                        rep.container().to_string(),
+                        is_audio,
+                    )
+                }
             }
         };
+        let out_ext = audio_format.map(|f| f.ext().to_string()).unwrap_or(ext);
+        let audio_only = audio_format.is_some() || source_is_audio;
         let stem = if suffix.is_empty() { stem } else { sanitize_stem(&format!("{stem} ({suffix})")) };
         let mut headers: Vec<(String, String)> = e.headers.iter().filter(|(k, _)| k != "User-Agent").cloned().collect();
         if !headers.iter().any(|(k, _)| k == "Referer") && !e.page_url.is_empty() {
@@ -103,13 +163,15 @@ impl TabMedia {
         Ok(Request {
             tab: tab.to_string(),
             stem,
-            mime: mime_for(&ext, audio_only),
-            ext,
+            mime: mime_for(&out_ext, audio_only),
+            ext: out_ext,
             source_url: e.item.url.clone(),
             page_url: e.page_url.clone(),
             headers,
             user_agent: ua,
             plan,
+            audio_format,
+            source_is_audio,
         })
     }
 }

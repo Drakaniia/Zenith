@@ -41,6 +41,7 @@ declare module "../../platform/ipc" {
     "tab-open-request": OpenRequest;
     "tab-close-request": { id: string };
     "tab-focused": { id: string };
+    "devtools-changed": { tabId: string; open: boolean; activate?: boolean };
     "popup-blocked": { tabId: string; url: string };
   }
 }

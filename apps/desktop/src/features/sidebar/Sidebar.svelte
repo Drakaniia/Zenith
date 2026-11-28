@@ -224,8 +224,10 @@
   :global(.app.collapsed-mode) .sidebar:not(.floating) {
     width: calc(var(--collapsed-tab-w) + 12px);
   }
-  :global(.app.animating) .sidebar:not(.floating) {
-    transition: width 300ms var(--zen-spring);
+  @media (prefers-reduced-motion: no-preference) {
+    :global(.app.animating) .sidebar:not(.floating) {
+      transition: width var(--lay-side-ms) var(--zen-spring);
+    }
   }
   .top-wrap {
     flex: none;

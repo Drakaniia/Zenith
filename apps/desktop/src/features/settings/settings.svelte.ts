@@ -17,8 +17,11 @@ export interface FilterListSetting {
   custom?: boolean;
 }
 
+export type WindowMaterial = "mica" | "acrylic" | "solid";
+
 export interface Settings {
   theme: "system" | "light" | "dark";
+  material: WindowMaterial;
   contentScheme: "system" | "light" | "dark";
   compact: boolean;
   /** Compact mode also hides the toolbar above the page; it floats in from the top edge (Zen's
@@ -69,9 +72,14 @@ export interface Settings {
   downloadDir: string | null;
   /** Media downloader: button over videos in pages. */
   mediaButton: boolean;
-  /** Use FFmpeg (when found) to convert .ts recordings and merge streams. */
+  /** Sites where the hover video download button is hidden. */
+  mediaDisabledSites: string[];
+  /** Use FFmpeg (when found) to convert .ts recordings, extract audio and merge streams. */
   useFfmpeg: boolean;
   ffmpegPath: string | null;
+  /** Use yt-dlp (when found) as fallback for complex sites and pasted URLs. */
+  useYtdlp: boolean;
+  ytdlpPath: string | null;
   /** Download updates in the background and install them when Zenith closes. */
   autoUpdate: boolean;
   /** Opt in to pre-release preview builds (`preview.json`) before stable rollout. */
@@ -185,6 +193,7 @@ export const BUILTIN_LISTS: FilterListSetting[] = [
 export function defaultSettings(): Settings {
   return {
     theme: "system",
+    material: "mica",
     contentScheme: "system",
     compact: false,
     compactHideToolbar: false,
@@ -215,8 +224,11 @@ export function defaultSettings(): Settings {
     historyDays: 90,
     downloadDir: null,
     mediaButton: true,
+    mediaDisabledSites: [],
     useFfmpeg: true,
     ffmpegPath: null,
+    useYtdlp: true,
+    ytdlpPath: null,
     autoUpdate: true,
     previewUpdates: false,
     torrentsEnabled: true,
@@ -291,6 +303,7 @@ class SettingsStore {
     await this.#read();
     const root = document.documentElement;
     root.dataset.theme = this.resolvedTheme;
+    root.dataset.material = this.value.material;
   }
 
   async #read() {
@@ -298,9 +311,7 @@ class SettingsStore {
       const raw = await settingsApi.settingsLoad();
       if (raw) {
         const saved = JSON.parse(raw) as Partial<Settings>;
-        // The translucent sidebar was removed: drop its keys from settings saved before.
         Reflect.deleteProperty(saved, "translucentSidebar");
-        Reflect.deleteProperty(saved, "material");
         const base = defaultSettings();
         // Keep defaults for new actions; respect user edits (including cleared bindings).
         const shortcuts = mergeShortcuts(saved.shortcuts, base.shortcuts);
@@ -325,6 +336,8 @@ class SettingsStore {
           !["single", "multiple", "collapsed"].includes(this.value.toolbarMode)
         )
           this.value.toolbarMode = "single";
+        if (!["mica", "acrylic", "solid"].includes(this.value.material))
+          this.value.material = "mica";
         this.value.sidebarPosition = normalizeSidebarPosition(this.value.sidebarPosition);
         if (!["always", "newtab", "never"].includes(this.value.bookmarksBar))
           this.value.bookmarksBar = "newtab";
@@ -376,6 +389,7 @@ class SettingsStore {
     // A change after startup fades; the first application (nothing set yet) is immediate.
     if (!root.dataset.theme) root.dataset.theme = theme;
     else if (root.dataset.theme !== theme) fadeChange(() => (root.dataset.theme = theme));
+    root.dataset.material = s.material;
     const args: Parameters<typeof settingsApi.applySettings> = [
       {
         downloadDir: s.downloadDir,
@@ -383,8 +397,11 @@ class SettingsStore {
         blockPopups: s.blockPopups,
         blockerEnabled: s.blockerEnabled,
         mediaButton: s.mediaButton,
+        mediaDisabledSites: Array.isArray(s.mediaDisabledSites) ? s.mediaDisabledSites : [],
         useFfmpeg: s.useFfmpeg,
         ffmpegPath: s.ffmpegPath,
+        useYtdlp: s.useYtdlp !== false,
+        ytdlpPath: s.ytdlpPath ?? null,
         autoUpdate: s.autoUpdate,
         previewUpdates: s.previewUpdates === true,
         torrentsEnabled: s.torrentsEnabled,
@@ -409,6 +426,7 @@ class SettingsStore {
       },
       {
         theme: s.theme,
+        material: s.material,
         pageBackground: this.pageBackground(),
         contentScheme: s.contentScheme,
       },
@@ -417,7 +435,8 @@ class SettingsStore {
     if (key === this.#pushed) return;
     this.#pushed = key;
     try {
-      await settingsApi.applySettings(...args);
+      const ok = await settingsApi.applySettings(...args);
+      if (ok === false) root.dataset.material = "solid";
     } catch (e) {
       if (this.#pushed === key) this.#pushed = ""; // sent again next time
       throw e;

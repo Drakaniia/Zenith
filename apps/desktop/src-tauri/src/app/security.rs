@@ -222,6 +222,7 @@ pub fn verify_runtime_manifest(exe_dir: &Path) -> Result<(), String> {
     if manifest.files.is_empty() {
         return Err("runtime-manifest.json has no file entries".into());
     }
+    let mut entries = Vec::with_capacity(manifest.files.len());
     for (rel, expected_hex) in &manifest.files {
         let mut target = exe_dir.to_path_buf();
         let mut segments = 0usize;
@@ -238,11 +239,58 @@ pub fn verify_runtime_manifest(exe_dir: &Path) -> Result<(), String> {
         if segments == 0 {
             return Err(format!("invalid manifest path: {rel}"));
         }
-        let actual_hex = sha256_file(&target)
+        entries.push((target, rel.as_str(), expected_hex.trim()));
+    }
+
+    let check_one = |(target, rel, expected_hex): &(PathBuf, &str, &str)| -> Result<(), String> {
+        let actual_hex = sha256_file(target)
             .map_err(|e| format!("missing or unreadable runtime file {rel}: {e}"))?;
-        if !actual_hex.eq_ignore_ascii_case(expected_hex.trim()) {
+        if !actual_hex.eq_ignore_ascii_case(expected_hex) {
             return Err(format!("runtime file hash mismatch: {rel}"));
         }
+        Ok(())
+    };
+
+    if entries.len() <= 2 {
+        for item in &entries {
+            check_one(item)?;
+        }
+        return Ok(());
+    }
+
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use std::sync::Mutex;
+    let workers = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(4)
+        .clamp(1, 8)
+        .min(entries.len());
+    let next = AtomicUsize::new(0);
+    let failed = AtomicBool::new(false);
+    let first_err: Mutex<Option<String>> = Mutex::new(None);
+    std::thread::scope(|s| {
+        for _ in 0..workers {
+            s.spawn(|| {
+                while !failed.load(Ordering::Relaxed) {
+                    let i = next.fetch_add(1, Ordering::Relaxed);
+                    if i >= entries.len() {
+                        break;
+                    }
+                    if let Err(e) = check_one(&entries[i]) {
+                        failed.store(true, Ordering::Relaxed);
+                        if let Ok(mut slot) = first_err.lock() {
+                            if slot.is_none() {
+                                *slot = Some(e);
+                            }
+                        }
+                        break;
+                    }
+                }
+            });
+        }
+    });
+    if let Some(err) = first_err.into_inner().ok().flatten() {
+        return Err(err);
     }
     Ok(())
 }
@@ -367,6 +415,29 @@ mod tests {
         .unwrap();
         assert!(verify_runtime_manifest(&dir).unwrap_err().contains("invalid manifest path"));
 
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn runtime_manifest_parallel_verification_catches_tampering() {
+        let dir = std::env::temp_dir().join(format!("zenith-rt-par-{}", crate::storage::now_ms()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("bin")).unwrap();
+        let mut files = serde_json::Map::new();
+        for i in 0..10 {
+            let rel = format!("bin/part-{i}.pak");
+            let p = dir.join(&rel);
+            let payload = format!("chunk-payload-{i}");
+            std::fs::write(&p, payload.as_bytes()).unwrap();
+            files.insert(rel, serde_json::Value::String(sha256_file(&p).unwrap()));
+        }
+        let manifest = serde_json::json!({ "files": files });
+        std::fs::write(dir.join("runtime-manifest.json"), manifest.to_string()).unwrap();
+        assert!(verify_runtime_manifest(&dir).is_ok());
+
+        std::fs::write(dir.join("bin/part-7.pak"), b"corrupted").unwrap();
+        let err = verify_runtime_manifest(&dir).unwrap_err();
+        assert!(err.contains("hash mismatch") && err.contains("bin/part-7.pak"), "got: {err}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -224,7 +224,7 @@ wrap_permission_handler! {
                 return 1;
             }
             let request_id = NEXT_PERMISSION.fetch_add(1, Ordering::Relaxed);
-            let tab = self.shared.id.clone();
+            let tab = self.shared.id();
             let pending = PendingPermission {
                 callback: Some(PermCallback::Prompt(cb.clone())),
                 tab: tab.clone(),
@@ -237,7 +237,7 @@ wrap_permission_handler! {
             });
             if stored.is_some() {
                 emit_tab(
-                    &self.shared.id,
+                    &tab.clone(),
                     "permission-request",
                     PermissionEvent {
                         request_id,
@@ -275,7 +275,7 @@ wrap_permission_handler! {
                 return 1;
             }
             let request_id = NEXT_PERMISSION.fetch_add(1, Ordering::Relaxed);
-            let tab = self.shared.id.clone();
+            let tab = self.shared.id();
             let pending = PendingPermission {
                 callback: Some(PermCallback::Media(cb.clone(), requested_permissions)),
                 tab: tab.clone(),
@@ -288,7 +288,7 @@ wrap_permission_handler! {
             });
             if stored.is_some() {
                 emit_tab(
-                    &self.shared.id,
+                    &tab.clone(),
                     "permission-request",
                     PermissionEvent {
                         request_id,

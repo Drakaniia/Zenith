@@ -86,6 +86,16 @@ impl Engine {
         self.rules
     }
 
+    pub fn serialize(&self) -> Vec<u8> {
+        self.inner.serialize()
+    }
+
+    pub fn from_serialized(bytes: &[u8], rules: usize) -> Option<Self> {
+        let mut inner = adblock::Engine::default();
+        inner.deserialize(bytes).ok()?;
+        Some(Self { inner, rules })
+    }
+
     /// Full ABP network match for a CEF request (supports URL paths, `$domain=`, `$third-party`,
     /// `$important`, resource types, exceptions, and worker requests).
     pub fn should_block_request(&self, url: &str, source_url: &str, resource_type: &str) -> bool {
@@ -331,5 +341,23 @@ mod tests {
         assert!(normalize_rule(&long_rule).is_none());
         assert!(normalize_rule("example.com##+js(set, x, 1)").is_none());
         assert!(normalize_rule("example.com##^script:has-text(ad)").is_none());
+    }
+
+    #[test]
+    fn serialized_engine_round_trips_network_and_cosmetic_rules() {
+        let mut b = Engine::builder();
+        b.add_list(
+            "||ads.example.net^\n\
+             @@||good.ads.example.net^\n\
+             news.example##.ad-slot\n",
+        );
+        let orig = b.build();
+        let bytes = orig.serialize();
+        let restored = Engine::from_serialized(&bytes, orig.rule_count()).expect("deserialize engine");
+        assert_eq!(restored.rule_count(), orig.rule_count());
+        assert!(restored.should_block("ads.example.net", Some("site.test")));
+        assert!(!restored.should_block("good.ads.example.net", Some("site.test")));
+        let css = restored.cosmetic_css("https://news.example/story").expect("cosmetic css");
+        assert!(css.contains(".ad-slot"));
     }
 }

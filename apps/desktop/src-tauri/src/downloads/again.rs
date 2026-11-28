@@ -49,6 +49,8 @@ pub fn start(record: &DownloadRecord) -> Result<i64, String> {
         user_agent,
         plan: Plan { main: Source::Download { url: record.url.clone(), ext: ext.clone() }, audio: None, live: false },
         ext,
+        audio_format: None,
+        source_is_audio: false,
     };
     job::start_download(req, dir, None)
 }

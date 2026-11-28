@@ -332,6 +332,10 @@ export const icons = {
   importBox: ["M14 3h5a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-5", "M3 12h11", "M10 8l4 4-4 4"],
   /** Torrents and magnet links: a horseshoe magnet. */
   magnet: ["M5 3h5v8a2 2 0 0 0 4 0V3h5v8a7 7 0 0 1-14 0z", "M5 7.5h5", "M14 7.5h5"],
+  /** Dock DevTools to the right edge. */
+  dockRight: [rect(2.4, 3.7, 19.2, 16.6, 3), "M14.4 3.7v16.6"],
+  /** Dock DevTools to the bottom edge. */
+  dockBottom: [rect(2.4, 3.7, 19.2, 16.6, 3), "M2.4 13.8h19.2"],
 } satisfies Record<string, string[]>;
 
 export type IconName = keyof typeof icons;

@@ -1,6 +1,15 @@
 // Backend calls for downloads, the media downloader and torrents.
 import { invoke } from "@tauri-apps/api/core";
-import type { DownloadItem, MediaReport, TorrentFile } from "./types";
+import type {
+  AudioFormat,
+  DownloadItem,
+  MediaReport,
+  MediaToolName,
+  MediaToolProgress,
+  MediaTools,
+  TorrentFile,
+  UrlProbeResult,
+} from "./types";
 
 export const downloadsApi = {
   downloadsActive: () => invoke<DownloadItem[]>("downloads_active"),
@@ -23,9 +32,40 @@ export const downloadsApi = {
     itemId: number,
     variant: string | null,
     audio: string | null,
-  ) => invoke<number>("media_download", { tabId, itemId, variant, audio }),
-  mediaTools: () => invoke<{ ffmpeg: string | null }>("media_tools"),
+    audioFormat: AudioFormat | null = null,
+  ) =>
+    invoke<number>("media_download", {
+      tabId,
+      itemId,
+      variant,
+      audio,
+      audioFormat,
+    }),
+  mediaTools: () => invoke<MediaTools>("media_tools"),
   mediaPickFfmpeg: () => invoke<string | null>("media_pick_ffmpeg"),
+  mediaPickYtdlp: () => invoke<string | null>("media_pick_ytdlp"),
+  mediaInstallTool: (tool: MediaToolName) =>
+    invoke<string>("media_install_tool", { tool }),
+  mediaRemoveTool: (tool: MediaToolName) =>
+    invoke<void>("media_remove_tool", { tool }),
+  mediaProbeUrl: (url: string, preferYtdlp = false) =>
+    invoke<UrlProbeResult>("media_probe_url", { url, preferYtdlp }),
+  mediaDownloadProbed: (
+    probeId: string,
+    itemId: number,
+    variant: string | null,
+    audio: string | null,
+    audioFormat: AudioFormat | null = null,
+    tabId: string | null = null,
+  ) =>
+    invoke<number>("media_download_probed", {
+      probeId,
+      itemId,
+      variant,
+      audio,
+      audioFormat,
+      tabId,
+    }),
   /** Torrents: each returns the new download's id. */
   torrentAddMagnet: (uri: string) =>
     invoke<number>("torrent_add_magnet", { uri }),
@@ -45,7 +85,12 @@ declare module "../../platform/ipc" {
   interface BackendEvents {
     download: DownloadItem;
     "media-changed": { tabId: string; count: number };
-    "media-request": { tabId: string; hint: string };
+    "media-request": {
+      tabId: string;
+      hint: string;
+      anchor?: { x: number; y: number; w: number; h: number; dpr: number };
+    };
+    "media-tool-progress": MediaToolProgress;
     /** A torrent could not be added or resumed (shown as a toast). */
     "torrent-error": string;
     /** A download was skipped because the file is already downloaded (shown as a toast). */

@@ -70,7 +70,10 @@ pub async fn session_load(window: WindowHandle) -> CmdResult<super::Start> {
     let label = window.label().to_string();
     let start = super::take_pending(&label);
     if label == host::MAIN {
-        let data = blocking(|| storage::read_text(&paths().session())).await?;
+        let data = match storage::take_warm_session() {
+            Some(warm) => warm,
+            None => blocking(|| storage::read_text(&paths().session())).await?,
+        };
         return Ok(super::Start { data, keep: start.and_then(|s| s.keep), fresh: false });
     }
     Ok(start.unwrap_or_default())
@@ -82,6 +85,9 @@ pub async fn session_save(window: WindowHandle, data: String) -> CmdResult<()> {
         return Ok(());
     }
     let label = window.label().to_string();
+    if label == host::MAIN {
+        storage::clear_warm_session();
+    }
     blocking(move || {
         let _guard = SESSION_LOCK.lock();
         if label == host::MAIN {

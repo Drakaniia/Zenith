@@ -236,6 +236,17 @@ pub fn bridge_init_script(token: &str, window_label: &str, incognito: bool) -> S
   Object.defineProperty(window, "__ZENITH_BRIDGE__", {{
     value: bridge, writable: false, configurable: false,
   }});
+  if (typeof window.__zenith_native_on_msg === "function") {{
+    window.__zenith_native_on_msg((kind, raw) => {{
+      try {{
+        const msg = JSON.parse(raw);
+        if (kind === "zenith.response") bridge._recvResponse(msg);
+        else if (kind === "zenith.event") bridge._recvEvent(msg);
+      }} catch (e) {{
+        console.error("[zenith-bridge] recv parse error", e);
+      }}
+    }});
+  }}
   Object.defineProperty(window, "__TAURI_INTERNALS__", {{
     value: Object.freeze({{
       invoke,
@@ -346,6 +357,15 @@ pub fn handle_invoke_message(browser: &mut Browser, frame: &mut Frame, raw: &str
         return;
     }
 
+    if let Some(result) = try_sync_ui_command(&win, &req.cmd, &req.args) {
+        let resp = match result {
+            Ok(data) => InvokeResponse { id: req.id, ok: true, data: Some(data), error: None },
+            Err(e) => InvokeResponse { id: req.id, ok: false, data: None, error: Some(e) },
+        };
+        send_json_message(frame, IPC_RESPONSE_MSG, &resp);
+        return;
+    }
+
     let browser_id = browser.identifier();
     let req_id = req.id;
     let cmd = req.cmd;
@@ -360,6 +380,86 @@ pub fn handle_invoke_message(browser: &mut Browser, frame: &mut Frame, raw: &str
             crate::host::send_chrome_response(browser_id, resp);
         });
     });
+}
+
+/// Executes pure CEF UI-thread commands directly on `ThreadId::UI` without bouncing through
+/// Tokio and `post_ui`, keeping layout frames and tab focus/navigation zero-hop.
+fn try_sync_ui_command(
+    win: &WindowHandle,
+    cmd: &str,
+    args: &serde_json::Value,
+) -> Option<Result<serde_json::Value, String>> {
+    fn dec<T: serde::de::DeserializeOwned>(v: &serde_json::Value) -> Result<T, String> {
+        serde_json::from_value(if v.is_null() { serde_json::json!({}) } else { v.clone() })
+            .map_err(|e| format!("invalid arguments: {e}"))
+    }
+    let label = win.label();
+    match cmd {
+        "set_layout" => {
+            #[derive(Deserialize)]
+            struct A {
+                spec: crate::host::LayoutSpec,
+            }
+            let queued = std::time::Instant::now();
+            Some(dec::<A>(args).map(|a| {
+                crate::host::commands::set_layout_on_ui(label, a.spec, queued);
+                serde_json::Value::Null
+            }))
+        }
+        "focus_view" => {
+            #[derive(Deserialize)]
+            struct A {
+                target: Option<String>,
+            }
+            Some(dec::<A>(args).map(|a| {
+                crate::host::focus_view(label, a.target);
+                serde_json::Value::Null
+            }))
+        }
+        "tab_set_glance" => {
+            #[derive(Deserialize)]
+            struct A {
+                id: String,
+                glance: bool,
+            }
+            Some(dec::<A>(args).map(|a| {
+                crate::host::tab::set_glance(&a.id, a.glance);
+                serde_json::Value::Null
+            }))
+        }
+        "tab_navigate" => {
+            #[derive(Deserialize)]
+            struct A {
+                id: String,
+                url: String,
+            }
+            Some(dec::<A>(args).and_then(|a| {
+                crate::host::commands::tab_navigate_on_ui(&a.id, &a.url)?;
+                Ok(serde_json::Value::Null)
+            }))
+        }
+        "tab_create" => {
+            #[derive(Deserialize)]
+            struct A {
+                args: crate::host::commands::TabCreateArgs,
+            }
+            Some(dec::<A>(args).and_then(|a| {
+                crate::host::commands::tab_create_on_ui(label.to_string(), a.args)?;
+                Ok(serde_json::Value::Null)
+            }))
+        }
+        "tab_close" => {
+            #[derive(Deserialize)]
+            struct A {
+                id: String,
+            }
+            Some(dec::<A>(args).map(|a| {
+                crate::host::tab::close(&a.id);
+                serde_json::Value::Null
+            }))
+        }
+        _ => None,
+    }
 }
 
 fn handle_plugin_command(

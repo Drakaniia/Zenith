@@ -27,7 +27,7 @@ export type StepId = (typeof STEPS)[number]["id"];
 /** "accent" is the colour of the first space rather than a setting. */
 export const STEP_FIELDS: Record<StepId, readonly string[]> = {
   welcome: [],
-  appearance: ["theme", "toolbarMode", "accent"],
+  appearance: ["theme", "material", "toolbarMode", "accent"],
   search: ["searchEngine", "searchSuggestions"],
   start: ["restoreSession", "homepage"],
   import: [],

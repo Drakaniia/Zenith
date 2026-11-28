@@ -39,20 +39,23 @@ pub(super) fn matching_accounts(accounts: Vec<Account>, typed: &str) -> Vec<Acco
 }
 
 pub(super) fn on_field(sh: &Arc<TabShared>, origin: &str, m: &Msg) {
-    with_tab(&sh.id, |t| t.muted = false);
+    let tab_id = sh.id();
+    with_tab(&tab_id, |t| t.muted = false);
     show_list(sh, origin, m, None);
 }
 
 /// A username field changed: the open list narrows to the matching accounts, and comes back when
 /// the text matches again. Nothing when the user closed the list.
 pub(super) fn on_type(sh: &Arc<TabShared>, origin: &str, m: &Msg) {
-    if m.f != "user" || with_tab(&sh.id, |t| t.muted) {
+    let tab_id = sh.id();
+    if m.f != "user" || with_tab(&tab_id, |t| t.muted) {
         return;
     }
     show_list(sh, origin, m, Some(m.u.as_str()));
 }
 
 fn show_list(sh: &Arc<TabShared>, origin: &str, m: &Msg, typed: Option<&str>) {
+    let tab_id = sh.id();
     let cfg = config();
     let new_password = m.k == "new";
     let mut accounts = if cfg.autofill_suggest && (cfg.autofill_usernames || cfg.autofill_passwords) && !(new_password && m.f == "pass") {
@@ -67,21 +70,21 @@ fn show_list(sh: &Arc<TabShared>, origin: &str, m: &Msg, typed: Option<&str>) {
     if accounts.is_empty() && generated.is_none() {
         // Typing that matches nothing closes the list; it returns when the text matches again.
         if typed.is_some() {
-            close_suggestions(&sh.id);
+            close_suggestions(&tab_id);
         }
         return;
     }
     let shown = generated.as_ref().map(|g| g.to_string());
-    with_tab(&sh.id, |t| {
+    with_tab(&tab_id, |t| {
         t.generated = generated;
         t.suggesting = true;
     });
     let finite = |v: f64| if v.is_finite() { v } else { 0.0 };
     emit_tab(
-        &sh.id,
+        &tab_id,
         "password-suggest",
         Suggest {
-            tab_id: sh.id.clone(),
+            tab_id: tab_id.clone(),
             site: vault::display_site(origin),
             field: if m.f == "pass" { "pass".into() } else { "user".into() },
             new_password,
@@ -96,6 +99,7 @@ fn show_list(sh: &Arc<TabShared>, origin: &str, m: &Msg, typed: Option<&str>) {
 }
 
 pub(super) fn on_capture(sh: &Arc<TabShared>, origin: &str, m: &Msg) {
+    let tab_id = sh.id();
     let cfg = config();
     if !cfg.passwords_offer_save || sh.private {
         return;
@@ -107,12 +111,12 @@ pub(super) fn on_capture(sh: &Arc<TabShared>, origin: &str, m: &Msg) {
     if m.p.is_empty() {
         // First step of a two-step login: remember who is signing in.
         if !typed.is_empty() {
-            with_tab(&sh.id, |t| t.step_user = Some((origin.to_string(), typed, Instant::now())));
+            with_tab(&tab_id, |t| t.step_user = Some((origin.to_string(), typed, Instant::now())));
         }
         return;
     }
     let username = if typed.is_empty() {
-        with_tab(&sh.id, |t| match &t.step_user {
+        with_tab(&tab_id, |t| match &t.step_user {
             Some((o, u, at)) if at.elapsed() < STEP_TTL && vault::origin_match(o, origin, true).is_some() => u.clone(),
             _ => String::new(),
         })
@@ -135,8 +139,8 @@ pub(super) fn on_capture(sh: &Arc<TabShared>, origin: &str, m: &Msg) {
         Capture::New => None,
     };
     let is_update = update.is_some();
-    let offer_id = vault::add_offer(&sh.id, origin, &username, Zeroizing::new(m.p.clone()), update);
-    let payload = SaveOffer { offer_id, tab_id: sh.id.clone(), site: vault::display_site(origin), username, update: is_update };
+    let offer_id = vault::add_offer(&tab_id, origin, &username, Zeroizing::new(m.p.clone()), update);
+    let payload = SaveOffer { offer_id, tab_id, site: vault::display_site(origin), username, update: is_update };
     // Let the page react first (a failed login re-renders; a good one navigates).
     std::thread::spawn(move || {
         std::thread::sleep(Duration::from_millis(700));
@@ -147,11 +151,12 @@ pub(super) fn on_capture(sh: &Arc<TabShared>, origin: &str, m: &Msg) {
 }
 
 pub(super) fn on_form(sh: &Arc<TabShared>, origin: &str) {
+    let tab_id = sh.id();
     let cfg = config();
     if !cfg.autofill_on_load || cfg.vault_ask_every_time || !(cfg.autofill_usernames || cfg.autofill_passwords) {
         return;
     }
-    if with_tab(&sh.id, |t| std::mem::replace(&mut t.form_handled, true)) {
+    if with_tab(&tab_id, |t| std::mem::replace(&mut t.form_handled, true)) {
         return;
     }
     // Only the single account saved for exactly this origin, and only while unlocked.
@@ -167,7 +172,7 @@ pub(super) fn on_form(sh: &Arc<TabShared>, origin: &str) {
     })
     .flatten();
     let Some((user, pass)) = creds else { return };
-    let (tab, origin) = (sh.id.clone(), origin.to_string());
+    let (tab, origin) = (tab_id, origin.to_string());
     post(move || {
         let u = cfg.autofill_usernames.then_some(user.as_str());
         let p = cfg.autofill_passwords.then_some(pass.as_str());

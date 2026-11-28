@@ -132,28 +132,25 @@ test("ResizeObserver sends the new bounds without waiting for another rendering 
   assert.equal(h.frames.length, 0);
 });
 
-test("layout clocks wait for native acknowledgement without pausing unrelated motion", async () => {
+test("layout clocks run uninterrupted during native placement without pausing CSS transitions", async () => {
   const h = harness();
   await h.frame();
   const edge = new h.Transition("--lay-left", "data-layout-root");
   const width = new h.Transition("width", "data-layout-sidebar");
   const hover = new h.Transition("opacity", "data-layout-root");
-  const paused = new h.Transition("--lay-top", "data-layout-root");
-  paused.playState = "paused";
-  h.animations.push(edge, width, hover, paused);
+  h.animations.push(edge, width, hover);
   let release!: () => void;
   h.setSend(() => new Promise<void>((resolve) => { release = resolve; }));
   h.bounds.x = 210;
   h.resize();
   await h.settle();
-  assert.equal(edge.playState, "paused");
-  assert.equal(width.playState, "paused");
+  assert.equal(edge.pauses, 0);
+  assert.equal(width.pauses, 0);
   assert.equal(hover.pauses, 0);
+  assert.equal(edge.playState, "running");
   release();
   await h.settle();
   assert.equal(edge.playState, "running");
-  assert.equal(width.playState, "running");
-  assert.equal(paused.plays, 0, "Do not resume clocks paused by another owner");
 });
 
 test("paint fences remeasure geometry before native placement and cutout publication", async () => {
@@ -167,6 +164,30 @@ test("paint fences remeasure geometry before native placement and cutout publica
   await h.settle();
   assert.equal(h.sent.at(-1)?.panes[0].x, 180);
   assert.equal(h.api.overlay.panes[0].x, 180);
+});
+
+test("continuous shrinking while chrome is raised streams painted intermediate frames without starving", async () => {
+  const h = harness();
+  await h.frame();
+  h.api.raiseChrome();
+  await h.frame();
+  await h.frame();
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  await h.settle();
+  const beforeCount = h.sent.length;
+  for (const x of [300, 360, 420, 488]) {
+    h.bounds.x = x;
+    h.api.scheduleLayout();
+    await h.frame();
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    await h.settle();
+  }
+  await h.frame();
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  await h.settle();
+  const xs = h.sent.slice(beforeCount).map((s) => s.panes[0].x);
+  assert.ok(xs.length >= 3, `expected intermediate shrinking frames while raised, got ${xs.join(",")}`);
+  assert.equal(xs.at(-1), 488);
 });
 
 test("retargets keep the high-water content allocation until gated motion settles", async () => {
@@ -237,4 +258,22 @@ test("overlay.raised tracks data-raised and overlaySurface forwards panel bounds
   await h.frame();
   assert.equal(h.api.overlay.raised, false);
   assert.equal((h.sent.at(-1) as any)?.overlayRects, undefined);
+});
+
+test("devtoolsPane reports docked bounds and overlay cutout until destroyed", async () => {
+  const h = harness();
+  await h.frame();
+  assert.equal((h.sent.at(-1) as any)?.devtools, undefined);
+  const dtEl = {
+    isConnected: true,
+    getBoundingClientRect: () => ({ left: 860, top: 36, right: 1260, bottom: 708, width: 400, height: 672 }),
+  };
+  const reg = h.api.devtoolsPane(dtEl, "page");
+  await h.frame();
+  assert.deepEqual((h.sent.at(-1) as any)?.devtools, { id: "page", x: 860, y: 36, w: 400, h: 672 });
+  assert.equal(h.api.overlay.panes.length, 2);
+  reg.destroy();
+  await h.frame();
+  assert.equal((h.sent.at(-1) as any)?.devtools, undefined);
+  assert.equal(h.api.overlay.panes.length, 1);
 });

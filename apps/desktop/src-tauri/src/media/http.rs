@@ -107,6 +107,7 @@ pub struct Response {
     request: Handle,
     _connect: Handle,
     pub status: u32,
+    pub content_type: String,
     pub content_length: Option<u64>,
     /// Size of the whole resource (from Content-Range for partial responses).
     pub total: Option<u64>,
@@ -283,6 +284,7 @@ impl Client {
                 return Err(Error::Status(status));
             }
             // Parsed from text: lengths above 4 GB do not fit the 32-bit numeric query.
+            let content_type = query_string(request.0, WINHTTP_QUERY_CONTENT_TYPE).unwrap_or_default();
             let content_length =
                 query_string(request.0, WINHTTP_QUERY_CONTENT_LENGTH).and_then(|v| v.trim().parse::<u64>().ok());
             let total = if status == 206 {
@@ -296,6 +298,7 @@ impl Client {
                 request,
                 _connect: connect,
                 status,
+                content_type,
                 content_length,
                 total,
             }))

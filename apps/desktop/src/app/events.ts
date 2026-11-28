@@ -13,6 +13,7 @@ import { torrents } from '../features/downloads/torrents.svelte';
 import { formatFromShortcut } from '../features/notes/rich-dom';
 import { permissions } from '../features/page/permissions.svelte';
 import { security } from '../features/page/security.svelte';
+import { devtools } from '../features/page/devtools.svelte';
 import { ui } from '../shared/ui/ui.svelte';
 import { incognito } from '../features/window/window.svelte';
 import { updates } from '../features/updates/updates.svelte';
@@ -40,6 +41,13 @@ export function listenBackend(flushAndClose: () => Promise<void>): Promise<() =>
       permissions.dropTab(id);
       security.dropTab(id);
       vault.dropTab(id);
+      devtools.dropTab(id);
+    }),
+    on('devtools-changed', ({ tabId, open, activate }) => {
+      devtools.setOpen(tabId, open);
+      if (open && activate && browser.tabs[tabId] && browser.activeTab?.id !== tabId) {
+        browser.activate(tabId, { focus: false });
+      }
     }),
     on('tab-focused', ({ id }) => {
       if (browser.activeSplit?.ids.includes(id) && browser.activeTab?.id !== id) browser.activate(id, { focus: false });
@@ -127,9 +135,9 @@ export function listenBackend(flushAndClose: () => Promise<void>): Promise<() =>
     on('download-exists', (message) => ui.toast(message, { icon: 'check', timeout: 4000 })),
     on('update-status', (s) => updates.apply(s)),
     on('media-changed', ({ tabId, count }) => browser.setMediaCount(tabId, count)),
-    on('media-request', ({ tabId, hint }) => {
+    on('media-request', ({ tabId, hint, anchor }) => {
       // From the button over a video or the page's context menu.
-      if (browser.tabs[tabId]) ui.openMedia(tabId, hint);
+      if (browser.tabs[tabId]) ui.openMedia(tabId, hint, anchor ?? null);
     }),
     on('app-close-requested', () => void flushAndClose()),
     // Another window changed the bookmarks.

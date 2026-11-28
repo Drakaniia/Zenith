@@ -32,6 +32,21 @@
         onchange={(v) => set('theme', v)}
       />
     </div>
+    <div class="row">
+      <div class="text">
+        <b>Window material</b>
+        <span>Translucent Windows 11 backdrop beneath each space's tint.</span>
+      </div>
+      <Segmented
+        value={s.material}
+        options={[
+          { value: 'mica', label: 'Mica' },
+          { value: 'acrylic', label: 'Acrylic' },
+          { value: 'solid', label: 'Solid' },
+        ]}
+        onchange={(v) => set('material', v)}
+      />
+    </div>
     {#if browser.activeSpace}
       <div class="row">
         <div class="text">

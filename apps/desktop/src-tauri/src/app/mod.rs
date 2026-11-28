@@ -198,6 +198,7 @@ pub fn run_cef(h_instance: *mut c_void, sandbox_info: *mut c_void) -> i32 {
     settings.root_cache_path = CefString::from(cef_cache.to_string_lossy().as_ref());
     settings.cache_path = CefString::from(cef_cache.to_string_lossy().as_ref());
     settings.persist_session_cookies = 1;
+    settings.background_color = 0x0000_0000;
     settings.log_severity = LogSeverity::WARNING;
     #[cfg(any(debug_assertions, feature = "remote-debug"))]
     if let Ok(port_str) = std::env::var("ZENITH_REMOTE_DEBUG_PORT") {

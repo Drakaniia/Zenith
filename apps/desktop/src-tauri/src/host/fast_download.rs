@@ -44,7 +44,8 @@ pub(super) fn offer(
     started: Started,
 ) {
     let page = shared.url();
-    let req = request(&shared.id, &started, &page, crate::media::sniff::default_user_agent());
+    let tab_id = shared.id();
+    let req = request(&tab_id, &started, &page, crate::media::sniff::default_user_agent());
     let total = started.total as u64;
     let id = NEXT.fetch_add(1, Ordering::Relaxed);
     PENDING.with(|p| p.borrow_mut().insert(id, Pending { cb, shared, started }));
@@ -102,6 +103,8 @@ fn request(tab: &str, s: &Started, page: &str, user_agent: String) -> Request {
         user_agent,
         plan: Plan { main: Source::Download { url: s.uri.clone(), ext: ext.clone() }, audio: None, live: false },
         ext,
+        audio_format: None,
+        source_is_audio: false,
     }
 }
 

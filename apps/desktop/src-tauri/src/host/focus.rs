@@ -33,8 +33,8 @@ pub(super) fn restore_focus(hwnd: HWND, previous: Option<Focus>, only_if_lost: b
     if (only_if_lost || previous.is_none()) && !focus_lost(hwnd) {
         return;
     }
-    with_host(|h| {
-        let Some(win) = h.wins.values().find(|w| w.hwnd == hwnd) else { return };
+    let target_browser = with_host(|h| {
+        let Some(win) = h.wins.values().find(|w| w.hwnd == hwnd) else { return None };
         let previous = previous.unwrap_or_else(|| win.focus.clone());
         let label = win.window.label();
         let tab_browser = match &previous {
@@ -43,45 +43,48 @@ pub(super) fn restore_focus(hwnd: HWND, previous: Option<Focus>, only_if_lost: b
                 .get(id)
                 .filter(|t| t.visible && t.window() == label)
                 .and_then(|t| t.browser.clone()),
+            Focus::DevTools(id) => h
+                .tabs
+                .get(id)
+                .filter(|t| t.window() == label)
+                .and_then(|t| t.devtools.as_ref().filter(|dt| dt.visible).and_then(|dt| dt.browser.clone())),
             Focus::Chrome => None,
         };
-        if let Some(b) = tab_browser {
-            if let Some(host) = b.host() {
-                host.set_focus(1);
-            }
-        } else if let Some(b) = &win.chrome {
-            if let Some(host) = b.host() {
-                host.set_focus(1);
-            }
+        tab_browser.or_else(|| win.chrome.clone())
+    })
+    .flatten();
+    if let Some(b) = target_browser {
+        if let Some(host) = b.host() {
+            host.set_focus(1);
         }
-    });
+    }
 }
 
 pub fn focus_view(label: &str, target: Option<String>) {
-    with_host(|h| {
-        let Some(win) = h.wins.get_mut(label) else { return };
+    let target_browser = with_host(|h| {
+        let Some(win) = h.wins.get_mut(label) else { return None };
         match target {
             Some(id) => {
-                if let Some(b) = h
+                let b = h
                     .tabs
                     .get(&id)
                     .filter(|t| t.window() == label)
-                    .and_then(|t| t.browser.clone())
-                {
-                    if let Some(host) = b.host() {
-                        host.set_focus(1);
-                    }
+                    .and_then(|t| t.browser.clone());
+                if b.is_some() {
                     win.focus = Focus::Tab(id);
                 }
+                b
             }
             None => {
-                if let Some(b) = &win.chrome {
-                    if let Some(host) = b.host() {
-                        host.set_focus(1);
-                    }
-                }
                 win.focus = Focus::Chrome;
+                win.chrome.clone()
             }
         }
-    });
+    })
+    .flatten();
+    if let Some(b) = target_browser {
+        if let Some(host) = b.host() {
+            host.set_focus(1);
+        }
+    }
 }

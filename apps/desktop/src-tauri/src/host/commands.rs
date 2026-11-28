@@ -28,36 +28,42 @@ pub struct TabCreateArgs {
     opener_url: Option<String>,
 }
 
-pub async fn tab_create(app: AppHandle, window: WindowHandle, args: TabCreateArgs) -> CmdResult<()> {
-    let label = window.label().to_string();
+pub(crate) fn tab_create_on_ui(label: String, args: TabCreateArgs) -> CmdResult<()> {
     let url = match &args.url {
         Some(u) => Some(urls::sanitize_navigation(u).ok_or("this address cannot be opened")?),
         None => None,
     };
     let scroll = args.scroll_x.zip(args.scroll_y).filter(|(x, y)| *x > 0.0 || *y > 0.0);
-    on_main(&app, move || {
-        tab::create(CreateOptions {
-            id: args.id,
-            window: label,
-            url,
-            glance: args.glance,
-            muted: args.muted,
-            zoom: args.zoom,
-            scroll,
-            opener_url: args.opener_url,
-        })
-        .map(|_| ())
+    tab::create(CreateOptions {
+        id: args.id,
+        window: label,
+        url,
+        glance: args.glance,
+        muted: args.muted,
+        zoom: args.zoom,
+        scroll,
+        opener_url: args.opener_url,
     })
-    .await?
+    .map(|_| ())
+}
+
+pub async fn tab_create(app: AppHandle, window: WindowHandle, args: TabCreateArgs) -> CmdResult<()> {
+    let label = window.label().to_string();
+    on_main(&app, move || tab_create_on_ui(label, args)).await?
 }
 
 pub async fn tab_close(app: AppHandle, id: String) -> CmdResult<()> {
     on_main(&app, move || tab::close(&id)).await
 }
 
+pub(crate) fn tab_navigate_on_ui(id: &str, url: &str) -> CmdResult<()> {
+    let url = urls::sanitize_navigation(url).ok_or("this address cannot be opened")?;
+    tab::navigate(id, &url)
+}
+
 pub async fn tab_navigate(app: AppHandle, id: String, url: String) -> CmdResult<()> {
-    let url = urls::sanitize_navigation(&url).ok_or("this address cannot be opened")?;
-    on_main(&app, move || tab::navigate(&id, &url)).await?
+    let clean = urls::sanitize_navigation(&url).ok_or("this address cannot be opened")?;
+    on_main(&app, move || tab::navigate(&id, &clean)).await?
 }
 
 pub async fn tab_command(
@@ -94,9 +100,17 @@ pub async fn tab_set_glance(app: AppHandle, id: String, glance: bool) -> CmdResu
     on_main(&app, move || tab::set_glance(&id, glance)).await
 }
 
+pub(crate) fn set_layout_on_ui(label: &str, spec: LayoutSpec, queued: std::time::Instant) {
+    let started = std::time::Instant::now();
+    let pane = host::perf::enabled().then(|| spec.panes.first().map(|p| (p.x, p.w))).flatten();
+    host::set_layout(label, spec);
+    host::perf::record(queued, started, pane);
+}
+
 pub async fn set_layout(app: AppHandle, window: WindowHandle, spec: LayoutSpec) -> CmdResult<()> {
     let label = window.label().to_string();
-    on_main(&app, move || host::set_layout(&label, spec)).await
+    let queued = std::time::Instant::now();
+    on_main(&app, move || set_layout_on_ui(&label, spec, queued)).await
 }
 
 pub async fn focus_view(app: AppHandle, window: WindowHandle, target: Option<String>) -> CmdResult<()> {

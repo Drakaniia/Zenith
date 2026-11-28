@@ -83,10 +83,10 @@ export interface MediaChoice {
   audioOnly: boolean;
 }
 
-/** A video or audio item found on a page. */
+/** A video or audio item found on a page or probed from a URL. */
 export interface MediaItem {
   id: number;
-  kind: "file" | "hls" | "dash";
+  kind: "file" | "hls" | "dash" | "ytdlp";
   url: string;
   title: string;
   ext: string;
@@ -97,11 +97,38 @@ export interface MediaItem {
   audioOnly: boolean;
   live: boolean;
   protected: boolean;
-  foundBy: "network" | "page";
+  foundBy: "network" | "page" | "ytdlp";
   detected: number;
   variants: MediaChoice[];
   audioTracks: MediaChoice[];
   note: string;
+}
+
+export interface UrlProbeResult {
+  probeId: string;
+  engine: "native" | "ytdlp" | "none";
+  items: MediaItem[];
+  ffmpeg: boolean;
+  ytdlp: boolean;
+  hint: string;
+}
+
+export type AudioFormat = "m4a" | "opus" | "mp3";
+
+export type MediaToolName = "ffmpeg" | "ytdlp";
+
+export interface MediaTools {
+  ffmpeg: string | null;
+  ffmpegManaged: boolean;
+  ytdlp: string | null;
+  ytdlpManaged: boolean;
+}
+
+export interface MediaToolProgress {
+  tool: MediaToolName;
+  stage: string;
+  received: number;
+  total: number;
 }
 
 export interface MediaReport {
@@ -111,4 +138,5 @@ export interface MediaReport {
   /** Players using DRM (Encrypted Media Extensions). */
   drm: number;
   ffmpeg: boolean;
+  ytdlp?: boolean;
 }

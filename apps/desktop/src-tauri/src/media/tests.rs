@@ -41,16 +41,21 @@ fn hls_media_playlists_fold_into_their_master() {
     assert!(!m.add_hls("https://cdn.example/v/360.m3u8", again, found(page)), "same facts: no change");
     assert!(!m.wants_manifest("https://cdn.example/v/360.m3u8"));
 
-    let req = m.request("t1", item.id, Some("v1"), Some("a1"), "UA/1").unwrap();
+    let req = m.request("t1", item.id, Some("v1"), Some("a1"), None, "UA/1").unwrap();
     assert_eq!(req.stem, "My Clip Part 1 (1080p)");
     assert_eq!(req.ext, "mp4");
     assert_eq!(req.plan.main, Source::Hls("https://cdn.example/v/1080.m3u8".into()));
     assert_eq!(req.plan.audio, Some(Source::Hls("https://cdn.example/v/fr.m3u8".into())));
     assert_eq!(req.user_agent, "UA/1");
     assert!(req.headers.iter().any(|(k, v)| k == "Referer" && v == page));
-    let best = m.request("t1", item.id, None, None, "UA/1").unwrap();
+    let best = m.request("t1", item.id, None, None, None, "UA/1").unwrap();
     assert_eq!(best.plan.main, Source::Hls("https://cdn.example/v/1080.m3u8".into()));
     assert_eq!(best.plan.audio, Some(Source::Hls("https://cdn.example/v/en.m3u8".into())));
+    let audio_req = m.request("t1", item.id, None, Some("a1"), Some(job::AudioFormat::Mp3), "UA/1").unwrap();
+    assert_eq!(audio_req.ext, "mp3");
+    assert!(audio_req.source_is_audio);
+    assert_eq!(audio_req.plan.main, Source::Hls("https://cdn.example/v/fr.m3u8".into()));
+    assert!(audio_req.plan.audio.is_none());
 }
 
 #[test]
@@ -97,7 +102,7 @@ fn protected_and_dash_items() {
     m.add_hls("https://a.example/m.m3u8", enc, found("https://a.example/"));
     let id = m.items()[0].id;
     assert!(m.items()[0].protected);
-    assert_eq!(m.request("t", id, None, None, "").unwrap_err(), job::PROTECTED);
+    assert_eq!(m.request("t", id, None, None, None, "").unwrap_err(), job::PROTECTED);
 
     let mpd = dash::parse(
         r#"<MPD mediaPresentationDuration="PT8S"><Period>
@@ -111,15 +116,20 @@ fn protected_and_dash_items() {
     m.add_dash("https://d.example/x/manifest.mpd", mpd, found("https://d.example/"));
     let item = m.items().into_iter().find(|i| i.kind == "dash").unwrap();
     assert_eq!(item.variants.iter().map(|v| v.label.as_str()).collect::<Vec<_>>(), vec!["720p · 3.0 Mbps", "360p · 900 kbps", "Audio only · en · 128 kbps"]);
-    let req = m.request("t", item.id, None, None, "").unwrap();
+    let req = m.request("t", item.id, None, None, None, "").unwrap();
     let Source::Segments { media, init, .. } = &req.plan.main else { panic!() };
     assert_eq!(media.len(), 2);
     assert_eq!(init.as_ref().unwrap().url, "https://d.example/x/hd/i.mp4");
     assert!(matches!(&req.plan.audio, Some(Source::Segments { media, .. }) if media[0].url == "https://d.example/x/a/1.m4s"));
-    let audio_only = m.request("t", item.id, Some(&item.variants[2].id), None, "").unwrap();
+    let audio_only = m.request("t", item.id, Some(&item.variants[2].id), None, None, "").unwrap();
     assert!(audio_only.plan.audio.is_none());
     assert_eq!(audio_only.ext, "m4a");
     assert!(audio_only.stem.ends_with("(audio)"));
+    let dash_opus = m.request("t", item.id, None, None, Some(job::AudioFormat::Opus), "").unwrap();
+    assert!(dash_opus.plan.audio.is_none());
+    assert!(dash_opus.source_is_audio);
+    assert_eq!(dash_opus.ext, "opus");
+    assert!(matches!(&dash_opus.plan.main, Source::Segments { media, .. } if media[0].url == "https://d.example/x/a/1.m4s"));
 }
 
 #[test]

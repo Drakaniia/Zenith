@@ -16,7 +16,9 @@
     "gen:avatars": "node scripts/gen-profile-avatars.mjs"
   },
   "dependencies": {
-    "@tauri-apps/api": "^2.12.4"
+    "@tauri-apps/api": "^2.12.4",
+    "pdf-lib": "1.17.1",
+    "pdfjs-dist": "6.5.438"
   },
   "devDependencies": {
     "@iconify-json/fluent-emoji-flat": "^1.2.6",

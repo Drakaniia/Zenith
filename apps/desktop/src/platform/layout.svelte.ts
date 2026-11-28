@@ -17,6 +17,7 @@ export function setLayoutRegistry(r: Registry) { registry = r; }
 const panes = new Map<HTMLElement, string>();
 const surfaces = new Map<HTMLElement, number>();
 let glanceEl: { el: HTMLElement; id: string } | null = null;
+let devtoolsEl: { el: HTMLElement; id: string } | null = null;
 let pending = false;
 let lastSent = "";
 let pendingFocus: string | null | undefined = undefined;
@@ -47,12 +48,7 @@ function applyLatestLayout() {
     try {
       do {
         dirty = false;
-        const resume = holdLayoutMotion();
-        try {
-          await flush();
-        } finally {
-          resume();
-        }
+        await flush();
       } while (dirty);
     } finally {
       applying = false;
@@ -86,16 +82,6 @@ function layoutTransitions(): Animation[] {
   });
 }
 
-/** Native placement is asynchronous. Hold the coupled CSS clocks while it catches up so the
- *  shell cannot advance through several frames against one stale native rectangle. */
-function holdLayoutMotion() {
-  const held = layoutTransitions().filter((a) => a.playState === "running");
-  for (const a of held) a.pause();
-  return () => {
-    for (const a of held) if (a.playState === "paused") a.play();
-  };
-}
-
 let followUntil = 0;
 let following = false;
 const followed: (() => void)[] = [];
@@ -113,6 +99,7 @@ function measureMotion() {
   const anims = layoutTransitions();
   if (!anims.length) return;
   const els = [...panes.keys()].filter((el) => el.isConnected);
+  if (devtoolsEl?.el.isConnected) els.push(devtoolsEl.el);
   for (const el of els) {
     const r = el.getBoundingClientRect();
     retainSize(el, r.width, r.height);
@@ -141,6 +128,10 @@ export function followLayout(ms: number): Promise<void> {
     if (!el.isConnected) continue;
     const r = el.getBoundingClientRect();
     retainSize(el, r.width, r.height);
+  }
+  if (devtoolsEl?.el.isConnected) {
+    const r = devtoolsEl.el.getBoundingClientRect();
+    retainSize(devtoolsEl.el, r.width, r.height);
   }
   remeasure = true;
   followUntil = Math.max(followUntil, performance.now() + ms);
@@ -207,6 +198,16 @@ function readLayout() {
   }
   const glance = glanceEl && glanceEl.el.isConnected && registry.isLive(glanceEl.id)
     ? rectOf(glanceEl.el, glanceEl.id) : null;
+  const devtools = devtoolsEl && devtoolsEl.el.isConnected && registry.isLive(devtoolsEl.id)
+    ? rectOf(devtoolsEl.el, devtoolsEl.id) : null;
+  if (devtools && devtoolsEl) {
+    const m = motionSize.get(devtoolsEl.el);
+    if (m && (m.w > devtools.w || m.h > devtools.h)) {
+      devtools.cw = Math.ceil(Math.max(m.w, devtools.w));
+      devtools.ch = Math.ceil(Math.max(m.h, devtools.h));
+    }
+    cutouts.push({ x: devtools.x, y: devtools.y, w: devtools.w, h: devtools.h });
+  }
   const hasOverlay = overlay.holds > 0 || overlay.forced || !!glance;
   let overlayRects: OverlayRect[] | undefined;
   if (hasOverlay && surfaces.size > 0) {
@@ -225,6 +226,7 @@ function readLayout() {
   const spec: LayoutSpec = {
     panes: list,
     glance,
+    ...(devtools ? { devtools } : {}),
     overlay: hasOverlay,
     ...(overlayRects?.length ? { overlayRects } : {}),
     viewportW: window.innerWidth,
@@ -249,10 +251,35 @@ async function flush() {
       paint = !document.hidden;
     }
     if (paint) {
+      const fenced = layout;
       await nextPaint();
       // Layout can change during the fence (resize, reversal, closing a pane or an overlay).
-      // Recheck exposure as well as geometry; never submit the pre-fence snapshot.
-      layout = readLayout();
+      // If fresh geometry stays within the cutout just painted, submit fresh directly; if the
+      // pane keeps shrinking across frames while chrome is raised (e.g. opening Ctrl+B while a
+      // toast is visible), commit the fenced frame whose tint has now painted so continuous
+      // motion streams every frame instead of starving until settle.
+      const fresh = readLayout();
+      const freshKeep = intersectRects(overlay.panes, fresh.cutouts);
+      const freshExposes =
+        !sameRects(freshKeep, overlay.panes) &&
+        (fresh.spec.overlay || root.hasAttribute("data-raised")) &&
+        !document.hidden;
+      if (!freshExposes) {
+        layout = fresh;
+        continue;
+      }
+      try {
+        await withTimeout(webviewApi.setLayout(fenced.spec), SET_LAYOUT_TIMEOUT_MS, "set_layout");
+        lastSent = fenced.key;
+      } catch (e) {
+        console.warn("set_layout failed", e);
+        break;
+      }
+      if (!fenced.spec.overlay) {
+        root.removeAttribute("data-raised");
+        overlay.raised = false;
+      }
+      layout = fresh;
       continue;
     }
     try {
@@ -338,6 +365,22 @@ export function glancePane(node: HTMLElement, id: string) {
     update(next: string) { glanceEl = { el: node, id: next }; scheduleLayout(); },
     destroy() {
       if (glanceEl?.el === node) glanceEl = null;
+      observer.unobserve(node);
+      scheduleLayout();
+    },
+  };
+}
+
+/** `use:devtoolsPane={tabId}` on the docked DevTools body. */
+export function devtoolsPane(node: HTMLElement, id: string) {
+  devtoolsEl = { el: node, id };
+  observer.observe(node);
+  scheduleLayout();
+  return {
+    update(next: string) { devtoolsEl = { el: node, id: next }; scheduleLayout(); },
+    destroy() {
+      if (devtoolsEl?.el === node) devtoolsEl = null;
+      motionSize.delete(node);
       observer.unobserve(node);
       scheduleLayout();
     },

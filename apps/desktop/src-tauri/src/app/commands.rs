@@ -40,6 +40,9 @@ pub async fn ui_ready(app: AppHandle, window: WindowHandle) -> CmdResult<Startup
         if !test_profile {
             let _ = shown.set_focus();
         }
+        if !incognito {
+            super::runtime::post_ui_delayed(400, crate::host::tab::ensure_warm);
+        }
     })
     .await?;
     if std::env::var_os("ZENITH_PERF").is_some() {

@@ -4,12 +4,14 @@ import {
   NEW_TAB_URL,
   displayHost,
   internalPage,
+  isInternal,
   isNewTab,
   normalizeInput,
   prettyUrl,
   searchUrl,
   siteOf,
   titleFor,
+  viewedUrl,
 } from "./url.ts";
 
 test("addresses typed with a scheme are kept", () => {
@@ -91,4 +93,13 @@ test("display helpers", () => {
   assert.equal(siteOf("a.b.example.co.uk"), "example.co.uk");
   assert.equal(siteOf("www.google.com"), "google.com");
   assert.equal(siteOf("localhost"), "localhost");
+});
+
+test("the PDF viewer shows the PDF's own address and needs a webview", () => {
+  const viewer = "zenith://pdf/?t=0123&src=https%3A%2F%2Fwww.example.com%2Fa.pdf&name=a.pdf";
+  assert.equal(isInternal(viewer), false);
+  assert.equal(viewedUrl(viewer), "https://www.example.com/a.pdf");
+  assert.equal(displayHost(viewer), "example.com");
+  assert.equal(viewedUrl("zenith://pdf/"), "zenith://pdf/");
+  assert.equal(viewedUrl("https://x.com/"), "https://x.com/");
 });

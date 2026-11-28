@@ -9,8 +9,20 @@ use std::path::{Path, PathBuf};
 use super::fetch::{io_halt, Ctx, Halt};
 use super::state::CANCEL;
 use super::track::Track;
-use super::{Job, Output, Source, PROTECTED};
+use super::{AudioFormat, Job, Output, Source, PROTECTED};
 use crate::media::mp4;
+
+/// True when `ext` (or fMP4 audio) already matches `fmt` natively without needing FFmpeg.
+pub(crate) fn audio_matches_natively(fmt: AudioFormat, ext: &str, mp4: bool, source_is_audio: bool) -> bool {
+    if !source_is_audio {
+        return false;
+    }
+    match fmt {
+        AudioFormat::M4a => ext == "m4a" || (mp4 && matches!(ext, "mp4" | "m4a" | "aac")),
+        AudioFormat::Opus => ext == "opus",
+        AudioFormat::Mp3 => ext == "mp3",
+    }
+}
 
 impl Job {
     /// Converts or merges the downloaded tracks and moves the results into `dir`.
@@ -21,6 +33,9 @@ impl Job {
             return Err(Halt::Failed("Nothing was downloaded".into()));
         }
         let cancelled = || ctx.control.get() == CANCEL;
+        if let Some(fmt) = self.audio_format {
+            return self.finish_audio(ctx, dir, stem, main, fmt, ffmpeg.as_deref(), &cancelled);
+        }
         let Some(audio) = self.tracks.get(1) else {
             // A page's download is kept exactly as it was served.
             let plain = matches!(main.source, Source::Download { .. });
@@ -85,6 +100,69 @@ impl Job {
             files: vec![v, a],
             note: "Video and audio were saved as separate files (install FFmpeg to have them merged)".into(),
         })
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn finish_audio(
+        &self,
+        ctx: &Ctx,
+        dir: &Path,
+        stem: &str,
+        main: &Track,
+        fmt: AudioFormat,
+        ffmpeg: Option<&Path>,
+        cancelled: &dyn Fn() -> bool,
+    ) -> Result<Output, Halt> {
+        let target_ext = fmt.ext();
+        if audio_matches_natively(fmt, &main.ext, main.mp4, self.source_is_audio) {
+            return place(&main.part, dir, stem, target_ext)
+                .map(|f| Output { files: vec![f], note: String::new() });
+        }
+        if let Some(ff) = ffmpeg {
+            ctx.progress.set_stage(&format!("Extracting {} audio…", target_ext.to_ascii_uppercase()));
+            let out = ctx.work.join(format!("audio.{target_ext}"));
+            let run_extract = |codec_args: &[&str]| -> Result<(), String> {
+                let mut args = ffmpeg_input(main);
+                args.push(os("-vn"));
+                for a in codec_args {
+                    args.push(os(a));
+                }
+                args.push(out.as_os_str());
+                run_ffmpeg(ff, &args, cancelled)
+            };
+            let res = match fmt {
+                AudioFormat::M4a => run_extract(&["-c:a", "copy", "-movflags", "+faststart"])
+                    .or_else(|_| {
+                        if cancelled() {
+                            return Err("canceled".into());
+                        }
+                        run_extract(&["-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart"])
+                    }),
+                AudioFormat::Opus => run_extract(&["-c:a", "libopus", "-b:a", "128k"]),
+                AudioFormat::Mp3 => run_extract(&["-c:a", "libmp3lame", "-q:a", "2"]),
+            };
+            match res {
+                Ok(()) => {
+                    return place(&out, dir, stem, target_ext)
+                        .map(|f| Output { files: vec![f], note: String::new() });
+                }
+                Err(_) if cancelled() => return Err(Halt::Canceled),
+                Err(e) => {
+                    eprintln!("[zenith] FFmpeg audio extraction failed: {e}");
+                    return Err(Halt::Failed(format!("Audio extraction failed: {e}")));
+                }
+            }
+        }
+        if self.source_is_audio {
+            let native_ext = if main.mp4 { "m4a" } else { main.ext.as_str() };
+            return place(&main.part, dir, stem, native_ext).map(|f| Output {
+                files: vec![f],
+                note: format!("Saved as .{native_ext} (install FFmpeg in Settings for .{} conversion)", target_ext),
+            });
+        }
+        Err(Halt::Failed(
+            "Install FFmpeg in Settings → Downloads to extract audio from this video".into(),
+        ))
     }
 }
 

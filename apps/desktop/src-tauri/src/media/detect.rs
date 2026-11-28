@@ -192,6 +192,21 @@ pub const SCAN_SCRIPT: &str = r#"(() => {
       const p = m.getAttribute('property') || m.getAttribute('name') || '';
       if (/^https?:/i.test(u)) push({ url: u, audio: /audio/.test(p), duration: 0, width: 0, height: 0, title: '', playing: false, meta: true, type: '' });
     }
+    const scanLd = (node, depth) => {
+      if (!node || depth > 5) return;
+      if (Array.isArray(node)) { for (const x of node) scanLd(x, depth + 1); return; }
+      if (typeof node !== 'object') return;
+      const t = String(node['@type'] || '');
+      if (/VideoObject|AudioObject/i.test(t) && typeof node.contentUrl === 'string') {
+        const u = abs(node.contentUrl);
+        if (/^https?:/i.test(u)) push({ url: u, audio: /AudioObject/i.test(t), duration: 0, width: Number(node.width) || 0, height: Number(node.height) || 0, title: String(node.name || '').slice(0, 200), playing: false, meta: true, type: String(node.encodingFormat || '').slice(0, 100) });
+      }
+      if (node['@graph']) scanLd(node['@graph'], depth + 1);
+      if (node.video) scanLd(node.video, depth + 1);
+    };
+    for (const s of document.querySelectorAll('script[type="application/ld+json"]')) {
+      try { scanLd(JSON.parse(s.textContent || ''), 0); } catch {}
+    }
     return { title: String(document.title || '').slice(0, 300), url: location.href, blobs, drm, items };
   } catch (e) {
     return { title: '', url: '', blobs: 0, drm: 0, items: [] };
@@ -227,31 +242,46 @@ pub const BUTTON_SCRIPT: &str = r#"(() => {
         p.setAttribute('d', d);
         svg.appendChild(p);
       }
-      button.append(svg, document.createTextNode('Download'));
+      const chev = document.createElementNS(ns, 'svg');
+      for (const [k, v] of Object.entries({ viewBox: '0 0 16 16', width: '11', height: '11', fill: 'none', stroke: 'currentColor', 'stroke-width': '2', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' })) chev.setAttribute(k, v);
+      const cp = document.createElementNS(ns, 'path');
+      cp.setAttribute('d', 'M4 6l4 4 4-4');
+      chev.appendChild(cp);
+      button.append(svg, document.createTextNode('Download'), chev);
       button.addEventListener('pointerenter', () => set(button, { opacity: '1', background: 'rgba(18,18,22,.94)' }));
       button.addEventListener('pointerleave', () => set(button, { opacity: '.9', background: 'rgba(18,18,22,.78)' }));
       for (const t of ['pointerdown', 'mousedown', 'mouseup', 'pointerup', 'dblclick']) button.addEventListener(t, (e) => e.stopPropagation());
       button.addEventListener('click', (e) => {
         e.preventDefault();
         e.stopPropagation();
-        if (!e.isTrusted) return;
+        if (!e.isTrusted || window.__zenithMediaBtnOff) return;
         const src = current ? (current.currentSrc || current.src || '') : '';
-        open(/^https?:/i.test(src) ? src : location.href, '_zenith_media');
+        const r = current ? current.getBoundingClientRect() : button.getBoundingClientRect();
+        const payload = {
+          src: /^https?:/i.test(src) ? src : location.href,
+          x: Math.round(r.left),
+          y: Math.round(r.top),
+          w: Math.round(r.width),
+          h: Math.round(r.height),
+          dpr: window.devicePixelRatio || 1,
+        };
+        open('https://zenith.invalid/#' + encodeURIComponent(JSON.stringify(payload)), '_zenith_media');
         hide();
       });
       root.appendChild(button);
     };
     const show = (v) => {
+      if (window.__zenithMediaBtnOff) { hide(); return; }
       if (!host) build();
       if (!host.isConnected) (document.body || document.documentElement).appendChild(host);
       const r = v.getBoundingClientRect();
       set(host, { display: 'block' });
-      const w = button.offsetWidth || 104;
+      const w = button.offsetWidth || 118;
       set(host, { left: Math.max(4, r.right - w - 12) + 'px', top: Math.max(4, r.top + 12) + 'px' });
       current = v;
     };
     const hit = (x, y) => {
-      if (document.fullscreenElement) return null;
+      if (document.fullscreenElement || window.__zenithMediaBtnOff) return null;
       for (const v of document.getElementsByTagName('video')) {
         const r = v.getBoundingClientRect();
         if (r.width >= MIN_W && r.height >= MIN_H && x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return v;
