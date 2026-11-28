@@ -10,3 +10,4 @@ spikes/*/.cef/
 .vite/
 .astro/
 apps/desktop/measurements/*.tmp
+.reanimate/
