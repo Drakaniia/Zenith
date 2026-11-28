@@ -2,6 +2,7 @@
 //! validation, dangerous download classification, and Windows Mark of the Web (Zone.Identifier).
 
 pub mod commands;
+pub mod protect;
 
 use std::collections::HashSet;
 use std::fs;

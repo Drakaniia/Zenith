@@ -1,3 +1,19 @@
+<script lang="ts" module>
+  /** Browser key -> tile colour and letters (also used by the passwords import). */
+  export const TILES: Record<string, [string, string]> = {
+    chrome: ['#1a73e8', 'C'],
+    edge: ['#0c7bd4', 'E'],
+    brave: ['#fb542b', 'B'],
+    vivaldi: ['#ef3939', 'V'],
+    chromium: ['#5f6368', 'C'],
+    yandex: ['#fc3f1d', 'Y'],
+    opera: ['#ff1b2d', 'O'],
+    operagx: ['#fa1e4e', 'GX'],
+    firefox: ['#ff7139', 'F'],
+    zen: ['#f76f53', 'Z'],
+  };
+</script>
+
 <script lang="ts">
   import { fade, scale } from 'svelte/transition';
   import Icon from '$shared/ui/Icon.svelte';
@@ -6,30 +22,23 @@
   import { settings } from '$features/settings/settings.svelte';
   import { ui } from '$shared/ui/ui.svelte';
   import { bookmarksApi } from './api';
+  import { startPage } from '$features/startpage/startpage.svelte';
   import { webviewApi } from '$platform/webview-api';
   import { focusAfterLayout, overlayLease, overlaySurface } from '$platform/layout.svelte';
   import { plural } from '$features/onboarding/onboarding-flow';
-  import { importBookmarksFile } from './bookmark-actions';
+  import { importBookmarksFile, importOpenTabs } from './bookmark-actions';
   import type { ImportSource } from './types';
 
   // "Import bookmarks…": from a browser found on this PC, or from an exported HTML file.
-  const TILES: Record<string, [string, string]> = {
-    chrome: ['#1a73e8', 'C'],
-    edge: ['#0c7bd4', 'E'],
-    brave: ['#fb542b', 'B'],
-    vivaldi: ['#ef3939', 'V'],
-    chromium: ['#5f6368', 'C'],
-    opera: ['#ff1b2d', 'O'],
-    operagx: ['#fa1e4e', 'GX'],
-    firefox: ['#ff7139', 'F'],
-    zen: ['#f76f53', 'Z'],
-  };
 
   const open = $derived(ui.bookmarkImport);
   let sources = $state<ImportSource[] | null>(null);
   let chosen = $state('');
   let wantBookmarks = $state(true);
   let wantHistory = $state(false);
+  let wantAddresses = $state(false);
+  let wantTiles = $state(true);
+  let wantTabs = $state(false);
   let busy = $state(false);
   let result = $state('');
   let errors = $state<string[]>([]);
@@ -44,6 +53,9 @@
     errors = [];
     wantBookmarks = true;
     wantHistory = false;
+    wantAddresses = false;
+    wantTiles = true;
+    wantTabs = false;
     void webviewApi.focusView(null);
     void bookmarksApi
       .importSources()
@@ -80,8 +92,26 @@
       const parts: string[] = [];
       if (wantBookmarks && source.bookmarks) parts.push(plural(r.bookmarks, 'new bookmark'));
       if (wantHistory && canHistory) parts.push(plural(r.history, 'history entry', 'history entries'));
-      result = parts.length ? `Imported ${parts.join(' and ')} from ${source.name}.` : '';
+      if (wantTabs && source.tabs) {
+        try {
+          parts.push(plural(await importOpenTabs(source), 'open tab'));
+        } catch (e) {
+          r.errors.push(String(e));
+        }
+      }
       errors = r.errors;
+      if (wantAddresses && source.addresses) {
+        const n = await bookmarksApi.importAddresses(source.id).catch((e) => void errors.push(String(e)));
+        if (typeof n === 'number') parts.push(plural(n, 'new address', 'new addresses'));
+      }
+      if (wantTiles && source.tiles) {
+        try {
+          parts.push(plural(startPage.importSites(await bookmarksApi.importTiles(source.id)), 'new start page tile'));
+        } catch (e) {
+          errors = [...errors, String(e)];
+        }
+      }
+      result = parts.length ? `Imported ${parts.join(' and ')} from ${source.name}.` : '';
     } catch (e) {
       errors = [String(e)];
     } finally {
@@ -147,9 +177,25 @@
               <input type="checkbox" bind:checked={wantHistory} disabled={!canHistory} />
               <span><b>History</b><small>{canHistory ? 'Pages visited lately' : settings.value.recordHistory ? 'None found' : 'History is turned off'}</small></span>
             </label>
+            <label class:off={!source?.tabs}>
+              <input type="checkbox" bind:checked={wantTabs} disabled={!source?.tabs} />
+              <span><b>Open tabs</b><small>{source?.tabs ? 'From the last session, into a new space' : 'Not available'}</small></span>
+            </label>
+            {#if source?.addresses}
+              <label>
+                <input type="checkbox" bind:checked={wantAddresses} />
+                <span><b>Addresses</b><small>Into Passwords (needs a master password set up)</small></span>
+              </label>
+            {/if}
+            {#if source?.tiles}
+              <label>
+                <input type="checkbox" bind:checked={wantTiles} />
+                <span><b>Start page tiles</b><small>Added after your own sites on the Tableau</small></span>
+              </label>
+            {/if}
           </div>
           <div class="go">
-            <button class="btn primary" disabled={busy || (!wantBookmarks && !wantHistory)} aria-busy={busy} onclick={run}>
+            <button class="btn primary" disabled={busy || (!wantBookmarks && !wantHistory && !wantTabs && !wantAddresses && !(wantTiles && source?.tiles))} aria-busy={busy} onclick={run}>
               {busy ? 'Importing…' : 'Import'}
             </button>
           </div>

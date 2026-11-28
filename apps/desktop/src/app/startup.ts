@@ -21,6 +21,8 @@ import { vault } from '../features/passwords/vault.svelte';
 import { extensions } from '../features/extensions/extensions.svelte';
 import { onboarding } from '../features/onboarding/onboarding.svelte';
 import { shouldOnboard } from '../features/onboarding/onboarding-flow';
+import { pageApi } from '../features/page/api';
+import { ui } from '../shared/ui/ui.svelte';
 
 export async function startup(onMotionReady: () => void) {
   const savedPromise = incognito ? null : tabsApi.sessionLoad().catch(() => null);
@@ -67,6 +69,15 @@ export async function startup(onMotionReady: () => void) {
     }
   });
   startSleepScheduler();
+  // Protect: an open Wi-Fi network is reported once per network (the backend remembers it).
+  const wifi = () => {
+    if (!settings.value.protectWarnings) return;
+    void pageApi.openWifi().then((ssid) => {
+      if (ssid) ui.toast(`You're on an open Wi-Fi network (${ssid}); others nearby can see unencrypted traffic`, { icon: 'unlock', timeout: 0 });
+    }).catch(() => {});
+  };
+  setTimeout(wifi, 3000);
+  setInterval(wifi, 60_000);
   void bookmarks.load();
   // Today's automatic backup of the bookmarks (the first start of the day writes it).
   if (!incognito) void bookmarksApi.bookmarksAutoBackup().catch(() => {});

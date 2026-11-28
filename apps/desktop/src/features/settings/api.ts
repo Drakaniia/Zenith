@@ -43,6 +43,8 @@ export interface RuntimeConfig {
   littleWindowTrigger: string;
   glanceEssentialExternal: boolean;
   openPinnedExternalInNewTab: boolean;
+  dataSaver: boolean;
+  protectWarnings: boolean;
 }
 
 export interface Appearance {

@@ -215,6 +215,22 @@ export function validateSite(
   return { url, title: cleanTitle(input.title) };
 }
 
+/** `sites` with `incoming` (another browser's tiles) appended, skipping invalid and already
+ *  saved addresses and stopping at MAX_SAVED_SITES. */
+export function mergeSites(
+  sites: readonly SavedSite[],
+  incoming: readonly { url: string; title: string }[],
+  newId: () => string,
+): SavedSite[] {
+  const out = sites.slice();
+  for (const s of incoming) {
+    if (out.length >= MAX_SAVED_SITES) break;
+    const url = siteUrl(s.url);
+    if (url && !out.some((x) => x.url === url)) out.push({ id: newId(), url, title: cleanTitle(s.title) });
+  }
+  return out;
+}
+
 /** `list` with the item at `from` moved to `to`. */
 export function moveItem<T>(list: readonly T[], from: number, to: number): T[] {
   const out = list.slice();

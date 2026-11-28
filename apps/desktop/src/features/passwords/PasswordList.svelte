@@ -8,6 +8,7 @@
   import MasterPasswordForm from './MasterPasswordForm.svelte';
   import EntryEditor from './EntryEditor.svelte';
   import ImportDialog from './ImportDialog.svelte';
+  import BrowserImport from './BrowserImport.svelte';
   import { filterEntries, groupBySite, needsMaster, type ImportOpened, type PasswordEntry } from './passwords';
   import { ui } from '$shared/ui/ui.svelte';
   import { vault, vaultApi } from './vault.svelte';
@@ -21,6 +22,7 @@
   let editor = $state<{ entry: PasswordEntry | null; initial: { password: string; notes: string } | null } | null>(null);
   let removing = $state<PasswordEntry | null>(null);
   let importing = $state<ImportOpened | null>(null);
+  let fromBrowser = $state(false);
   /** An action waiting for the master password. */
   let ask = $state<{ title: string; text?: string; warn?: string; label: string; run: (master: string) => Promise<void> } | null>(null);
   const timers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -167,6 +169,7 @@
     const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
     ui.openMenu(r.right - 220, r.bottom + 6, [
       { label: 'Import passwords…', icon: 'upload', run: () => void startImport() },
+      { label: 'Import from a browser…', icon: 'upload', run: () => (fromBrowser = true) },
       { separator: true },
       { label: 'Back up (encrypted)…', icon: 'save', run: backup },
       { label: 'Export as CSV (not encrypted)…', icon: 'download', run: exportCsv },
@@ -213,6 +216,7 @@
       <p>Sign in to a site and Zenith offers to save the password. You can also add one yourself or import them from another browser or password manager.</p>
       <div class="row">
         <button class="btn" onclick={startImport}><Icon name="upload" size={15} /> Import</button>
+        <button class="btn" onclick={() => (fromBrowser = true)}>From a browser</button>
         <button class="btn primary" onclick={() => (editor = { entry: null, initial: null })}><Icon name="plus" size={15} /> Add password</button>
       </div>
       <details>
@@ -292,6 +296,16 @@
       <button class="btn danger" onclick={remove}><Icon name="trash" size={14} /> Delete</button>
     </div>
   </Modal>
+{/if}
+
+{#if fromBrowser}
+  <BrowserImport
+    onclose={() => (fromBrowser = false)}
+    onopened={(o) => {
+      fromBrowser = false;
+      importing = o;
+    }}
+  />
 {/if}
 
 {#if importing}

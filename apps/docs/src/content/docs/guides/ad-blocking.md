@@ -39,3 +39,7 @@ Turning **Block ads and trackers** off disables blocking everywhere. The same se
 ## Pop-ups
 
 **Block pop-ups** (on by default) blocks windows that pages try to open without you clicking anything. When Zenith blocks one, it shows a message that lets you open it anyway. Links you click that open in a new window still open, as a tab next to the page.
+
+## Data saver
+
+**Data saver** (off by default, in **Settings > Privacy & blocking**) loads pages without images, video, audio or web fonts. Text, layout and scripts still load, so pages stay usable on slow or metered connections. Turn it on or off from the command palette with **Toggle data saver**. Reload a page to see it with or without the missing content.

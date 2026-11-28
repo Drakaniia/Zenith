@@ -251,10 +251,10 @@ export function handleSession(cmd: string, a: Record<string, unknown>): unknown 
               params.get("fre") === "import"
                 ? []
                 : [
-                    { id: "chrome:Default", browser: "chrome", name: "Google Chrome", profile: "Person 1", bookmarks: true, history: true },
-                    { id: "chrome:Profile 1", browser: "chrome", name: "Google Chrome", profile: "Work", bookmarks: true, history: true },
-                    { id: "edge:Default", browser: "edge", name: "Microsoft Edge", profile: "Profile 1", bookmarks: true, history: true },
-                    { id: "firefox:ab12.default-release", browser: "firefox", name: "Firefox", profile: "default-release", bookmarks: true, history: true },
+                    { id: "chrome:Default", browser: "chrome", name: "Google Chrome", profile: "Person 1", bookmarks: true, history: true, passwords: true, tabs: true },
+                    { id: "chrome:Profile 1", browser: "chrome", name: "Google Chrome", profile: "Work", bookmarks: true, history: true, passwords: true },
+                    { id: "edge:Default", browser: "edge", name: "Microsoft Edge", profile: "Profile 1", bookmarks: true, history: true, passwords: true },
+                    { id: "firefox:ab12.default-release", browser: "firefox", name: "Firefox", profile: "default-release", bookmarks: true, history: true, passwords: false },
                   ],
             ),
           600,
@@ -264,6 +264,8 @@ export function handleSession(cmd: string, a: Record<string, unknown>): unknown 
       return new Promise((r) =>
         setTimeout(() => r({ bookmarks: a.bookmarks ? 214 : 0, history: a.history ? 1820 : 0, errors: [] }), 900),
       );
+    case "import_tabs":
+      return [{ url: "https://example.com/", title: "Example Domain" }];
     case "set_shortcuts":
       return [];
     case "default_browser_status":

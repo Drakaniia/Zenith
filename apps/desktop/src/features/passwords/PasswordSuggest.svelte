@@ -15,6 +15,7 @@
   import { vault, vaultApi } from './vault.svelte';
   import { needsMaster, placeSuggestions, type SavedAccount } from './passwords';
   import { brandName, formatExpiry, isExpired, type SavedCard } from './cards/cards';
+  import { addressLine, addressTitle, type SavedAddress } from './addresses/addresses';
 
   const s = $derived(vault.suggest);
   const visible = $derived(!!s && browser.isVisible(s.tabId));
@@ -54,6 +55,7 @@
     // Also when typing changes how many accounts match.
     void s?.accounts.length;
     void s?.cards.length;
+    void s?.addresses.length;
     if (el) height = el.offsetHeight;
   });
 
@@ -135,6 +137,21 @@
     }
   }
 
+  async function chooseAddress(a: SavedAddress) {
+    if (!s || busy || !armed) return;
+    const tab = s.tabId;
+    busy = true;
+    try {
+      await vaultApi.fillAddress(tab, a.id);
+    } catch (e) {
+      ui.toast(String(e), { icon: 'alert' });
+    } finally {
+      busy = false;
+    }
+    vault.closeSuggest(false);
+    void webviewApi.focusView(tab).catch(() => {});
+  }
+
   async function useGenerated() {
     if (!s || !armed) return;
     const tab = s.tabId;
@@ -149,9 +166,10 @@
   }
 
   function manage() {
-    const wallet = s?.field === 'card';
+    const field = s?.field;
     close(false);
-    if (wallet) openInternal('passwords', 'wallet');
+    if (field === 'card') openInternal('passwords', 'wallet');
+    else if (field === 'address') openInternal('passwords', 'personal');
     else openInternal('passwords');
   }
 
@@ -175,7 +193,7 @@
     style:top="{pos.y}px"
     style:width="{pos.w}px"
     role="dialog"
-    aria-label={s.field === 'card' ? `Saved cards for ${s.site}` : `Saved passwords for ${s.site}`}
+    aria-label={s.field === 'card' ? `Saved cards for ${s.site}` : s.field === 'address' ? 'Saved addresses' : `Saved passwords for ${s.site}`}
     transition:fly={{ y: above ? 6 : -6, duration: 140 }}
   >
     {#if pendingCard}
@@ -210,6 +228,25 @@
       </div>
       <div class="foot">
         <button onclick={manage}><Icon name="settings" size={13} /> Manage payment methods</button>
+      </div>
+    {:else if s.field === 'address'}
+      <div class="head">
+        <Icon name="idCard" size={13} />
+        <span class="ellipsis">Saved addresses</span>
+      </div>
+      <div class="list" role="listbox">
+        {#each s.addresses as a (a.id)}
+          <button class="item" role="option" aria-selected="false" disabled={busy} onclick={() => chooseAddress(a)}>
+            <span class="avatar">{addressTitle(a).slice(0, 1).toUpperCase()}</span>
+            <span class="who">
+              <b class="ellipsis">{addressTitle(a)}</b>
+              <small class="ellipsis">{addressLine(a) || a.email || a.phone}</small>
+            </span>
+          </button>
+        {/each}
+      </div>
+      <div class="foot">
+        <button onclick={manage}><Icon name="settings" size={13} /> Manage addresses</button>
       </div>
     {:else if pending}
       <div class="unlock">

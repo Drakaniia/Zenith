@@ -1,12 +1,13 @@
 <script lang="ts">
   // zenith://passwords — the password manager. Sections: passwords (the default), wallet,
-  // personal, settings, and forgot (master password recovery). Everything that shows or
+  // personal (addresses), settings, and forgot (master password recovery). Everything that shows or
   // changes saved passwords needs the vault unlocked; autofill settings don't.
   import Icon from '$shared/ui/Icon.svelte';
   import VaultGate from './VaultGate.svelte';
   import ForgotMaster from './ForgotMaster.svelte';
   import PasswordList from './PasswordList.svelte';
   import CardList from './cards/CardList.svelte';
+  import AddressList from './addresses/AddressList.svelte';
   import AutofillSettings from './AutofillSettings.svelte';
   import { openInternal } from '$features/browser/target';
   import { browser } from '$features/browser/browser.svelte';
@@ -18,7 +19,7 @@
   const NAV: { id: string; label: string; icon: IconName }[] = [
     { id: 'wallet', label: 'Wallet & cards', icon: 'card' },
     { id: 'passwords', label: 'Passwords', icon: 'key' },
-    { id: 'personal', label: 'Personal data', icon: 'idCard' },
+    { id: 'personal', label: 'Addresses', icon: 'idCard' },
     { id: 'settings', label: 'Autofill settings', icon: 'settings' },
   ];
 
@@ -46,6 +47,7 @@
         {n.label}
         {#if n.id === 'passwords' && st.exists && st.count}<span class="count">{st.count}</span>{/if}
         {#if n.id === 'wallet' && st.exists && st.cardCount}<span class="count">{st.cardCount}</span>{/if}
+        {#if n.id === 'personal' && st.exists && st.addressCount}<span class="count">{st.addressCount}</span>{/if}
       </button>
     {/each}
     <div class="grow"></div>
@@ -66,13 +68,6 @@
   <div class="main">
     {#if current === 'settings'}
       <AutofillSettings onreset={() => go('forgot')} />
-    {:else if current === 'personal'}
-      <div class="soon">
-        <div class="badge"><Icon name="idCard" size={26} /></div>
-        <h2>Personal data</h2>
-        <p>Saving names, addresses and phone numbers for forms is coming to Zenith. They will be kept in the same encrypted vault as your passwords.</p>
-        <button class="btn" onclick={() => go('passwords')}><Icon name="key" size={15} /> Go to passwords</button>
-      </div>
     {:else if current === 'forgot'}
       <ForgotMaster ondone={() => go('passwords')} />
     {:else if !vault.loaded}
@@ -81,6 +76,8 @@
       <VaultGate onforgot={() => go('forgot')} />
     {:else if current === 'wallet'}
       <CardList />
+    {:else if current === 'personal'}
+      <AddressList />
     {:else}
       <PasswordList />
     {/if}
@@ -176,19 +173,6 @@
     gap: 12px;
     padding: 40px;
     text-align: center;
-  }
-  .soon .badge {
-    width: 56px;
-    height: 56px;
-    border-radius: 16px;
-    display: grid;
-    place-items: center;
-    color: var(--accent);
-    background: color-mix(in srgb, var(--accent) 16%, transparent);
-  }
-  .soon h2 {
-    margin: 0;
-    font: 600 19px/1.3 var(--font-display);
   }
   .soon p {
     margin: 0;

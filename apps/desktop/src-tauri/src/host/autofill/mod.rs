@@ -2,6 +2,7 @@
 //! Pages have no privileged IPC; login/card signals arrive through cancelled named popups and
 //! filling runs via `eval_js` after verifying `location.origin`.
 
+mod address;
 mod login;
 mod payment;
 mod scripts;
@@ -19,11 +20,12 @@ use zeroize::{Zeroize, Zeroizing};
 
 use login::{on_capture, on_field, on_form, on_type};
 use payment::{on_card_capture, on_card_field};
-use scripts::{CARD_FILL_SCRIPT, FILL_SCRIPT};
+use address::on_address_field;
+use scripts::{ADDRESS_FILL_SCRIPT, CARD_FILL_SCRIPT, FILL_SCRIPT};
 use super::tab::TabShared;
 use super::{config, emit_tab, eval_js, with_host};
 use crate::vault::cards::{self, CardInfo, FillCard};
-use crate::vault::{self, Account};
+use crate::vault::{self, addresses::Address, Account};
 
 const MAX_MESSAGE: usize = 16 * 1024;
 
@@ -34,6 +36,8 @@ struct TabState {
     form_handled: bool,
     suggesting: bool,
     muted: bool,
+    /// The fields of the address form whose list is showing, as the page described them.
+    address_fields: Vec<Vec<String>>,
 }
 
 thread_local! {
@@ -74,6 +78,11 @@ struct Msg {
     cc: String,
     #[serde(default)]
     ch: String,
+    /// Address forms: the clicked field's index in `fs`, the form's field descriptions.
+    #[serde(default)]
+    i: usize,
+    #[serde(default)]
+    fs: Vec<Vec<String>>,
 }
 
 impl Drop for Msg {
@@ -104,6 +113,7 @@ struct Suggest {
     dpr: f64,
     accounts: Vec<Account>,
     cards: Vec<CardInfo>,
+    addresses: Vec<Address>,
     generated: Option<String>,
     refresh: bool,
 }
@@ -150,11 +160,17 @@ pub fn page_origin(url: &str) -> Option<String> {
 
 pub fn on_message(sh: &Arc<TabShared>, name: &str, uri: &str, user: bool, main_frame: bool) {
     let cfg = config();
-    if !cfg.passwords_enabled || !main_frame {
+    if !main_frame {
+        return;
+    }
+    let Some(msg) = parse_message(uri) else { return };
+    if cfg.protect_warnings && user && matches!(name, "_zenith_pw_field" | "_zenith_card_field") {
+        crate::security::protect::on_form_field(&sh.id(), &sh.url(), &msg.f);
+    }
+    if !cfg.passwords_enabled {
         return;
     }
     let Some(origin) = page_origin(&sh.url()) else { return };
-    let Some(msg) = parse_message(uri) else { return };
     match name {
         "_zenith_pw_field" if user => on_field(sh, &origin, &msg),
         "_zenith_pw_type" if user => on_type(sh, &origin, &msg),
@@ -163,6 +179,7 @@ pub fn on_message(sh: &Arc<TabShared>, name: &str, uri: &str, user: bool, main_f
         "_zenith_pw_form" => on_form(sh, &origin),
         "_zenith_card_field" if user => on_card_field(sh, &origin, &msg),
         "_zenith_card_capture" if user => on_card_capture(sh, &origin, &msg),
+        "_zenith_addr_field" if user => on_address_field(sh, &origin, &msg),
         _ => {}
     }
 }
@@ -190,6 +207,7 @@ pub fn forget(tab_id: &str) {
     TABS.with(|t| t.borrow_mut().remove(tab_id));
     vault::drop_tab_offers(tab_id);
     cards::drop_tab_card_offers(tab_id);
+    crate::security::protect::drop_tab(tab_id);
 }
 
 pub fn tab_origin(tab_id: &str) -> Option<String> {
@@ -227,6 +245,16 @@ pub fn fill_card(
         .to_string(),
     );
     run_fill(tab_id, origin, CARD_FILL_SCRIPT, payload, "No payment form was found on this page.", done);
+}
+
+/// Fills `address` into the form whose list was showing.
+pub fn fill_address(tab_id: &str, address: &Address, done: impl FnOnce(Result<(), String>) + 'static) {
+    let fields = with_tab(tab_id, |t| std::mem::take(&mut t.address_fields));
+    let Some(origin) = tab_origin(tab_id) else {
+        return done(Err("This page can't be filled.".into()));
+    };
+    let payload = Zeroizing::new(serde_json::json!({ "origin": origin, "v": address::plan(&fields, address) }).to_string());
+    run_fill(tab_id, &origin, ADDRESS_FILL_SCRIPT, payload, "No address form was found on this page.", done);
 }
 
 fn run_fill(
@@ -313,5 +341,7 @@ mod tests {
         assert!(PAGE_SCRIPT.contains("const userFor") && FILL_SCRIPT.contains("const userFor"));
         assert!(CARD_FILL_SCRIPT.starts_with("((d) => {") && CARD_FILL_SCRIPT.ends_with("})"));
         assert!(PAGE_SCRIPT.contains("const cardFields") && CARD_FILL_SCRIPT.contains("const cardFields"));
+        assert!(ADDRESS_FILL_SCRIPT.starts_with("((d) => {") && ADDRESS_FILL_SCRIPT.ends_with("})"));
+        assert!(PAGE_SCRIPT.contains("const addrFields") && ADDRESS_FILL_SCRIPT.contains("const addrDesc"));
     }
 }

@@ -174,8 +174,16 @@
       <button class="btn sm" disabled={sbUpdating} onclick={updateSafeBrowsing}>{sbUpdating ? 'Updating…' : 'Update lists'}</button>
     </div>
     <div class="row">
+      <div class="text"><b>Protect warnings</b><span>Warn on open Wi-Fi networks, and when a password or card field is on a page without HTTPS.</span></div>
+      <Toggle checked={s.protectWarnings} onchange={(v) => set('protectWarnings', v)} label="Protect warnings" />
+    </div>
+    <div class="row">
       <div class="text"><b>Block pop-ups</b><span>Windows a page opens without you clicking anything.</span></div>
       <Toggle checked={s.blockPopups} onchange={(v) => set('blockPopups', v)} label="Block pop-ups" />
+    </div>
+    <div class="row">
+      <div class="text"><b>Data saver</b><span>Load pages without images, video, audio or web fonts.</span></div>
+      <Toggle checked={s.dataSaver} onchange={(v) => set('dataSaver', v)} label="Data saver" />
     </div>
     <div class="row">
       <div class="text"><b>Save browsing history</b></div>

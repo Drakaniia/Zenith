@@ -26,12 +26,14 @@ export function handleOther(cmd: string, a: Record<string, unknown>): unknown {
     case "ext_native_hosts":
     case "search_suggest":
       return [];
+    case "search_instant_fetch":
     case "ext_sync_state":
     case "ext_native_host_consent":
     case "security_respond_cert":
     case "security_respond_protocol":
     case "security_respond_download":
     case "security_safebrowsing_bypass":
+    case "security_open_wifi":
     case "migration_notice_dismiss":
       return null;
     case "security_safebrowsing_status":

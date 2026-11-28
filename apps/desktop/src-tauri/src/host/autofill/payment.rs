@@ -56,6 +56,7 @@ pub(super) fn on_card_field(sh: &Arc<TabShared>, origin: &str, m: &Msg) {
             rect: FieldRect { x: finite(m.x), y: finite(m.y), w: finite(m.w).max(0.0), h: finite(m.h).max(0.0) },
             dpr: if m.dpr.is_finite() && m.dpr > 0.0 { m.dpr } else { 1.0 },
             accounts: Vec::new(),
+            addresses: Vec::new(),
             cards: list,
             generated: None,
             refresh: false,

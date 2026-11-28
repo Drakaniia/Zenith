@@ -12,6 +12,8 @@
 //!
 //! Unlocking keeps the vault key in memory (wiped on lock). Restarting Zenith always locks.
 
+pub mod address_commands;
+pub mod addresses;
 pub mod card_commands;
 pub mod cards;
 pub mod commands;
@@ -40,10 +42,10 @@ use zeroize::Zeroize;
 use crypto::{Key, KdfParams, Sealed};
 use csv::ImportRow;
 
-/// Version 2 files hold saved cards. A vault without cards is still written as version 1, so an
-/// older Zenith can open it; one with cards is refused by older versions, which would otherwise
-/// drop the cards the next time they saved.
-const FILE_VERSION: u32 = 2;
+/// Version 2 files hold saved cards, version 3 files saved addresses. A vault without either is
+/// still written as version 1, so an older Zenith can open it; one with cards or addresses is
+/// refused by older versions, which would otherwise drop them the next time they saved.
+const FILE_VERSION: u32 = 3;
 const AAD_MASTER: &[u8] = b"zenith-vault:key:master";
 const AAD_RECOVERY: &[u8] = b"zenith-vault:key:recovery";
 const AAD_BACKUP: &[u8] = b"zenith-passwords-backup:v1";

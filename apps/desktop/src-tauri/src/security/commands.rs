@@ -63,3 +63,8 @@ pub async fn security_safebrowsing_bypass(app: AppHandle, tab_id: String, url: S
     })
     .await
 }
+
+/// The open Wi-Fi network to warn about (once per network per session), if any.
+pub async fn security_open_wifi() -> CmdResult<Option<String>> {
+    blocking(crate::security::protect::open_wifi_once).await
+}

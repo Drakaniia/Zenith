@@ -1,6 +1,6 @@
 // Backend calls for the bookmark tree, its files and imports from other browsers.
 import { invoke } from "@tauri-apps/api/core";
-import type { BookmarkBackup, BookmarkNode, BookmarkPatch, ImportResult, ImportSource, NewBookmarkNode } from "./types";
+import type { BookmarkBackup, BookmarkNode, BookmarkPatch, ImportedTab, ImportResult, ImportSource, NewBookmarkNode } from "./types";
 
 export const bookmarksApi = {
   /** Every node of the bookmark tree: the three roots first, then by parent and position. */
@@ -45,6 +45,12 @@ export const bookmarksApi = {
       history,
       historyDays,
     }),
+  /** Adds the profile's saved addresses to Passwords; returns how many were new. */
+  importAddresses: (source: string) => invoke<number>("import_addresses", { source }),
+  /** A source's start-page tiles, in its order (added to the Tableau by the UI). */
+  importTiles: (source: string) => invoke<{ url: string; title: string }[]>("import_tiles", { source }),
+  /** The last session's open tabs of a source (at most 100). */
+  importTabs: (source: string) => invoke<ImportedTab[]>("import_tabs", { source }),
 };
 
 declare module "../../platform/ipc" {

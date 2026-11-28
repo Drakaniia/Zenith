@@ -67,6 +67,8 @@ export interface Settings {
   filterListsUpdated: number;
   blockerDisabledSites: string[];
   blockPopups: boolean;
+  /** Data saver: pages load without images, video, audio or web fonts. */
+  dataSaver: boolean;
   recordHistory: boolean;
   historyDays: number;
   downloadDir: string | null;
@@ -157,6 +159,8 @@ export interface Settings {
   glanceEssentialExternal: boolean;
   /** Open external links clicked inside pinned tabs in a new tab. */
   openPinnedExternalInNewTab: boolean;
+  /** Protect: warn on open Wi-Fi networks and on password or card fields on plain-HTTP pages. */
+  protectWarnings: boolean;
   /** Show an unread dot on background Essentials whose title changes. */
   essentialsUnreadDot: boolean;
   /** What Ctrl+W / closing does on a pinned or Essential tab. */
@@ -245,6 +249,7 @@ export function defaultSettings(): Settings {
     filterListsUpdated: 0,
     blockerDisabledSites: [],
     blockPopups: true,
+    dataSaver: false,
     recordHistory: true,
     historyDays: 90,
     downloadDir: null,
@@ -293,6 +298,7 @@ export function defaultSettings(): Settings {
     littleWindowTrigger: "ctrl+alt",
     glanceEssentialExternal: true,
     openPinnedExternalInNewTab: true,
+    protectWarnings: true,
     essentialsUnreadDot: true,
     pinnedCloseBehavior: "reset-unload-switch",
     restorePinnedUrlOnStartup: false,
@@ -463,6 +469,8 @@ class SettingsStore {
         littleWindowTrigger: s.littleWindowTrigger,
         glanceEssentialExternal: s.glanceEssentialExternal,
         openPinnedExternalInNewTab: s.openPinnedExternalInNewTab,
+        dataSaver: s.dataSaver === true,
+        protectWarnings: s.protectWarnings !== false,
       },
       {
         theme: s.theme,

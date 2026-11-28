@@ -2,9 +2,11 @@
 // "Save password?" prompt. The backend owns every secret; the UI sees a password only when the
 // user reveals one in the manager.
 import { invoke } from "@tauri-apps/api/core";
+import type { SavedAddress } from "./addresses/addresses";
 import type { CardInput, CardSaveOffer, SavedCard } from "./cards/cards";
 import type {
   EntryInput,
+  BrowserImportResult,
   ImportOpened,
   ImportSummary,
   PasswordEntry,
@@ -48,6 +50,8 @@ export const vaultApi = {
   importCommit: (token: number, choices: Record<number, string>) =>
     invoke<ImportSummary>("passwords_import_commit", { token, choices }),
   importCancel: (token: number) => invoke<void>("passwords_import_cancel", { token }),
+  importBrowser: (source: string, passwords: boolean, cards: boolean) =>
+    invoke<BrowserImportResult>("import_secrets", { source, passwords, cards }),
 
   fill: (tabId: string, entryId: string, master: string | null = null) =>
     invoke<void>("autofill_fill", { tabId, entryId, master }),
@@ -73,6 +77,13 @@ export const vaultApi = {
     saveCvc = false,
     master: string | null = null,
   ) => invoke<string | null>("card_offer_respond", { offerId, action, saveCvc, master }),
+
+  // Addresses. Filling one needs no master password.
+  addresses: () => invoke<SavedAddress[]>("addresses_list"),
+  addressAdd: (address: SavedAddress) => invoke<string>("address_add", { address }),
+  addressUpdate: (id: string, address: SavedAddress) => invoke<void>("address_update", { id, address }),
+  addressesRemove: (ids: string[]) => invoke<number>("addresses_delete", { ids }),
+  fillAddress: (tabId: string, addressId: string) => invoke<void>("autofill_fill_address", { tabId, addressId }),
 };
 
 const EMPTY: VaultStatus = {
@@ -81,6 +92,7 @@ const EMPTY: VaultStatus = {
   hasRecovery: false,
   count: 0,
   cardCount: 0,
+  addressCount: 0,
   damaged: null,
   retryAfter: 0,
 };
@@ -114,7 +126,10 @@ class VaultStore {
 
   apply(s: VaultStatus) {
     const changed =
-      s.count !== this.status.count || s.cardCount !== this.status.cardCount || s.unlocked !== this.status.unlocked;
+      s.count !== this.status.count ||
+      s.cardCount !== this.status.cardCount ||
+      s.addressCount !== this.status.addressCount ||
+      s.unlocked !== this.status.unlocked;
     this.status = s;
     this.loaded = true;
     if (changed) this.revision++;

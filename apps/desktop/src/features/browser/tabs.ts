@@ -18,6 +18,8 @@ export function openTab(
     openerId?: TabId;
     index?: number;
     pinned?: boolean;
+    /** A background tab that loads only when first shown (like restored tabs). */
+    asleep?: boolean;
   } = {},
 ): Tab {
   const space =
@@ -45,7 +47,7 @@ export function openTab(
   list.splice(Math.max(0, Math.min(index, list.length)), 0, tab.id);
   if (opts.pinned) tab.pinnedUrl = url;
   if (opts.activate !== false) store.activate(tab.id);
-  else if (needsWebview(url)) void store.wake(tab);
+  else if (needsWebview(url) && !opts.asleep) void store.wake(tab);
   return tab;
 }
 

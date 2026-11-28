@@ -52,6 +52,9 @@ pub(super) struct Index {
     /// Saved payment cards (see `cards`).
     #[serde(default)]
     pub(super) cards: Vec<cards::CardMeta>,
+    /// Saved addresses (see `addresses`). Left out of the JSON when there are none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(super) addresses: Vec<addresses::Address>,
     /// Sites the user chose "Never save" for.
     #[serde(default)]
     pub(super) never: Vec<String>,
@@ -138,6 +141,8 @@ pub struct Status {
     pub count: usize,
     /// Saved payment cards.
     pub card_count: usize,
+    /// Saved addresses.
+    pub address_count: usize,
     /// The file exists but can't be used (damaged, or from another Windows account).
     pub damaged: Option<String>,
     /// Seconds until another master password attempt is accepted.

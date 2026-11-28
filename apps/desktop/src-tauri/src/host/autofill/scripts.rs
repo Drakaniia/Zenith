@@ -48,6 +48,22 @@ macro_rules! helpers {
   };
   // A security code field of type password is not a login password.
   const passes = (root) => [...root.querySelectorAll('input[type=password]')].filter((p) => shown(p) && ccKind(p) !== 'cvc');
+  // The fields an address can go into (at most 40, in page order) and how each is described to
+  // Rust, which decides what each one takes: [tag, type, autocomplete, name, id, label].
+  const ADDR_TYPES = ['text', 'email', 'tel', ''];
+  const addrFields = (root) => {
+    const out = [];
+    for (const el of root.querySelectorAll('input, select, textarea')) {
+      if (el instanceof HTMLInputElement && !ADDR_TYPES.includes(el.type)) continue;
+      if (el.readOnly || !shown(el)) continue;
+      out.push(el);
+      if (out.length >= 40) break;
+    }
+    return out;
+  };
+  const addrDesc = (el) => [el.tagName[0].toLowerCase(), el.type, el.getAttribute('autocomplete'), el.name, el.id,
+    (el.labels && el.labels[0] ? el.labels[0].textContent : '') + ' ' + (el.placeholder || '') + ' ' + (el.getAttribute('aria-label') || '')]
+    .map((s) => String(s || '').trim().slice(0, 40));
   const userFor = (root, pw) => {
     const inputs = [...root.querySelectorAll('input')].filter(textual);
     let best = null;
@@ -122,6 +138,22 @@ pub const PAGE_SCRIPT: &str = concat!(
   addEventListener('focusin', (e) => { if (cardField(target(e))) offerCard(target(e)); }, true);
   addEventListener('click', (e) => { if (e.isTrusted && cardField(target(e))) offerCard(target(e)); }, true);
   addEventListener('input', (e) => { if (e.isTrusted && cardField(target(e))) dismiss(); }, true);
+  // Address forms: clicking a field of one shows the saved addresses (Rust decides from the form's
+  // fields whether it is one).
+  const addrField = (el) => (el instanceof HTMLInputElement || el instanceof HTMLSelectElement) && !el.readOnly && shown(el) && !loginField(el) && !ccKind(el);
+  const offerAddr = (el) => {
+    const now = Date.now();
+    if (el === lastEl && now - lastAt < 500) return;
+    const fs = addrFields(scopeOf(el));
+    const i = fs.indexOf(el);
+    if (i < 0) return;
+    lastEl = el; lastAt = now; suggesting = true;
+    const r = el.getBoundingClientRect();
+    send('_zenith_addr_field', { f: 'address', x: r.left, y: r.top, w: r.width, h: r.height, dpr: window.devicePixelRatio || 1, i, fs: fs.map(addrDesc) });
+  };
+  addEventListener('focusin', (e) => { if (addrField(target(e))) offerAddr(target(e)); }, true);
+  addEventListener('click', (e) => { if (e.isTrusted && addrField(target(e))) offerAddr(target(e)); }, true);
+  addEventListener('input', (e) => { if (e.isTrusted && addrField(target(e))) dismiss(); }, true);
   let lastCard = '';
   const optText = (el) => el instanceof HTMLSelectElement && el.selectedOptions[0] ? el.value + ' ' + el.selectedOptions[0].text : el.value;
   const captureCard = (root) => {
@@ -259,5 +291,41 @@ pub(super) const CARD_FILL_SCRIPT: &str = concat!(
   if (f.name && d.h && !f.name.value) setText(f.name, d.h);
   if (f.cvc && d.c) setText(f.cvc, d.c);
   return 'ok';
+})"#
+);
+
+/// Called as `(ADDRESS_FILL_SCRIPT)(payload)` in the top-level document, with the values Rust chose
+/// for the fields of the form (`d.v`: `[index, "name|id", value]`). Same results as `FILL_SCRIPT`.
+pub(super) const ADDRESS_FILL_SCRIPT: &str = concat!(
+    "((d) => {\n  if (location.origin !== d.origin) return 'origin';\n",
+    helpers!(),
+    r#"
+  const fire = (el) => {
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+  };
+  const a = document.activeElement;
+  const fs = addrFields(a instanceof Element ? scopeOf(a) : document);
+  let did = false;
+  for (const [i, key, v] of d.v) {
+    const el = fs[i];
+    // The form changed since the list opened: leave a field that isn't the one described.
+    if (!el || addrDesc(el).slice(3, 5).join('|') !== key) continue;
+    if (el instanceof HTMLSelectElement) {
+      const want = v.toLowerCase();
+      const o = [...el.options].find((x) => x.value.toLowerCase() === want || x.text.trim().toLowerCase() === want);
+      if (!o) continue;
+      el.value = o.value;
+    } else {
+      if (el.value && el !== a) continue;
+      const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+      el.focus();
+      Object.getOwnPropertyDescriptor(proto, 'value').set.call(el, v);
+    }
+    fire(el);
+    did = true;
+  }
+  if (a instanceof HTMLElement) a.focus();
+  return did ? 'ok' : 'nofield';
 })"#
 );

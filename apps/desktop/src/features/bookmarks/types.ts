@@ -53,13 +53,27 @@ export interface BookmarkBackup {
 /** Another browser's profile that can be imported (`import_sources`). */
 export interface ImportSource {
   id: string;
-  /** "chrome", "edge", "brave", "vivaldi", "chromium", "opera", "operagx", "firefox", "zen" */
+  /** "chrome", "edge", "brave", "vivaldi", "chromium", "yandex", "opera", "operagx", "firefox", "zen" */
   browser: string;
   name: string;
   /** Empty when the browser has a single profile folder. */
   profile: string;
   bookmarks: boolean;
   history: boolean;
+  /** A Chromium profile with saved passwords (`import_secrets`). */
+  passwords: boolean;
+  /** Saved addresses (Chromium browsers), imported into Passwords with `importAddresses`. */
+  addresses: boolean;
+  /** Has start-page tiles (`import_tiles`). */
+  tiles: boolean;
+  /** Open tabs of the last session can be read (Chromium browsers only). */
+  tabs: boolean;
+}
+
+/** An open tab of another browser's last session (`import_tabs`). */
+export interface ImportedTab {
+  url: string;
+  title: string;
 }
 
 export interface ImportResult {

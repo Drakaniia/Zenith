@@ -7,6 +7,10 @@ import { keywordMatch, nodeLabel, parseRestriction, searchBookmarks, searchTagge
 import { commands } from './commands';
 import { faviconFor } from '../../shared/favicons';
 import { scoreAny } from './fuzzy';
+import { calc } from './calc';
+import type { Instant } from './instant';
+import { copyText } from '../../shared/clipboard';
+import { ui } from '../../shared/ui/ui.svelte';
 import { normalizeInput, prettyUrl, searchUrl, titleFor } from '../../shared/url';
 import { popularCandidates, type Autofill, type AutofillCandidate } from './autocomplete';
 import type { PaletteMode } from '../../shared/ui/ui.svelte';
@@ -16,7 +20,7 @@ import type { IconName } from '../../shared/ui/icons';
 export type How = 'enter' | 'newTab' | 'glance';
 export interface Item {
   key: string;
-  kind: 'go' | 'search' | 'tab' | 'bookmark' | 'history' | 'suggest' | 'command';
+  kind: 'go' | 'search' | 'tab' | 'bookmark' | 'history' | 'suggest' | 'command' | 'answer';
   title: string;
   subtitle?: string;
   url?: string;
@@ -34,6 +38,8 @@ export interface SourceContext {
   fill: Autofill | null;
   history: HistoryEntry[];
   suggestions: string[];
+  /** The online instant answer (currency, weather) for what was typed, once it has arrived. */
+  instant: Instant | null;
   engine: { name: string };
   go: (url: string, how: How) => void;
   close: (restoreFocus?: boolean) => void;
@@ -42,7 +48,7 @@ export interface SourceContext {
 const POPULAR = popularCandidates();
 
 export function paletteItems(ctx: SourceContext): Item[] {
-  const { commandMode, mode, q, restrict, fill, history, suggestions, engine, go, close } = ctx;
+  const { commandMode, mode, q, restrict, fill, history, suggestions, instant, engine, go, close } = ctx;
   if (commandMode) {
     return commands()
       .map((c) => ({ c, s: q ? scoreAny(q, c.label, c.keywords) : 1 }))
@@ -145,6 +151,25 @@ export function paletteItems(ctx: SourceContext): Item[] {
         : { key, kind: 'go', title: prettyUrl(target), subtitle: 'Open address', icon: 'globe', url: target, favicon: faviconFor(target), run: (h) => go(target, h) },
     );
     seen.add(target);
+    // Instant answers sit right below, so Enter still opens or searches what was typed.
+    const answer = calc(q);
+    const copied = answer !== null ? String(answer) : instant?.kind === 'currency' ? instant.text : null;
+    if (copied !== null) {
+      out.push({
+        key: 'calc',
+        kind: 'answer',
+        title: `= ${copied}`,
+        subtitle: 'Copy result',
+        icon: 'copy',
+        run: () => {
+          close();
+          void copyText(copied).then(() => ui.toast(`Copied ${copied}`, { icon: 'copy' }));
+        },
+      });
+    } else if (instant?.kind === 'weather') {
+      const url = searchUrl(instant.query ?? q, settings.value.searchEngine);
+      out.push({ key: 'weather', kind: 'answer', title: instant.text, subtitle: `Search ${engine.name}`, icon: 'globe', run: (h) => go(url, h) });
+    }
   }
   const currentId = mode === 'navigate' ? browser.activeTab?.id : undefined;
   const tabs = Object.values(browser.tabs).filter((t) => t.id !== browser.glance?.tabId && t.id !== currentId);

@@ -154,6 +154,9 @@ pub async fn dispatch(
         "note_delete" => call!(crate::notes::commands::note_delete, (@win, id: String), app, win, args),
         "import_sources" => call!(crate::importer::commands::import_sources, (), app, win, args),
         "import_run" => call!(crate::importer::commands::import_run, (@win, source: String, bookmarks: bool, history: bool, history_days: i64), app, win, args),
+        "import_secrets" => call!(crate::importer::commands::import_secrets, (@win, source: String, passwords: bool, cards: bool), app, win, args),
+        "import_tiles" => call!(crate::importer::commands::import_tiles, (@win, source: String), app, win, args),
+        "import_tabs" => call!(crate::importer::commands::import_tabs, (@win, source: String), app, win, args),
 
         // Downloads, torrents & media
         "downloads_active" => call!(crate::downloads::commands::downloads_active, (@app), app, win, args),
@@ -206,6 +209,7 @@ pub async fn dispatch(
         "security_respond_download" => call!(crate::security::commands::security_respond_download, (@app, request_id: u32, allow: bool), app, win, args),
         "security_safebrowsing_status" => call!(crate::security::commands::security_safebrowsing_status, (), app, win, args),
         "security_safebrowsing_update" => call!(crate::security::commands::security_safebrowsing_update, (), app, win, args),
+        "security_open_wifi" => call!(crate::security::commands::security_open_wifi, (), app, win, args),
         "security_safebrowsing_bypass" => call!(crate::security::commands::security_safebrowsing_bypass, (@app, tab_id: String, url: String), app, win, args),
 
         // Windows integration, search, updates
@@ -213,6 +217,7 @@ pub async fn dispatch(
         "default_browser_register" => call!(crate::platform::win::commands::default_browser_register, (open_settings: Option<bool>), app, win, args),
         "default_browser_unregister" => call!(crate::platform::win::commands::default_browser_unregister, (), app, win, args),
         "search_suggest" => call!(crate::search::commands::search_suggest, (engine: String, query: String), app, win, args),
+        "search_instant_fetch" => call!(crate::search::commands::search_instant_fetch, (url: String), app, win, args),
         "memory_stats" => call!(crate::platform::win::commands::memory_stats, (), app, win, args),
         "system_memory_load" => call!(crate::platform::win::commands::system_memory_load, (), app, win, args),
         "update_status" => call!(crate::updates::commands::update_status, (), app, win, args),
@@ -255,6 +260,12 @@ pub async fn dispatch(
         "cards_delete" => call!(crate::vault::card_commands::cards_delete, (ids: Vec<String>), app, win, args),
         "card_offer_respond" => call!(crate::vault::card_commands::card_offer_respond, (offer_id: u64, action: String, save_cvc: Option<bool>, master: Option<String>), app, win, args),
         "autofill_fill_card" => call!(crate::vault::card_commands::autofill_fill_card, (@app, tab_id: String, card_id: String, master: Option<String>), app, win, args),
+        "addresses_list" => call!(crate::vault::address_commands::addresses_list, (), app, win, args),
+        "address_add" => call!(crate::vault::address_commands::address_add, (address: crate::vault::addresses::Address), app, win, args),
+        "address_update" => call!(crate::vault::address_commands::address_update, (id: String, address: crate::vault::addresses::Address), app, win, args),
+        "addresses_delete" => call!(crate::vault::address_commands::addresses_delete, (ids: Vec<String>), app, win, args),
+        "autofill_fill_address" => call!(crate::vault::address_commands::autofill_fill_address, (@app, tab_id: String, address_id: String), app, win, args),
+        "import_addresses" => call!(crate::importer::commands::import_addresses, (@win, source: String), app, win, args),
 
         // Profiles
         "profiles_list" => call!(crate::profiles::commands::profiles_list, (), app, win, args),

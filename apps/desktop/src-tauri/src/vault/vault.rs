@@ -116,7 +116,13 @@ impl Vault {
         }
         let plain = Zeroizing::new(serde_json::to_vec(&self.index).map_err(|e| e.to_string())?);
         self.file.index = crypto::protect(&plain)?;
-        self.file.version = if self.index.cards.is_empty() && self.file.card_secrets.is_empty() { 1 } else { FILE_VERSION };
+        self.file.version = if !self.index.addresses.is_empty() {
+            FILE_VERSION
+        } else if self.index.cards.is_empty() && self.file.card_secrets.is_empty() {
+            1
+        } else {
+            2
+        };
         let json = serde_json::to_vec_pretty(&self.file).map_err(|e| e.to_string())?;
         crate::storage::write_atomic(&self.path, &json).map_err(|e| format!("Could not save passwords: {e}"))
     }
@@ -136,6 +142,7 @@ impl Vault {
             has_recovery: self.file.recovery.is_some(),
             count: if self.exists() { self.index.entries.len() } else { 0 },
             card_count: if self.exists() { self.index.cards.len() } else { 0 },
+            address_count: if self.exists() { self.index.addresses.len() } else { 0 },
             damaged: self.damaged.clone(),
             retry_after: self.retry_after(),
         }

@@ -1,9 +1,9 @@
 ---
-title: Passwords and payment cards
-description: Save, fill and manage passwords and payment cards in Zenith's encrypted vault, protected by a master password.
+title: Passwords, cards and addresses
+description: Save, fill and manage passwords, payment cards and addresses in Zenith's encrypted vault, protected by a master password.
 ---
 
-Zenith has a built-in password manager and wallet. Passwords and cards are stored encrypted on your PC and never leave it. Open them from the app menu with **Passwords**, or from the command palette. The page has four sections: **Wallet & cards**, **Passwords**, **Personal data** (not available yet) and **Autofill settings**.
+Zenith has a built-in password manager and wallet. Passwords and cards are stored encrypted on your PC and never leave it. Open them from the app menu with **Passwords**, or from the command palette. The page has four sections: **Wallet & cards**, **Passwords**, **Addresses** and **Autofill settings**.
 
 ## The master password
 
@@ -30,7 +30,8 @@ Zenith only fills a password on the site it was saved for, and never fills a pas
 
 On the **Passwords** page you can search, view, copy, edit and delete entries. The menu on that page also has:
 
-- **Import passwords…**: a CSV export from Chrome, Edge, Brave, Opera, Vivaldi, Firefox, Safari, Bitwarden, 1Password, LastPass, Dashlane, Proton Pass or KeePass/KeePassXC, or a Zenith backup. A preview shows what each row will do; for accounts you already have with a different password, you choose which to keep.
+- **Import passwords…**: a CSV export from Chrome, Edge, Brave, Opera, Vivaldi, Yandex Browser, Firefox, Safari, Bitwarden, 1Password, LastPass, Dashlane, Proton Pass or KeePass/KeePassXC, or a Zenith backup. A preview shows what each row will do; for accounts you already have with a different password, you choose which to keep.
+- **Import from a browser…**: reads the saved passwords and payment cards of Chrome, Edge, Brave, Vivaldi, Chromium, Opera or Opera GX on this PC directly, with no CSV file. Passwords go to the same preview as a CSV import; cards you haven't saved yet are added to the wallet (a card you already have is kept as it is). The vault must be unlocked. Recent versions of Chrome (127 and later) protect new passwords with app-bound encryption that only Chrome itself can read: Zenith skips those and tells you how many, so export them from that browser as a CSV and import the file instead. For Firefox, Zen and Yandex Browser, use a CSV export.
 - **Back up (encrypted)…**: a file encrypted with your current master password. Restore it with Import; you'll need the master password you had when you made it.
 - **Export as CSV (not encrypted)…**: in Chrome's format, which other password managers can import. Anyone who can open the file can read every password, so delete it once you've imported it elsewhere.
 
@@ -39,6 +40,16 @@ On the **Passwords** page you can search, view, copy, edit and delete entries. T
 Zenith can save cards when you pay on a site. It asks first, and only saves the security code if you tick the box. You can also add and edit cards under **Wallet & cards**.
 
 To fill a card, click a card number field on a checkout form and pick a card. Zenith asks for your master password every time it fills a card, and only fills cards on secure (`https`) pages.
+
+## Addresses
+
+Under **Addresses** you can add, edit and delete addresses: a name, organization, street, city, state or region, postal code, country, phone and email. Every field is optional.
+
+To fill one, click a name, address, phone or email field in a form and pick an address. Zenith fills every matching field of that form (first and last name, address lines, city, postal code, country drop-downs and so on) and leaves fields you've already typed in alone. It recognises fields by their `autocomplete` attribute, or by their name, id and label when a site doesn't set one.
+
+Addresses don't need the master password to be filled, even while the vault is locked. You do need a master password set up to save them, and the vault unlocked to manage them.
+
+To bring addresses over from Chrome, Edge, Brave, Vivaldi, Opera or Chromium, tick **Addresses** in **Import bookmarks** (or in the setup assistant's import step). Addresses you already have are skipped.
 
 ## Autofill settings
 
@@ -62,5 +73,5 @@ The same section lets you change the master password, make a new recovery key (t
 ## How it's protected
 
 - Passwords, notes and card numbers are encrypted with AES-256-GCM using a random vault key. That key is stored only wrapped with keys derived from your master password (Argon2id) and from your recovery key.
-- Site names, usernames and card summaries (brand, last four digits, expiry) are encrypted with Windows DPAPI, so they're readable only by your Windows account. That's what lets Zenith suggest accounts before you unlock.
+- Site names, usernames, card summaries (brand, last four digits, expiry) and addresses are encrypted with Windows DPAPI, so they're readable only by your Windows account. That's what lets Zenith suggest accounts and fill addresses before you unlock.
 - Each [profile](../profiles/) has its own vault.

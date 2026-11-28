@@ -21,6 +21,14 @@ The **Clear** button between pinned and regular tabs closes the space's regular 
 
 To find a tab among many, type `%` followed by a space in the address bar to search only open tabs.
 
+Type arithmetic such as `(2+3)*4` or `2^10` in the address bar to see the answer just below the first result; select it with the arrow keys and press `Enter`, or click it, to copy it.
+
+Type a conversion such as `100 usd to eur` or `50 eur usd` to see the converted amount the same way, with rates from [Frankfurter](https://frankfurter.dev); pick it to copy it.
+
+Type `weather` and a city, such as `weather London` or `Paris weather`, to see its current temperature and conditions from [Open-Meteo](https://open-meteo.com); pick it to search the weather. Conversions and weather only appear while search suggestions are on, since what you type is sent to these services.
+
+To read a page in your language, choose **Translate page** in the command palette or in the site information panel. The page opens in Google Translate in a new tab.
+
 ## Essentials and pinned tabs
 
 **Essentials** are an icon grid at the top of the sidebar, shared by all spaces. Drag a tab into the grid to make it an Essential.

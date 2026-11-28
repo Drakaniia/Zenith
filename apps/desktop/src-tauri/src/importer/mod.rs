@@ -5,9 +5,15 @@
 //! arbitrary file. Databases are copied to a temporary folder first: the other browser may be
 //! running and holding them open, and its files must never be modified.
 //!
-//! Only bookmarks and history are read. Passwords, cookies and open tabs are not imported.
+//! Bookmarks, history, start-page tiles (`tiles`) and, for Chromium, the last session's open tabs
+//! (`tabs`) are read here; saved passwords and payment cards of Chromium browsers in `secrets`.
+//! Cookies are not imported.
 
+pub mod addresses;
 pub mod commands;
+pub mod secrets;
+pub mod tiles;
+pub mod tabs;
 
 use std::collections::HashMap;
 use std::fs;
@@ -48,6 +54,7 @@ const BROWSERS: &[Browser] = &[
     Browser { key: "edge", name: "Microsoft Edge", short: "Edge", engine: Engine::Chromium, base: "LOCALAPPDATA", dir: r"Microsoft\Edge\User Data", single: false },
     Browser { key: "brave", name: "Brave", short: "Brave", engine: Engine::Chromium, base: "LOCALAPPDATA", dir: r"BraveSoftware\Brave-Browser\User Data", single: false },
     Browser { key: "vivaldi", name: "Vivaldi", short: "Vivaldi", engine: Engine::Chromium, base: "LOCALAPPDATA", dir: r"Vivaldi\User Data", single: false },
+    Browser { key: "yandex", name: "Yandex Browser", short: "Yandex", engine: Engine::Chromium, base: "LOCALAPPDATA", dir: r"Yandex\YandexBrowser\User Data", single: false },
     Browser { key: "chromium", name: "Chromium", short: "Chromium", engine: Engine::Chromium, base: "LOCALAPPDATA", dir: r"Chromium\User Data", single: false },
     Browser { key: "opera", name: "Opera", short: "Opera", engine: Engine::Chromium, base: "APPDATA", dir: r"Opera Software\Opera Stable", single: true },
     Browser { key: "operagx", name: "Opera GX", short: "Opera GX", engine: Engine::Chromium, base: "APPDATA", dir: r"Opera Software\Opera GX Stable", single: true },
@@ -68,6 +75,14 @@ pub struct ImportSource {
     pub profile: String,
     pub bookmarks: bool,
     pub history: bool,
+    /// A Chromium profile with saved passwords (`secrets::read`).
+    pub passwords: bool,
+    /// Saved addresses (Chromium's `Web Data`), imported into the vault by `import_addresses`.
+    pub addresses: bool,
+    /// Start-page tiles (see `tiles`).
+    pub tiles: bool,
+    /// A Chromium session file with open tabs exists.
+    pub tabs: bool,
 }
 
 struct Found {
@@ -151,6 +166,11 @@ fn scan() -> Vec<Found> {
                     profile,
                     bookmarks,
                     history,
+                    // Yandex wraps its logins in an extra key layer (and may lock them with a master password): CSV only.
+                    passwords: b.engine == Engine::Chromium && b.key != "yandex" && dir.join("Login Data").is_file(),
+                    addresses: b.engine == Engine::Chromium && dir.join("Web Data").is_file(),
+                    tiles: tiles::available(&dir, b.engine),
+                    tabs: b.engine == Engine::Chromium && tabs::session_file(&dir).is_some(),
                 },
                 dir,
                 engine: b.engine,

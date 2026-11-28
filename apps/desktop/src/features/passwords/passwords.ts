@@ -1,6 +1,7 @@
 // Password manager: types shared with the backend (vault/, password_commands.rs) and pure
 // helpers for the UI. Kept free of Svelte and Tauri imports so it can be unit tested.
 
+import type { SavedAddress } from "./addresses/addresses";
 import type { SavedCard } from "./cards/cards";
 
 export interface VaultStatus {
@@ -11,6 +12,8 @@ export interface VaultStatus {
   count: number;
   /** Saved payment cards. */
   cardCount: number;
+  /** Saved addresses. */
+  addressCount: number;
   /** The password file exists but can't be used. */
   damaged: string | null;
   /** Seconds until another master password attempt is accepted. */
@@ -53,8 +56,9 @@ export interface SavedAccount {
 export interface PasswordSuggest {
   tabId: string;
   site: string;
-  /** "card": a payment form, listing `cards` instead of `accounts`. */
-  field: "user" | "pass" | "card";
+  /** "card": a payment form, listing `cards` instead of `accounts`; "address": an address form,
+   *  listing `addresses`. */
+  field: "user" | "pass" | "card" | "address";
   newPassword: boolean;
   /** The field in the page's CSS pixels. */
   rect: { x: number; y: number; w: number; h: number };
@@ -62,6 +66,7 @@ export interface PasswordSuggest {
   dpr: number;
   accounts: SavedAccount[];
   cards: SavedCard[];
+  addresses: SavedAddress[];
   generated: string | null;
   /** The list already on screen, narrowed by what was typed in the field: update it in place. */
   refresh?: boolean;
@@ -94,6 +99,15 @@ export interface ImportOpened {
   fileName: string;
   needsPassword: boolean;
   rows: ImportPreviewRow[];
+}
+
+/** What `import_secrets` read from another browser. */
+export interface BrowserImportResult {
+  /** The passwords' preview, committed like a CSV import; null when none were read. */
+  passwords: ImportOpened | null;
+  /** Cards added to the wallet. */
+  cards: number;
+  errors: string[];
 }
 
 export interface ImportSummary {

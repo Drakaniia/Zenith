@@ -91,6 +91,7 @@ fn show_list(sh: &Arc<TabShared>, origin: &str, m: &Msg, typed: Option<&str>) {
             rect: FieldRect { x: finite(m.x), y: finite(m.y), w: finite(m.w).max(0.0), h: finite(m.h).max(0.0) },
             dpr: if m.dpr.is_finite() && m.dpr > 0.0 { m.dpr } else { 1.0 },
             accounts,
+            addresses: Vec::new(),
             cards: Vec::new(),
             generated: shown,
             refresh: typed.is_some(),

@@ -1,5 +1,6 @@
 //! Minimal HTTPS GET over WinHTTP (ships with Windows, so it adds no TLS stack to the binary).
-//! Used only for opt-in search suggestions, filter-list updates, favicons and extensions.
+//! Used only for opt-in search suggestions, address-bar instant answers, filter-list updates,
+//! favicons and extensions.
 //!
 //! Every request goes through one process-wide WinHTTP session: its connection pool keeps TLS
 //! connections alive between requests and its proxy lookup is done once, so repeated requests

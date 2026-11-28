@@ -202,6 +202,7 @@ class BrowserStore {
       openerId?: TabId;
       index?: number;
       pinned?: boolean;
+      asleep?: boolean;
     } = {},
   ): Tab {
     return openTab(this, url, opts);
