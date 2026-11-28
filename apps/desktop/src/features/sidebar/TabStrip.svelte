@@ -12,6 +12,8 @@
   import { tabsApi } from '$features/browser/api';
   import { appMenu } from '$features/toolbar/menus';
   import { browser, tabTitle } from '$features/browser/browser.svelte';
+  import { childFolders } from '$features/browser/folders';
+  import { spaceSplits } from '$features/browser/split';
   import { dnd } from './sidebar-dnd.svelte';
   import { ui } from '$shared/ui/ui.svelte';
   import { type MenuItem } from '$shared/ui/menu';
@@ -40,12 +42,12 @@
   const space = $derived(browser.activeSpace);
   const activeId = $derived(browser.activeTab?.id);
   const essentials = $derived(browser.essentials.map((id) => browser.tabs[id]).filter(Boolean));
-  const folders = $derived(space?.folders ?? []);
+  const folders = $derived(childFolders(space?.folders ?? []));
   const pinned = $derived(
     (space?.pinnedIds ?? []).filter((id) => browser.tabs[id] && !browser.folderOf(id)).map((id) => browser.tabs[id]),
   );
   const regular = $derived((space?.tabIds ?? []).map((id) => browser.tabs[id]).filter(Boolean));
-  const splitIds = $derived(space?.split?.ids ?? []);
+  const splitIds = $derived(spaceSplits(space).flatMap((g) => g.ids));
 
   /** Menus hang below the strip at the top of the window and above it at the bottom. */
   function below(el: HTMLElement) {
@@ -58,16 +60,26 @@
   function folderTabs(folder: Folder): Tab[] {
     return space ? browser.folderMembers(space, folder).map((id) => browser.tabs[id]).filter(Boolean) : [];
   }
-  function openFolder(e: MouseEvent, folder: Folder) {
-    const items: MenuItem[] = folderTabs(folder).map((t) => ({
+  function folderMenuItems(folder: Folder): MenuItem[] {
+    const subs = childFolders(space?.folders ?? [], folder.id).map(
+      (sub): MenuItem => ({
+        label: sub.icon ? `${sub.icon}  ${sub.name}` : sub.name,
+        icon: sub.icon ? undefined : 'folder',
+        children: () => folderMenuItems(sub),
+      }),
+    );
+    const tabs: MenuItem[] = folderTabs(folder).map((t) => ({
       label: tabTitle(t),
       site: { url: t.url, favicon: t.favicon },
       checked: t.id === activeId,
       run: () => browser.activate(t.id),
     }));
-    if (!items.length) items.push({ label: '(Empty)', heading: true });
+    const items = [...subs, ...(subs.length && tabs.length ? [{ separator: true } as MenuItem] : []), ...tabs];
+    return items.length ? items : [{ label: '(Empty)', heading: true }];
+  }
+  function openFolder(e: MouseEvent, folder: Folder) {
     const p = below(e.currentTarget as HTMLElement);
-    ui.openMenu(p.x, p.y, items);
+    ui.openMenu(p.x, p.y, folderMenuItems(folder));
   }
   function folderContext(e: MouseEvent, folder: Folder) {
     e.preventDefault();

@@ -3,6 +3,8 @@ import type { BrowserStore } from "./browser.svelte";
 import type { SpaceId, TabId } from "./types";
 import { scheduleLayout } from "../../platform/layout.svelte";
 import { neighbor } from "./tab-close";
+import { detachFromSplits } from "./split";
+import { syncPinMeta } from "./tabs";
 
 export function togglePin(store: BrowserStore, id: TabId) {
   const tab = store.tabs[id];
@@ -22,6 +24,7 @@ export function togglePin(store: BrowserStore, id: TabId) {
     tab.pinned = true;
     tab.pinnedUrl = tab.url;
   }
+  syncPinMeta(tab);
 }
 
 export function toggleEssential(store: BrowserStore, id: TabId) {
@@ -39,7 +42,7 @@ export function toggleEssential(store: BrowserStore, id: TabId) {
     for (const space of store.spaces) {
       space.pinnedIds = space.pinnedIds.filter((x) => x !== id);
       space.tabIds = space.tabIds.filter((x) => x !== id);
-      if (space.split?.ids.includes(id)) space.split = undefined;
+      detachFromSplits(space, id);
     }
     tab.essential = true;
     tab.pinned = false;
@@ -47,6 +50,7 @@ export function toggleEssential(store: BrowserStore, id: TabId) {
     tab.pinnedUrl = tab.url;
     store.essentials.push(id);
   }
+  syncPinMeta(tab);
 }
 
 export function moveToSpace(store: BrowserStore, id: TabId, spaceId: SpaceId) {
@@ -61,7 +65,7 @@ export function moveToSpace(store: BrowserStore, id: TabId, spaceId: SpaceId) {
       if (from.id === store.activeSpaceId && from.activeTabId)
         store.activate(from.activeTabId);
     }
-    if (from.split?.ids.includes(id)) from.split = undefined;
+    detachFromSplits(from, id);
     from.pinnedIds = from.pinnedIds.filter((x) => x !== id);
     from.tabIds = from.tabIds.filter((x) => x !== id);
   }
@@ -102,4 +106,5 @@ export function moveTab(store: BrowserStore, id: TabId, zone: "essentials" | "pi
   if (nowPinned && !tab.pinned) tab.pinnedUrl = tab.url;
   if (!nowPinned) tab.pinnedUrl = undefined;
   tab.pinned = nowPinned;
+  syncPinMeta(tab);
 }

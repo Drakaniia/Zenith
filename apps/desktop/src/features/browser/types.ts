@@ -37,6 +37,8 @@ export interface Tab {
   fullscreen: boolean;
   /** Videos and audio the media downloader found on the current page. */
   media: number;
+  /** Background Essential changed title since last viewed (runtime-only). */
+  unread?: boolean;
 }
 
 /** Zen's split layouts: side by side (`vsep`, a vertical separator), stacked (`hsep`) or a grid. */
@@ -45,8 +47,10 @@ export type SplitLayout = "vsep" | "hsep" | "grid";
 export interface SplitState {
   /** Two to four tabs, in pane order. */
   ids: TabId[];
-  /** Share of the first pane with two panes side by side or stacked. */
+  /** Legacy 2-pane share of the first pane (kept for older sessions). */
   ratio: number;
+  /** Per-pane shares summing to 1 for `vsep`/`hsep`, or `[colRatio, rowRatio]` for `grid`. */
+  ratios?: number[];
   /** Missing in sessions from earlier versions: side by side. */
   layout?: SplitLayout;
 }
@@ -58,6 +62,10 @@ export interface Folder {
   name: string;
   collapsed: boolean;
   tabIds: TabId[];
+  /** Parent folder id for nested subfolders (max 5 levels deep). */
+  parentId?: string;
+  /** Optional custom icon/emoji replacing the default folder SVG. */
+  icon?: string;
 }
 
 export interface Space {
@@ -71,7 +79,10 @@ export interface Space {
   /** Zen: collapse the pinned section from the space indicator. */
   pinnedCollapsed?: boolean;
   activeTabId?: TabId;
+  /** Legacy single split group (migrated to `splits` on restore). */
   split?: SplitState;
+  /** Multiple independent split groups in this space. */
+  splits?: SplitState[];
 }
 
 export interface ClosedTab {
@@ -91,6 +102,8 @@ export interface GlanceState {
   popup: boolean;
   /** An extension's toolbar popup: a small card anchored at this point instead of a preview. */
   anchor?: PopupAnchor;
+  /** Viewport coordinates of the clicked link that opened Glance (for origin animation). */
+  origin?: { x: number; y: number };
 }
 
 /** A toolbar point a menu or popup hangs from (`below`: it opens downward from `y`). */
@@ -121,7 +134,8 @@ export interface TabPatch {
 export interface OpenRequest {
   url: string;
   openerId?: TabId;
-  kind: "glance" | "background" | "split" | "foreground";
+  kind: "glance" | "glance-search" | "background" | "split" | "little" | "foreground";
+  origin?: { x: number; y: number };
 }
 
 export interface TabCreated {

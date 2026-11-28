@@ -7,6 +7,7 @@
   import { copyText } from '$shared/clipboard';
   import { ui } from '$shared/ui/ui.svelte';
   import { springEase } from '$shared/ui/motion';
+  import { displayHost } from '$shared/url';
   import type { GlanceState } from './types';
   import { tabsApi } from './api';
 
@@ -97,6 +98,13 @@
     expanding = false;
   });
   const box = $derived(morph ?? frame);
+  const originCss = $derived.by(() => {
+    const o = g?.origin;
+    if (!o || anchor) return undefined;
+    const ox = Math.max(0, Math.min(frame.w, o.x - frame.left));
+    const oy = Math.max(0, Math.min(frame.h, o.y - frame.top));
+    return `${Math.round(ox)}px ${Math.round(oy)}px`;
+  });
 
   function openAsTab() {
     if (!g || morph) return;
@@ -134,11 +142,26 @@
       style:top="{box.top}px"
       style:width="{box.w}px"
       style:height="{box.h}px"
+      style:transform-origin={originCss}
       style:--morph-ms="{MORPH_MS}ms"
       in:scale={{ start: anchor ? 0.96 : 0.86, duration: anchor ? 160 : 350, opacity: 0, easing: springEase }}
       onintroend={() => scheduleLayout()}
       out:scale={{ start: 0.92, duration: expanding ? 0 : anchor ? 120 : 200, opacity: 0 }}
     >
+      {#if !anchor}
+        <div class="glance-bar">
+          <button type="button" class="gbtn" title="Back" disabled={!tab.canGoBack} onclick={() => void tabsApi.tabCommand(tab.id, 'back')}>
+            <Icon name="back" size={13} />
+          </button>
+          <button type="button" class="gbtn" title="Forward" disabled={!tab.canGoForward} onclick={() => void tabsApi.tabCommand(tab.id, 'forward')}>
+            <Icon name="forward" size={13} />
+          </button>
+          <button type="button" class="gbtn" title={tab.loading ? 'Stop' : 'Reload'} onclick={() => void tabsApi.tabCommand(tab.id, tab.loading ? 'stop' : 'reload')}>
+            <Icon name={tab.loading ? 'stop' : 'reload'} size={13} />
+          </button>
+          <span class="ghost-url ellipsis" title={tab.url}>{displayHost(tab.url) || tab.url}</span>
+        </div>
+      {/if}
       <div class="body" use:glancePane={tabId}>
         {#if !tab.live}<div class="placeholder"></div>{/if}
         {#if tab.loading}<span class="loading"></span>{/if}
@@ -212,6 +235,38 @@
   }
   .frame.ext .placeholder {
     background: #fff;
+  }
+  .glance-bar {
+    flex: none;
+    height: 30px;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    padding: 0 8px;
+    background: var(--surface-solid);
+    border-bottom: 1px solid var(--line);
+    color: var(--text-2);
+    font-size: 12px;
+  }
+  .gbtn {
+    width: 22px;
+    height: 22px;
+    display: grid;
+    place-items: center;
+    border-radius: 6px;
+  }
+  .gbtn:hover:not(:disabled) {
+    background: var(--hover);
+    color: var(--text);
+  }
+  .gbtn:disabled {
+    opacity: 0.35;
+  }
+  .ghost-url {
+    flex: 1;
+    min-width: 0;
+    margin-left: 6px;
+    opacity: 0.8;
   }
   .body {
     flex: 1;

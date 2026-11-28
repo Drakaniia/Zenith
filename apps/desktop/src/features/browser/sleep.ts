@@ -7,6 +7,7 @@ import { tabsApi } from "./api";
 import { browser } from "./browser.svelte";
 import { settings } from "../settings/settings.svelte";
 import { downloads } from "../downloads/downloads.svelte";
+import { isSplitAnywhere } from "./split";
 
 const SUSPEND_AFTER_MS = 60_000;
 const TICK_MS = 30_000;
@@ -26,7 +27,7 @@ function exempt(id: string): boolean {
     browser.isVisible(id) ||
     browser.recentlyAudible(id) ||
     downloads.busyTab(id) ||
-    browser.spaces.some((s) => s.split?.ids.includes(id))
+    isSplitAnywhere(browser, id)
   );
 }
 

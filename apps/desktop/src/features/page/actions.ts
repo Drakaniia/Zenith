@@ -148,7 +148,19 @@ registerActions(
   {
     back: (source) => {
       const live = liveTab(source);
-      return live && tabsApi.tabCommand(live.id, "back");
+      if (!live) return;
+      if (
+        !live.canGoBack &&
+        settings.value.closeOnBackNoHistory &&
+        live.openerId &&
+        browser.tabs[live.openerId] &&
+        !live.pinned &&
+        !live.essential
+      ) {
+        browser.closeTab(live.id);
+        return;
+      }
+      return tabsApi.tabCommand(live.id, "back");
     },
     forward: (source) => {
       const live = liveTab(source);

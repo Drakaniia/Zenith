@@ -149,8 +149,33 @@ export interface Settings {
   onboardedAt?: number;
   /** Setup step to resume at if Zenith was closed during setup. */
   onboardingStep?: string;
+  /** Link-click modifier triggers (Zen defaults: shift = Glance, alt = Split, ctrl+alt = Little Window). */
+  glanceTrigger: ClickTrigger;
+  splitTrigger: ClickTrigger;
+  littleWindowTrigger: ClickTrigger;
+  /** Open external links clicked inside Essentials in Glance automatically. */
+  glanceEssentialExternal: boolean;
+  /** Open external links clicked inside pinned tabs in a new tab. */
+  openPinnedExternalInNewTab: boolean;
+  /** Show an unread dot on background Essentials whose title changes. */
+  essentialsUnreadDot: boolean;
+  /** What Ctrl+W / closing does on a pinned or Essential tab. */
+  pinnedCloseBehavior: PinnedCloseBehavior;
+  /** Reset pinned/Essential tabs to their pinned URL when Zenith starts. */
+  restorePinnedUrlOnStartup: boolean;
+  /** Middle-clicking an unloaded pinned tab removes it instead of doing nothing. */
+  wheelClosePendingPinned: boolean;
+  /** Pressing Back with no history closes a tab that was opened from another tab. */
+  closeOnBackNoHistory: boolean;
 }
 
+export type ClickTrigger = "none" | "shift" | "alt" | "ctrl" | "ctrl+alt" | "shift+alt";
+export type PinnedCloseBehavior =
+  | "reset-unload-switch"
+  | "unload-switch"
+  | "reset-switch"
+  | "close"
+  | "none";
 export type ToolbarMode = "single" | "multiple" | "collapsed";
 export type BookmarksBarMode = "always" | "newtab" | "never";
 
@@ -263,6 +288,16 @@ export function defaultSettings(): Settings {
     startPage: defaultStartPage(),
     newTabsAtTop: true,
     onboarded: false,
+    glanceTrigger: "shift",
+    splitTrigger: "alt",
+    littleWindowTrigger: "ctrl+alt",
+    glanceEssentialExternal: true,
+    openPinnedExternalInNewTab: true,
+    essentialsUnreadDot: true,
+    pinnedCloseBehavior: "reset-unload-switch",
+    restorePinnedUrlOnStartup: false,
+    wheelClosePendingPinned: true,
+    closeOnBackNoHistory: true,
   };
 }
 
@@ -423,6 +458,11 @@ class SettingsStore {
         vaultAskEveryTime: s.vaultAskEveryTime,
         vaultLockMinutes: s.vaultLockMinutes,
         extensionsInIncognito: s.extensionsInIncognito !== false,
+        glanceTrigger: s.glanceTrigger,
+        splitTrigger: s.splitTrigger,
+        littleWindowTrigger: s.littleWindowTrigger,
+        glanceEssentialExternal: s.glanceEssentialExternal,
+        openPinnedExternalInNewTab: s.openPinnedExternalInNewTab,
       },
       {
         theme: s.theme,

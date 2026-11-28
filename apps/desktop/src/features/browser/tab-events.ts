@@ -20,7 +20,12 @@ export function applyPatch(store: BrowserStore, p: TabPatch) {
         void tabsApi.tabCommand(tab.id, "zoom", want);
     }
   }
-  if (p.title !== undefined) tab.title = p.title;
+  if (p.title !== undefined) {
+    if (tab.essential && tab.title && p.title && p.title !== tab.title && !store.isVisible(tab.id)) {
+      tab.unread = true;
+    }
+    tab.title = p.title;
+  }
   if (p.loading !== undefined) tab.loading = p.loading;
   if (p.favicon !== undefined) {
     tab.favicon = p.favicon || undefined;

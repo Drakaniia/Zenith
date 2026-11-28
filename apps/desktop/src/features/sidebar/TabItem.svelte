@@ -3,6 +3,7 @@
   import Icon from '$shared/ui/Icon.svelte';
   import Favicon from '$shared/ui/Favicon.svelte';
   import { browser, needsWebview, tabTitle } from '$features/browser/browser.svelte';
+  import { settings } from '$features/settings/settings.svelte';
   import { tabMenu } from './menus';
   import { titleFor } from '$shared/url';
   import { ui } from '$shared/ui/ui.svelte';
@@ -23,7 +24,7 @@
     tab: Tab;
     active?: boolean;
     inSplit?: boolean;
-    drop?: 'before' | 'after' | null;
+    drop?: 'before' | 'after' | 'split' | null;
     dragging?: boolean;
     /** Icon-only sidebar (Zen's collapsed toolbar layout). */
     collapsed?: boolean;
@@ -91,6 +92,7 @@
   class:picked
   class:sleeping
   class:split={inSplit && !grouped}
+  class:split-drop={drop === 'split'}
   class:dragging
   class:collapsed
   class:grouped
@@ -103,7 +105,9 @@
   title={renaming ? undefined : title}
   onclick={(e) => !renaming && click(e)}
   onauxclick={(e) => {
-    if (e.button === 1) browser.closeTab(tab.id);
+    if (e.button !== 1) return;
+    if (tab.pinned && sleeping && settings.value.wheelClosePendingPinned) browser.removeTab(tab.id, true);
+    else browser.closeTab(tab.id);
   }}
   onkeydown={(e) => {
     if (e.key === 'Enter' && !renaming) browser.activate(tab.id);
@@ -189,7 +193,7 @@
       ></button>
     {/if}
   {/if}
-  {#if drop}
+  {#if drop === 'before' || drop === 'after'}
     <span class="drop-mark" class:after={drop === 'after'}></span>
   {/if}
 </div>
@@ -234,6 +238,10 @@
   }
   .tab.dragging {
     opacity: 0.4;
+  }
+  .tab.split-drop .bg {
+    background: color-mix(in srgb, var(--accent) 24%, transparent);
+    box-shadow: inset 0 0 0 1.5px var(--drag-indicator);
   }
 
   /* Icon: 16px with Zen's inner margins (10px after, a third of that before). */

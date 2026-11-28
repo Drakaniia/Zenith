@@ -14,7 +14,7 @@ pub mod warm;
 pub use find::find;
 pub use permissions::{respond_permission, PendingPermission};
 pub use requests::{apply_blocking, create_request_context_handler, TOTAL_BLOCKED};
-pub use scripts::{EXT_POPUP_SCRIPT, PAGE_SCRIPT, STORE_SCRIPT};
+pub use scripts::{apply_triggers, EXT_POPUP_SCRIPT, PAGE_SCRIPT, STORE_SCRIPT};
 pub use sleep::{content_size, sleep};
 pub use warm::{ensure_warm, release_if_pressured, WarmTab};
 
@@ -78,10 +78,19 @@ impl TabPatch {
 
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
+pub(crate) struct ClickOrigin {
+    pub x: i32,
+    pub y: i32,
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct OpenRequest {
     pub url: String,
     pub opener_id: Option<String>,
     pub kind: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub origin: Option<ClickOrigin>,
 }
 
 #[derive(Serialize, Clone)]
@@ -111,6 +120,8 @@ pub struct TabShared {
     pub restore_scroll: Mutex<Option<(f64, f64)>>,
     pub target_id: RwLock<String>,
     pub media: Mutex<crate::media::TabMedia>,
+    /// Pinned/Essential site boundary: `(registrable_site, is_essential)` for cross-site link routing.
+    pub pin_site: RwLock<Option<(String, bool)>>,
 }
 
 impl TabShared {
@@ -135,6 +146,7 @@ impl TabShared {
             restore_scroll: Mutex::new(None),
             target_id: RwLock::new(String::new()),
             media: Mutex::new(Default::default()),
+            pin_site: RwLock::new(None),
         }
     }
 
@@ -343,6 +355,8 @@ pub fn create(opts: CreateOptions) -> Result<(), String> {
         Some(&CefString::from("zenith_media_button")),
         Some(&CefString::from(if config().media_button { "1" } else { "0" })),
     );
+    let trig = super::config::triggers_json_for(&config());
+    extra.set_string(Some(&CefString::from("zenith_triggers")), Some(&CefString::from(trig.as_str())));
     if light_bg && opts.glance {
         extra.set_string(Some(&CefString::from("zenith_ext_popup")), Some(&CefString::from("1")));
         if let Some(opener) = &opts.opener_url {
@@ -557,6 +571,21 @@ pub fn command(id: &str, cmd: &str, arg: Option<serde_json::Value>) -> Result<se
             return Ok(serde_json::json!(z));
         }
         "suspend" | "resume" => {}
+        "pinMeta" => {
+            let meta = arg.as_ref().and_then(|v| {
+                let site = v.get("site")?.as_str()?.trim().to_ascii_lowercase();
+                if site.is_empty() { return None; }
+                let essential = v.get("essential").and_then(|b| b.as_bool()).unwrap_or(false);
+                Some((site, essential))
+            });
+            with_host(|h| {
+                if let Some(t) = h.tabs.get(id) {
+                    if let Ok(mut slot) = t.shared.pin_site.write() {
+                        *slot = meta;
+                    }
+                }
+            });
+        }
         "viewSource" => {
             let src = browser
                 .main_frame()

@@ -57,6 +57,7 @@ struct PageMeta {
     private: bool,
     ext_popup_opener: Option<String>,
     media_button: bool,
+    triggers_json: Option<String>,
 }
 
 #[derive(Default)]
@@ -151,13 +152,15 @@ wrap_render_process_handler! {
             } else if role == "page" {
                 let private = cef_str(info.string(Some(&CefString::from("zenith_private")))) == "1";
                 let media_button = cef_str(info.string(Some(&CefString::from("zenith_media_button")))) == "1";
+                let trig = cef_str(info.string(Some(&CefString::from("zenith_triggers"))));
+                let triggers_json = (!trig.is_empty()).then_some(trig);
                 let opener = cef_str(info.string(Some(&CefString::from("zenith_ext_opener"))));
                 let ext_popup_opener = if info.has_key(Some(&CefString::from("zenith_ext_popup"))) != 0 {
                     Some(opener)
                 } else {
                     None
                 };
-                st.pages.insert(id, PageMeta { private, ext_popup_opener, media_button });
+                st.pages.insert(id, PageMeta { private, ext_popup_opener, media_button, triggers_json });
             }
         }
 
@@ -229,6 +232,10 @@ wrap_render_process_handler! {
 
             // Untrusted page browser: NEVER install privileged IPC. Run only unprivileged page scripts.
             let page = page.unwrap_or_default();
+            if let Some(trig) = &page.triggers_json {
+                let js = format!("globalThis.__z_trig={trig};");
+                eval_v8(context, &js, "zenith://internal/triggers.js");
+            }
             eval_v8(context, super::tab::PAGE_SCRIPT, "zenith://internal/page.js");
             if is_main {
                 eval_v8(context, super::autofill::PAGE_SCRIPT, "zenith://internal/autofill.js");

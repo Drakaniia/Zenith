@@ -43,6 +43,11 @@ pub struct RuntimeConfig {
     pub vault_ask_every_time: bool,
     pub vault_lock_minutes: u32,
     pub extensions_in_incognito: bool,
+    pub glance_trigger: String,
+    pub split_trigger: String,
+    pub little_window_trigger: String,
+    pub glance_essential_external: bool,
+    pub open_pinned_external_in_new_tab: bool,
 }
 
 impl Default for RuntimeConfig {
@@ -79,6 +84,11 @@ impl Default for RuntimeConfig {
             vault_ask_every_time: false,
             vault_lock_minutes: 15,
             extensions_in_incognito: true,
+            glance_trigger: "shift".into(),
+            split_trigger: "alt".into(),
+            little_window_trigger: "ctrl+alt".into(),
+            glance_essential_external: true,
+            open_pinned_external_in_new_tab: true,
         }
     }
 }
@@ -103,11 +113,16 @@ pub fn apply_config(cfg: RuntimeConfig) {
     crate::torrents::apply_limits(&cfg);
     let button = cfg.media_button;
     let ext_private = cfg.extensions_in_incognito;
+    let triggers_json = triggers_json_for(&cfg);
     let mut ext_private_changed = false;
+    let mut triggers_changed = false;
     let changed = match CONFIG.write() {
         Ok(mut c) => {
             let changed = c.media_button != button || c.media_disabled_sites != cfg.media_disabled_sites;
             ext_private_changed = c.extensions_in_incognito != ext_private;
+            triggers_changed = c.glance_trigger != cfg.glance_trigger
+                || c.split_trigger != cfg.split_trigger
+                || c.little_window_trigger != cfg.little_window_trigger;
             *c = cfg;
             changed
         }
@@ -116,9 +131,21 @@ pub fn apply_config(cfg: RuntimeConfig) {
     if changed {
         let _ = post_ui(move || crate::media::sniff::apply_button_setting(button));
     }
+    if triggers_changed {
+        let _ = post_ui(move || super::tab::apply_triggers(&triggers_json));
+    }
     if ext_private_changed {
         crate::extensions::private_profile::sync();
     }
+}
+
+pub fn triggers_json_for(cfg: &RuntimeConfig) -> String {
+    serde_json::json!({
+        "g": cfg.glance_trigger,
+        "s": cfg.split_trigger,
+        "l": cfg.little_window_trigger,
+    })
+    .to_string()
 }
 
 pub fn set_extensions_in_incognito(on: bool) {
