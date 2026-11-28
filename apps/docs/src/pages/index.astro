@@ -1,0 +1,198 @@
+---
+// Zenith's landing page. Layout and motion follow zen-browser.app; content is Zenith's own.
+// The docs (Starlight) live on their usual paths; this page replaces the old splash home.
+import Logo from '@zenith/brand/logo.svg';
+import '../landing/landing.css';
+
+const base = import.meta.env.BASE_URL.replace(/\/?$/, '/');
+const repo = 'https://github.com/Drakaniia/Zenith';
+const download = `${repo}/releases/latest`;
+const features = [
+	{ key: 'spaces', title: 'Spaces', media: 'spaces', text: 'Tabs live in a sidebar. Group them into spaces, each with its own name, emoji and accent colour.' },
+	{ key: 'compactMode', title: 'Compact Mode', media: 'compact-mode', text: 'Press Ctrl+Alt+C and the page fills the window. The sidebar and toolbar float in from the edges when you need them.' },
+	{ key: 'glance', title: 'Glance', media: 'glance', text: 'Alt+click a link to preview it in a floating card, without leaving the page you are on.' },
+	{ key: 'splitView', title: 'Split View', media: 'split-view', text: 'Put two tabs side by side with Ctrl+Alt+V, and compare or work across both at once.' },
+];
+---
+
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<title>Zenith: a lighter way to browse</title>
+		<meta name="description" content="Zenith is a lightweight, Zen-style web browser for Windows 11. No telemetry, no accounts." />
+		<link rel="icon" href={`${base}favicon.svg`} type="image/svg+xml" />
+		<script is:inline>
+			document.documentElement.dataset.theme =
+				localStorage.getItem('landing-theme') ?? (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+		</script>
+	</head>
+	<body>
+		<nav class="nav container">
+			<a class="brand" href={base}><Logo width="32" height="32" aria-hidden="true" /><span>Zenith</span></a>
+			<div class="nav-links">
+				<menu class="menu">
+					<button type="button" aria-expanded="false"><span>Getting Started</span><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"></path></svg></button>
+					<div class="dropdown" hidden>
+						<a href={`${base}getting-started/install/`}><b>Install</b><span>Download Zenith and get it running on Windows 11.</span></a>
+						<a href={`${base}getting-started/first-run/`}><b>First run</b><span>What you see the first time you open Zenith.</span></a>
+						<a href={`${base}getting-started/import-from-other-browsers/`}><b>Import</b><span>Bring bookmarks and passwords from another browser.</span></a>
+					</div>
+				</menu>
+				<menu class="menu">
+					<button type="button" aria-expanded="false"><span>Useful Links</span><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"></path></svg></button>
+					<div class="dropdown single" hidden>
+						<a href={`${base}guides/spaces-and-tabs/`}><b>Documentation</b><span>Learn how to use Zenith with the guides.</span></a>
+						<a href={`${base}reference/keyboard-shortcuts/`}><b>Keyboard shortcuts</b><span>Every shortcut on one page.</span></a>
+						<a href={repo} target="_blank" rel="noopener"><b>GitHub</b><span>Contribute to the development of Zenith.</span></a>
+					</div>
+				</menu>
+				<a href={`${repo}/releases`}><span>Release Notes</span></a>
+			</div>
+			<div class="nav-end">
+				<button type="button" class="theme" aria-label="Toggle theme">
+					<svg class="sun" viewBox="0 0 24 24"><path d="M12 9c1.654 0 3 1.346 3 3s-1.346 3-3 3-3-1.346-3-3 1.346-3 3-3zm0-2c-2.762 0-5 2.238-5 5s2.238 5 5 5 5-2.238 5-5-2.238-5-5-5zm-4.184-.599l-3.593-3.594-1.415 1.414 3.595 3.595c.401-.537.876-1.013 1.413-1.415zm4.184-1.401c.34 0 .672.033 1 .08v-5.08h-2v5.08c.328-.047.66-.08 1-.08zm5.598 2.815l3.595-3.595-1.414-1.414-3.595 3.595c.537.402 1.012.878 1.414 1.414zm-12.598 4.185c0-.34.033-.672.08-1h-5.08v2h5.08c-.047-.328-.08-.66-.08-1zm11.185 5.598l3.594 3.593 1.415-1.414-3.594-3.593c-.403.536-.879 1.012-1.415 1.414zm-9.784-1.414l-3.593 3.593 1.414 1.414 3.593-3.593c-.536-.402-1.011-.877-1.414-1.414zm12.519-5.184c.047.328.08.66.08 1s-.033.672-.08 1h5.08v-2h-5.08zm-6.92 8c-.34 0-.672-.033-1-.08v5.08h2v-5.08c-.328.047-.66.08-1 .08z" fill="currentColor"></path></svg>
+					<svg class="moon" viewBox="0 0 24 24"><path d="M10.719 2.082c-2.572 2.028-4.719 5.212-4.719 9.918 0 4.569 1.938 7.798 4.548 9.895-4.829-.705-8.548-4.874-8.548-9.895 0-5.08 3.808-9.288 8.719-9.918zm1.281-2.082c-6.617 0-12 5.383-12 12s5.383 12 12 12c1.894 0 3.87-.333 5.37-1.179-3.453-.613-9.37-3.367-9.37-10.821 0-7.555 6.422-10.317 9.37-10.821-1.74-.682-3.476-1.179-5.37-1.179zm0 10.999c1.437.438 2.562 1.564 2.999 3.001.44-1.437 1.565-2.562 3.001-3-1.436-.439-2.561-1.563-3.001-3-.437 1.436-1.562 2.561-2.999 2.999zm8.001.001c.958.293 1.707 1.042 2 2.001.291-.959 1.042-1.709 1.999-2.001-.957-.292-1.707-1.042-2-2-.293.958-1.042 1.708-1.999 2zm-1-9c-.437 1.437-1.563 2.562-2.998 3.001 1.438.44 2.561 1.564 3.001 3.002.437-1.438 1.563-2.563 2.996-3.002-1.433-.437-2.559-1.564-2.999-3.001z" fill="currentColor"></path></svg>
+				</button>
+				<a href={download} class="btn btn-dark nav-download">Download<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"></path><path d="m12 5 7 7-7 7"></path></svg></a>
+				<label for="mobile-menu-toggle" class="burger" aria-label="Open menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 12h16M4 18h16M4 6h16"></path></svg></label>
+			</div>
+		</nav>
+		<input type="checkbox" id="mobile-menu-toggle" class="sr-only" aria-hidden="true" />
+		<div class="mobile-menu">
+			<ul>
+				<li><a href={`${base}getting-started/install/`}>Install</a></li>
+				<li><a href={`${base}guides/spaces-and-tabs/`}>Documentation</a></li>
+				<li><a href={`${repo}/releases`}>Release Notes</a></li>
+				<li><a href={repo}>GitHub</a></li>
+				<li><a href={download}><b>Download</b></a></li>
+			</ul>
+		</div>
+		<label for="mobile-menu-toggle" class="mobile-overlay" aria-hidden="true"></label>
+
+		<main class="container">
+			<header id="header">
+				<div class="hero-text">
+					<div class="hero-main">
+						<div>
+							<h1><b>a</b> <b>lighter</b><br /><b>way</b> <b>to</b> <b class="italic">browse</b></h1>
+							<p><span>A lightweight, Zen-style web browser for Windows 11.</span> <span>No telemetry, no accounts. Just your tabs, out of your way.</span></p>
+						</div>
+						<div class="ctas">
+							<div><a href={download} class="btn btn-dark">Download for Windows<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"></path><path d="m12 5 7 7-7 7"></path></svg></a></div>
+							<div><a href={repo} class="btn btn-subtle">Star on GitHub ⭐</a></div>
+						</div>
+					</div>
+					<ul class="socials">
+						<!-- GitHub mark: Font Awesome Free, CC BY 4.0 -->
+						<li><a href={repo} target="_blank" rel="noopener" aria-label="Zenith on GitHub"><svg class="fa" viewBox="0 0 512 512" aria-hidden="true"><path fill="currentColor" d="M216.5 362.5c-66-8-112.5-55.5-112.5-117 0-25 9-52 24-70-6.5-16.5-5.5-51.5 2-66 20-2.5 47 8 63 22.5 19-6 39-9 63.5-9s44.5 3 62.5 8.5c15.5-14 43-24.5 63-22 7 13.5 8 48.5 1.5 65.5 16 19 24.5 44.5 24.5 70.5 0 61.5-46.5 108-113.5 116.5 17 11 28.5 35 28.5 62.5l0 52C323 491.5 335.5 500 350.5 494 441 459.5 512 369 512 257 512 115.5 397 0 255.5 0S0 115.5 0 257c0 111 70.5 203 165.5 237.5 13.5 5 26.5-4 26.5-17.5l0-40c-7 3-16 5-24 5-33 0-52.5-18-66.5-51.5-5.5-13.5-11.5-21.5-23-23-6-.5-8-3-8-6 0-6 10-10.5 20-10.5 14.5 0 27 9 40 27.5 10 14.5 20.5 21 33 21s20.5-4.5 32-16c8.5-8.5 15-16 21-21z"></path></svg></a></li>
+					</ul>
+				</div>
+				<img class="hero-media" src={`${base}media/hero.svg`} width="1920" height="1290" alt="The Zenith browser window" />
+			</header>
+
+			<section id="features">
+				<p class="title"><span class="title-line">Built</span> <span class="title-line">for</span> <span class="title-line">focus</span></p>
+				<p class="feature-description-text">Zenith keeps the browser out of your way. Tabs live in a sidebar, the page gets the room, and every tool is one shortcut away.</p>
+				<div class="features-body">
+					<div class="features-col">
+						<div class="feature-tabs">
+							{features.map((f, i) => <button type="button" class="feature-tab" data-index={i} data-feature-key={f.key}>{f.title}</button>)}
+						</div>
+						<div id="features-list">
+							{features.map((f, i) => <div class="feature" data-index={i} data-feature-key={f.key}><b>{f.title}</b><p>{f.text}</p></div>)}
+						</div>
+						<div class="feature-description" data-descriptions={features.map((f) => f.text).join('|||')}>{features[0].text}</div>
+					</div>
+					<div class="video-col">
+						<div class="video-stack">
+							{features.map((f) => <img class="feature-video" src={`${base}media/${f.media}.svg`} width="1280" height="860" alt={`${f.title} in Zenith`} />)}
+						</div>
+					</div>
+				</div>
+			</section>
+
+			<section id="built-on">
+				<div class="built-on-grid">
+					<div class="built-on-head">
+						<h3>Built on open source</h3>
+						<p><span class="dim">Zenith stands on the shoulders of these projects. They do the heavy lifting.<br />You can be part of this journey too by <a href={repo} class="link">contributing on GitHub</a>!</span></p>
+					</div>
+					<div class="logos">
+						<a href="https://github.com/chromiumembedded/cef" target="_blank" rel="noopener">Chromium</a>
+						<a href="https://www.rust-lang.org/" target="_blank" rel="noopener">Rust</a>
+						<a href="https://svelte.dev/" target="_blank" rel="noopener">Svelte</a>
+					</div>
+				</div>
+			</section>
+
+			<section id="community">
+				<h2><span>Our</span> <span>Core</span> <span>Values</span></h2>
+				<p><span class="dim">We make it a priority that Zenith stays small, quick and private, without giving up the features you rely on every day.</span></p>
+				<div class="values">
+					<div class="community__button"><a href={repo} class="btn btn-subtle"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4"></path><path d="M9 18c-4.51 2-5-2-7-2"></path></svg><span>Free and open-source</span></a></div>
+					<div class="community__button check"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"></path></svg><span>Small and quick</span></div>
+					<div class="community__button check"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"></path></svg><span>Private by default</span></div>
+				</div>
+				<img class="values-media" src={`${base}media/values.svg`} width="2820" height="1936" alt="Zenith with a space open" loading="lazy" />
+			</section>
+		</main>
+
+		<footer>
+			<div class="container footer-inner">
+				<section class="footer-intro">
+					<a href={base}><p class="footer-title">Zenith</p></a>
+					<p>A lightweight, Zen-style web browser for Windows 11. No telemetry, no accounts, just your tabs.</p>
+				</section>
+				<section class="footer-cta">
+					<a href={download} class="btn btn-paper">Download<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"></path><path d="m12 5 7 7-7 7"></path></svg></a>
+				</section>
+				<section class="footer-nav" aria-label="Footer links">
+					<div class="footer-cols">
+						<div class="footer-col1">
+							<section>
+								<h2>Follow Us</h2>
+								<ul class="socials"><li><a href={repo} aria-label="Zenith on GitHub"><svg class="fa" viewBox="0 0 512 512" aria-hidden="true"><path fill="currentColor" d="M216.5 362.5c-66-8-112.5-55.5-112.5-117 0-25 9-52 24-70-6.5-16.5-5.5-51.5 2-66 20-2.5 47 8 63 22.5 19-6 39-9 63.5-9s44.5 3 62.5 8.5c15.5-14 43-24.5 63-22 7 13.5 8 48.5 1.5 65.5 16 19 24.5 44.5 24.5 70.5 0 61.5-46.5 108-113.5 116.5 17 11 28.5 35 28.5 62.5l0 52C323 491.5 335.5 500 350.5 494 441 459.5 512 369 512 257 512 115.5 397 0 255.5 0S0 115.5 0 257c0 111 70.5 203 165.5 237.5 13.5 5 26.5-4 26.5-17.5l0-40c-7 3-16 5-24 5-33 0-52.5-18-66.5-51.5-5.5-13.5-11.5-21.5-23-23-6-.5-8-3-8-6 0-6 10-10.5 20-10.5 14.5 0 27 9 40 27.5 10 14.5 20.5 21 33 21s20.5-4.5 32-16c8.5-8.5 15-16 21-21z"></path></svg></a></li></ul>
+							</section>
+							<section>
+								<h2>About</h2>
+								<ul><li><a href={`${repo}/graphs/contributors`}>Contributors</a></li><li><a href={`${base}reference/privacy/`}>Privacy</a></li></ul>
+							</section>
+						</div>
+						<nav aria-label="Get started">
+							<h2>Get Started</h2>
+							<ul>
+								<li><a href={`${base}getting-started/install/`}>Install</a></li>
+								<li><a href={`${base}guides/spaces-and-tabs/`}>Guides</a></li>
+								<li><a href={`${base}reference/keyboard-shortcuts/`}>Keyboard Shortcuts</a></li>
+								<li><a href={`${repo}/releases`}>Release Notes</a></li>
+							</ul>
+						</nav>
+						<nav aria-label="Get help">
+							<h2>Get Help</h2>
+							<ul>
+								<li><a href={`${repo}/issues/new`}>Report an Issue</a></li>
+								<li><a href={`${base}reference/settings/`}>Settings</a></li>
+								<li><a href={`${base}contributing/building/`}>Build from Source</a></li>
+								<li><a href={repo}>Source Code</a></li>
+							</ul>
+						</nav>
+					</div>
+				</section>
+				<section class="copyright" aria-label="Copyright">
+					<p>Made with <span aria-label="love">❤️</span> by the <a href={`${repo}/graphs/contributors`} class="link">Zenith contributors</a></p>
+				</section>
+			</div>
+			<div class="circles" aria-hidden="true">
+				<div style="width:151.2px;height:151.2px;border-width:14px"></div>
+				<div style="width:277.2px;height:277.2px;border-width:21px"></div>
+				<div style="width:403.2px;height:403.2px;border-width:28px"></div>
+				<div style="width:529.2px;height:529.2px;border-width:35px"></div>
+			</div>
+		</footer>
+		<script>
+			import '../landing/motion.ts';
+		</script>
+	</body>
+</html>
