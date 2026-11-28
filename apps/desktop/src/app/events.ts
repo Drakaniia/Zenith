@@ -71,6 +71,9 @@ export function listenBackend(flushAndClose: () => Promise<void>): Promise<() =>
     on('settings-changed', ({ origin }) => {
       if (!incognito && origin !== getCurrentWebviewWindow().label) void settings.reload();
     }),
+    on('insecure-form', () => {
+      ui.toast("Not secure: don't enter passwords or card numbers here", { icon: 'unlock', timeout: 8000 });
+    }),
     on('popup-blocked', ({ tabId, url }) => {
       ui.toast('Pop-up blocked', {
         icon: 'shield',

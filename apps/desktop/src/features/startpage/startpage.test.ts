@@ -7,6 +7,7 @@ import {
   averageLuminance,
   backgroundChoices,
   composeTiles,
+  mergeSites,
   moveItem,
   newSiteId,
   siteKey,
@@ -220,4 +221,24 @@ test("every gallery picture renders to an SVG data URL with a unique id", () => 
     assert.ok(!/NaN|undefined/.test(svg), `${w.id} has no broken numbers`);
   }
   assert.equal(galleryUrl("missing"), null);
+});
+
+test("imported tiles are appended without duplicates, up to the saved-site limit", () => {
+  let n = 0;
+  const id = () => `s-test-${n++}`;
+  const saved = [{ id: "s-a", url: "https://a.example/", title: "A" }];
+  const out = mergeSites(
+    saved,
+    [
+      { url: "https://a.example/", title: "Again" },
+      { url: "https://b.example", title: "  B   site " },
+      { url: "javascript:alert(1)", title: "Bad" },
+      { url: "https://b.example/", title: "B twice" },
+    ],
+    id,
+  );
+  assert.deepEqual(out, [saved[0], { id: "s-test-0", url: "https://b.example/", title: "B site" }]);
+  assert.equal(saved.length, 1, "input is not changed");
+  const many = Array.from({ length: 40 }, (_, i) => ({ url: `https://s${i}.example/`, title: "" }));
+  assert.equal(mergeSites(out, many, id).length, MAX_SAVED_SITES);
 });

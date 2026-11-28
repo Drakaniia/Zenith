@@ -41,6 +41,7 @@ function vaultStatus() {
     hasRecovery: true,
     count: previewVault.exists ? previewVault.entries.length : 0,
     cardCount: previewVault.exists ? previewCards.length : 0,
+    addressCount: 0,
     damaged: null,
     retryAfter: 0,
   };
@@ -77,6 +78,8 @@ export function handlePasswords(cmd: string, a: Record<string, unknown>): unknow
       previewVault.entries = previewVault.entries.filter((x) => !ids.includes(x.id));
       return ids.length;
     }
+    case "addresses_list":
+      return [];
     case "cards_list":
       if (!previewVault.unlocked) return Promise.reject("The password manager is locked.");
       return previewCards.map(({ number: _n, cvc: _c, ...c }) => c);

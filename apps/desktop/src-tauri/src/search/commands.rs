@@ -9,3 +9,8 @@ pub async fn search_suggest(engine: String, query: String) -> CmdResult<Vec<Stri
     }
     blocking(move || super::suggestions(&engine, &query)).await?
 }
+
+/// Fetches an instant-answer API (exchange rates, weather) for the address bar; returns its JSON text.
+pub async fn search_instant_fetch(url: String) -> CmdResult<String> {
+    blocking(move || super::instant_fetch(&url)).await?
+}

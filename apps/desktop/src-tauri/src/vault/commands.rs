@@ -216,11 +216,11 @@ pub async fn passwords_backup(_app: AppHandle, master: String) -> CmdResult<Opti
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ImportOpened {
-    token: u64,
-    file_name: String,
+    pub(crate) token: u64,
+    pub(crate) file_name: String,
     /// An encrypted backup: call `passwords_import_unlock` with its password.
-    needs_password: bool,
-    rows: Vec<vault::PreviewRow>,
+    pub(crate) needs_password: bool,
+    pub(crate) rows: Vec<vault::PreviewRow>,
 }
 
 /// Picks a CSV export or a Zenith backup and previews it. Nothing is saved yet.

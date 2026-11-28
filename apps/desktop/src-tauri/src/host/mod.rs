@@ -30,7 +30,7 @@ pub use chrome::{
     close_all_for_exit, create_chrome_window, detach_window, init_services, open_chrome_devtools,
     profile_override, shutdown, STARTED,
 };
-pub use config::{apply_config, blocker_enabled, config, set_extensions_in_incognito, RuntimeConfig, BLOCKER};
+pub use config::{apply_config, blocker_enabled, config, data_saver_enabled, set_extensions_in_incognito, RuntimeConfig, BLOCKER};
 pub use debug::{debug_layout, DebugLayout};
 pub(crate) use devtools::{
     browser_cdp_pipe_arg, close_browser_cdp_pipes, eval_js, init_browser_cdp_pipes, target_id_of,

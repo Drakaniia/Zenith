@@ -48,6 +48,9 @@ pub struct RuntimeConfig {
     pub little_window_trigger: String,
     pub glance_essential_external: bool,
     pub open_pinned_external_in_new_tab: bool,
+    /// Data saver: pages load without images, video, audio or web fonts.
+    pub data_saver: bool,
+    pub protect_warnings: bool,
 }
 
 impl Default for RuntimeConfig {
@@ -89,6 +92,8 @@ impl Default for RuntimeConfig {
             little_window_trigger: "ctrl+alt".into(),
             glance_essential_external: true,
             open_pinned_external_in_new_tab: true,
+            data_saver: false,
+            protect_warnings: true,
         }
     }
 }
@@ -105,7 +110,14 @@ pub fn blocker_enabled() -> bool {
     BLOCKER_ON.load(Ordering::Relaxed)
 }
 
+static DATA_SAVER_ON: AtomicBool = AtomicBool::new(false);
+
+pub fn data_saver_enabled() -> bool {
+    DATA_SAVER_ON.load(Ordering::Relaxed)
+}
+
 pub fn apply_config(cfg: RuntimeConfig) {
+    DATA_SAVER_ON.store(cfg.data_saver, Ordering::Relaxed);
     let blocking = cfg.blocker_enabled;
     if BLOCKER_ON.swap(blocking, Ordering::Relaxed) != blocking {
         let _ = post_ui(move || super::tab::apply_blocking(blocking));

@@ -10,7 +10,7 @@ import { ui } from "../../shared/ui/ui.svelte";
 import { type AnchorRect, type MenuMods } from "../../shared/ui/menu";
 import { bookmarksIn, nodeLabel } from "./bookmarks";
 import { isNewTab, isWebUrl } from "../../shared/url";
-import type { BookmarkNode } from "./types";
+import type { BookmarkNode, ImportSource } from "./types";
 import type { Tab } from "../browser/types";
 
 // ---------------------------------------------------------------------------------------------
@@ -67,6 +67,18 @@ export function openAll(folder: BookmarkNode) {
   if (marks.length > 25 && !window.confirm(`Open all ${marks.length} bookmarks in new tabs?`)) return;
   const opener = browser.activeTab?.id;
   marks.forEach((m, i) => browser.openTab(m.url, { activate: i === 0, openerId: opener }));
+}
+
+/** Opens tabs imported from another browser in a new space named after it. They stay asleep
+ *  until visited, so a large session doesn't load all at once. */
+export async function importOpenTabs(source: ImportSource): Promise<number> {
+  const tabs = await bookmarksApi.importTabs(source.id);
+  if (!tabs.length) return 0;
+  const space = browser.createSpace(source.name);
+  tabs.forEach((t, i) => {
+    browser.openTab(t.url, { activate: false, asleep: true, spaceId: space.id, index: i }).title = t.title;
+  });
+  return tabs.length;
 }
 
 // ---------------------------------------------------------------------------------------------

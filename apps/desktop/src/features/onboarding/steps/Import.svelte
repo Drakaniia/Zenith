@@ -4,6 +4,8 @@
   import { settings } from '$features/settings/settings.svelte';
   import { bookmarks as bookmarkStore } from '$features/bookmarks/bookmarks.svelte';
   import { bookmarksApi } from '$features/bookmarks/api';
+  import { startPage } from '$features/startpage/startpage.svelte';
+  import { importOpenTabs } from '$features/bookmarks/bookmark-actions';
   import { plural } from '../onboarding-flow';
   import type { ImportSource } from '$features/bookmarks/types';
 
@@ -14,6 +16,7 @@
     brave: ['#fb542b', 'B'],
     vivaldi: ['#ef3939', 'V'],
     chromium: ['#5f6368', 'C'],
+    yandex: ['#fc3f1d', 'Y'],
     opera: ['#ff1b2d', 'O'],
     operagx: ['#fa1e4e', 'GX'],
     firefox: ['#ff7139', 'F'],
@@ -24,6 +27,9 @@
   let chosen = $state('');
   let wantBookmarks = $state(true);
   let wantHistory = $state(settings.value.recordHistory);
+  let wantAddresses = $state(false);
+  let wantTiles = $state(true);
+  let wantTabs = $state(false);
   let busy = $state(false);
   let status = $state<{ text: string; errors: string[] } | null>(null);
   let done = $state<string[]>([]);
@@ -67,7 +73,26 @@
       const parts = [];
       if (wantBookmarks && source.bookmarks) parts.push(plural(r.bookmarks, 'new bookmark'));
       if (wantHistory && source.history) parts.push(plural(r.history, 'history entry', 'history entries'));
-      status = { text: parts.length ? `Imported ${parts.join(' and ')} from ${source.name}.` : '', errors: r.errors };
+      const errors = r.errors;
+      if (wantTabs && source.tabs) {
+        try {
+          parts.push(plural(await importOpenTabs(source), 'open tab'));
+        } catch (e) {
+          errors.push(String(e));
+        }
+      }
+      if (wantAddresses && source.addresses) {
+        const n = await bookmarksApi.importAddresses(source.id).catch((e) => void errors.push(String(e)));
+        if (typeof n === 'number') parts.push(plural(n, 'new address', 'new addresses'));
+      }
+      if (wantTiles && source.tiles) {
+        try {
+          parts.push(plural(startPage.importSites(await bookmarksApi.importTiles(source.id)), 'new start page tile'));
+        } catch (e) {
+          errors.push(String(e));
+        }
+      }
+      status = { text: parts.length ? `Imported ${parts.join(' and ')} from ${source.name}.` : '', errors };
       record(source.name, r.bookmarks, r.history);
       if (!r.errors.length) done.push(source.id);
     } catch (e) {
@@ -126,9 +151,25 @@
             <small>{!settings.value.recordHistory ? 'History is turned off' : source.history ? `From ${span}` : 'None found'}</small>
           </span>
         </label>
+        <label class:off={!source.tabs}>
+          <input type="checkbox" bind:checked={wantTabs} disabled={!source.tabs} />
+          <span><b>Open tabs</b><small>{source.tabs ? 'From the last session, into a new space' : 'Not available'}</small></span>
+        </label>
+        {#if source.addresses}
+          <label>
+            <input type="checkbox" bind:checked={wantAddresses} />
+            <span><b>Addresses</b><small>Into Passwords (needs a master password set up)</small></span>
+          </label>
+        {/if}
+        {#if source.tiles}
+          <label>
+            <input type="checkbox" bind:checked={wantTiles} />
+            <span><b>Start page tiles</b><small>Added after your own sites on the Tableau</small></span>
+          </label>
+        {/if}
       </div>
       <div class="act">
-        <button type="button" class="btn" disabled={busy || (!wantBookmarks && !wantHistory)} aria-busy={busy} onclick={run}>
+        <button type="button" class="btn" disabled={busy || (!wantBookmarks && !wantHistory && !wantTabs && !wantAddresses && !(wantTiles && source.tiles))} aria-busy={busy} onclick={run}>
           {#if busy}<span class="spinner" aria-hidden="true"></span>Importing…{:else}Import from {source.name}{/if}
         </button>
       </div>
@@ -149,7 +190,7 @@
   Have an exported bookmarks file?
   <button type="button" class="link" onclick={fromFile}>Choose an .html file…</button>
 </p>
-<p class="note">Passwords, cookies and open tabs aren't imported. The other browser isn't changed.</p>
+<p class="note">Passwords and cookies aren't imported. The other browser isn't changed.</p>
 
 <style>
   .sources {

@@ -14,6 +14,8 @@ import { openInternal } from "../browser/target";
 import { chooseChatbot } from "../chatbot/chatbot";
 import { makeDefaultBrowser } from "../default-browser/default-browser";
 import { openNotes } from "../notes/actions";
+import { translatePage } from "../page/actions";
+import { isWebUrl } from "../../shared/url";
 import { settings } from "../settings/settings.svelte";
 import { ACTIONS } from "../shortcuts/shortcuts";
 
@@ -139,11 +141,29 @@ export function commands(): Command[] {
       icon: "close",
       run: () => browser.activeTab && browser.closeOthers(browser.activeTab.id),
     },
+    ...(isWebUrl(browser.activeTab?.url)
+      ? [
+          {
+            id: "translatePage",
+            label: "Translate page",
+            icon: "globe" as IconName,
+            keywords: "language google translate",
+            run: () => translatePage(browser.activeTab),
+          },
+        ]
+      : []),
     {
       id: "toggleBlocking",
       label: "Turn ad blocking on/off for this site",
       icon: "shield",
       run: () => toggleSiteBlocking(browser.activeTab),
+    },
+    {
+      id: "toggleDataSaver",
+      label: "Toggle data saver",
+      icon: "download",
+      keywords: "turbo images video fonts bandwidth",
+      run: () => settings.update({ dataSaver: !settings.value.dataSaver }),
     },
     {
       id: "themeDark",

@@ -17,6 +17,7 @@
   import { NEW_TAB_URL, SEARCH_ENGINES, isWebUrl } from '$shared/url';
   import { autofill, type Autofill } from './autocomplete';
   import { autofillCandidates, paletteItems, type How, type Item } from './palette-sources';
+  import { instantAnswer, wantsInstant, type Instant } from './instant';
   import type { HistoryEntry } from '$features/history/types';
 
   let input: HTMLInputElement | undefined = $state();
@@ -25,6 +26,7 @@
   let selected = $state(0);
   let history = $state<HistoryEntry[]>([]);
   let suggestions = $state<string[]>([]);
+  let instant = $state<Instant | null>(null);
   let mode = $state<PaletteMode>('navigate');
   // `query` is what the user typed and drives the result list. The input can also show an
   // inline completion after it (`fill`, the added part selected) or the address of a result
@@ -92,6 +94,23 @@
     } else suggestions = [];
   });
 
+  // Currency and weather answers: fetched only for matching input, after a pause in typing.
+  let instantTimer: ReturnType<typeof setTimeout> | undefined;
+  let instantSeq = 0;
+  $effect(() => {
+    const text = q;
+    // Online answers share the search-suggestions switch: both send typed text to a third party.
+    const on = open && settings.value.searchSuggestions && !commandMode && mode !== 'search' && wantsInstant(text);
+    clearTimeout(instantTimer);
+    instant = null;
+    if (!on) return;
+    const mine = ++instantSeq;
+    instantTimer = setTimeout(async () => {
+      const r = await instantAnswer(text);
+      if (mine === instantSeq) instant = r;
+    }, 300);
+  });
+
   // With nothing typed, the list only offers recent tabs: nothing is preselected, so Enter
   // opens a new tab (new-tab mode) or just closes the palette.
   function initialSelection() {
@@ -116,7 +135,7 @@
   }
 
   const items = $derived.by<Item[]>(() =>
-    paletteItems({ commandMode, mode, q, restrict, fill, history, suggestions, engine, go, close }),
+    paletteItems({ commandMode, mode, q, restrict, fill, history, suggestions, instant, engine, go, close }),
   );
 
   async function scrollSelected() {
@@ -158,7 +177,7 @@
 
   /** What the input shows while a result is picked from the keyboard; null keeps the typed text. */
   function previewOf(it: Item): string | null {
-    if (it.key === 'go' || it.kind === 'command') return null;
+    if (it.key === 'go' || it.kind === 'command' || it.kind === 'answer') return null;
     if (it.key === 'typed') return query;
     return it.url ?? it.title;
   }

@@ -29,6 +29,8 @@ export const pageApi = {
   safebrowsingUpdate: () => invoke<SafeBrowsingStatus>("security_safebrowsing_update"),
   safebrowsingBypass: (tabId: string, url: string) =>
     invoke<void>("security_safebrowsing_bypass", { tabId, url }),
+  /** The open Wi-Fi network to warn about, once per network per session. */
+  openWifi: () => invoke<string | null>("security_open_wifi"),
 };
 
 declare module "../../platform/ipc" {
@@ -39,5 +41,6 @@ declare module "../../platform/ipc" {
     "safebrowsing-block": SafeBrowsingBlock;
     "external-protocol": ExternalProtocolRequest;
     "download-warning": DownloadWarningRequest;
+    "insecure-form": { tabId: string };
   }
 }

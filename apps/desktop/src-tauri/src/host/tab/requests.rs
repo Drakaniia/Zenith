@@ -48,6 +48,11 @@ fn resource_type_str(rtype: ResourceType) -> &'static str {
     }
 }
 
+/// Data saver drops images, video/audio and web fonts; documents, scripts and styles still load.
+fn data_saver_blocks(on: bool, rtype: ResourceType) -> bool {
+    on && (rtype == ResourceType::IMAGE || rtype == ResourceType::MEDIA || rtype == ResourceType::FONT_RESOURCE)
+}
+
 fn should_block_url(uri: &str, source_url: &str, page_host: &str, rtype: ResourceType) -> bool {
     if !crate::host::blocker_enabled() {
         return false;
@@ -153,6 +158,9 @@ wrap_resource_request_handler! {
                 if let Ok(mut media) = self.shared.media.lock() {
                     media.note_media_request(&uri);
                 }
+            }
+            if data_saver_blocks(crate::host::data_saver_enabled(), rtype) {
+                return ReturnValue::CANCEL;
             }
             let is_main_doc = rtype == ResourceType::MAIN_FRAME;
             if is_main_doc && self.shared.nav_uri() == uri {
@@ -316,4 +324,20 @@ wrap_request_context_handler! {
 
 pub fn create_request_context_handler() -> RequestContextHandler {
     ZenithRequestContextHandler::new()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn data_saver_blocks_only_heavy_subresources_when_on() {
+        for rt in [ResourceType::IMAGE, ResourceType::MEDIA, ResourceType::FONT_RESOURCE] {
+            assert!(data_saver_blocks(true, rt));
+            assert!(!data_saver_blocks(false, rt));
+        }
+        for rt in [ResourceType::MAIN_FRAME, ResourceType::SUB_FRAME, ResourceType::SCRIPT, ResourceType::STYLESHEET, ResourceType::XHR] {
+            assert!(!data_saver_blocks(true, rt));
+        }
+    }
 }

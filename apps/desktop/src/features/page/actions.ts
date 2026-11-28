@@ -51,6 +51,14 @@ export function zoomActive(dir: -1 | 0 | 1) {
   zoomStep(browser.activeTab, dir);
 }
 
+/** Opens the page in Google Translate, into the UI language, in a new tab. Web pages only. */
+export function translatePage(tab: Tab | undefined) {
+  if (!tab || !isWebUrl(tab.url)) return;
+  // shortcut: base language only ("pt-BR" becomes "pt"); pass the region if users ask for variants.
+  const tl = (navigator.language || "en").split("-")[0] || "en";
+  browser.openTab(`https://translate.google.com/translate?sl=auto&tl=${encodeURIComponent(tl)}&u=${encodeURIComponent(tab.url)}`, { openerId: tab.id });
+}
+
 /** Firefox's Page Info, as a panel under the address bar: the site, its connection and what
  *  Zenith did on it, with the related actions. */
 function pageInfo(tab: Tab | undefined) {
@@ -88,6 +96,7 @@ function pageInfo(tab: Tab | undefined) {
             icon: (blockingOff ? "shieldCheck" : "shieldOff") as IconName,
             run: () => toggleSiteBlocking(tab),
           },
+          { label: "Translate page", icon: "globe" as IconName, run: () => translatePage(tab) },
           { label: "View page source", icon: "code" as IconName, run: () => void runAction("viewSource", tab.id) },
           { label: "Clear site data and permissions…", icon: "eraser" as IconName, run: () => openInternal("settings", "privacy") },
         ]

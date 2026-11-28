@@ -13,6 +13,7 @@ import {
   defaultStartPage,
   fitWithin,
   localDay,
+  mergeSites,
   moveItem,
   newSiteId,
   newWallpaperId,
@@ -72,6 +73,14 @@ class StartPageStore {
     this.set({ sites: next, hiddenSites: this.prefs.hiddenSites.filter((h) => h !== key), showSaved: true });
     this.editing = null;
     return "";
+  }
+
+  /** Adds another browser's tiles after the saved sites. Returns how many were new. */
+  importSites(incoming: readonly { url: string; title: string }[]): number {
+    const before = this.prefs.sites.length;
+    const sites = mergeSites(this.prefs.sites, incoming, () => newSiteId(Date.now(), Math.random()));
+    if (sites.length > before) this.set({ sites, showSaved: true });
+    return sites.length - before;
   }
 
   removeSite(id: string) {

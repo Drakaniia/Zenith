@@ -221,12 +221,23 @@ pub fn protect(data: &[u8]) -> Result<Vec<u8>, String> {
 
 #[cfg(windows)]
 pub fn unprotect(data: &[u8]) -> Result<Zeroizing<Vec<u8>>, String> {
+    unprotect_with(data, Some(DPAPI_ENTROPY))
+}
+
+/// Data another app protected for this Windows account without entropy (Chromium's keys).
+#[cfg(windows)]
+pub fn unprotect_foreign(data: &[u8]) -> Result<Zeroizing<Vec<u8>>, String> {
+    unprotect_with(data, None)
+}
+
+#[cfg(windows)]
+fn unprotect_with(data: &[u8], entropy: Option<&[u8]>) -> Result<Zeroizing<Vec<u8>>, String> {
     use windows::Win32::Security::Cryptography::{CryptUnprotectData, CRYPTPROTECT_UI_FORBIDDEN, CRYPT_INTEGER_BLOB};
     unsafe {
         let input = CRYPT_INTEGER_BLOB { cbData: data.len() as u32, pbData: data.as_ptr() as *mut u8 };
-        let entropy = CRYPT_INTEGER_BLOB { cbData: DPAPI_ENTROPY.len() as u32, pbData: DPAPI_ENTROPY.as_ptr() as *mut u8 };
+        let entropy = entropy.map(|e| CRYPT_INTEGER_BLOB { cbData: e.len() as u32, pbData: e.as_ptr() as *mut u8 });
         let mut out = CRYPT_INTEGER_BLOB::default();
-        CryptUnprotectData(&input, None, Some(&entropy), None, None, CRYPTPROTECT_UI_FORBIDDEN, &mut out)
+        CryptUnprotectData(&input, None, entropy.as_ref().map(|e| e as *const _), None, None, CRYPTPROTECT_UI_FORBIDDEN, &mut out)
             .map_err(|e| format!("Windows could not unprotect the data: {e}"))?;
         let slice = std::slice::from_raw_parts_mut(out.pbData, out.cbData as usize);
         let bytes = Zeroizing::new(slice.to_vec());
@@ -251,6 +262,11 @@ pub fn protect(data: &[u8]) -> Result<Vec<u8>, String> {
 
 #[cfg(not(windows))]
 pub fn unprotect(data: &[u8]) -> Result<Zeroizing<Vec<u8>>, String> {
+    Ok(Zeroizing::new(data.to_vec()))
+}
+
+#[cfg(not(windows))]
+pub fn unprotect_foreign(data: &[u8]) -> Result<Zeroizing<Vec<u8>>, String> {
     Ok(Zeroizing::new(data.to_vec()))
 }
 
