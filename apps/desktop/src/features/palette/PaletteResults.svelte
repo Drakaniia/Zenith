@@ -20,10 +20,13 @@
 
 <div class="results" role="listbox" bind:this={list}>
   {#each items as it, i (it.key)}
-    <button
+    <!-- Keyboard navigation stays in the palette input; the row itself is only clicked. -->
+    <!-- svelte-ignore a11y_click_events_have_key_events -->
+    <div
       class="item"
       class:sel={i === selected}
       role="option"
+      tabindex="-1"
       aria-selected={i === selected}
       onmousemove={() => {
         if (selected === i) return;
@@ -47,10 +50,28 @@
       </span>
       {#if it.kind === 'tab'}
         <span class="tag">Switch to tab</span>
-      {:else if i === selected && it.kind !== 'command'}
-        <span class="tag">↵</span>
+      {:else}
+        {#if i === selected && it.kind !== 'command'}
+          <span class="tag" class:hide-on-hover={!!it.remove}>↵</span>
+        {/if}
+        {#if it.remove}
+          <button
+            type="button"
+            class="icon-btn sm del"
+            tabindex="-1"
+            title={it.kind === 'bookmark' ? 'Remove bookmark' : 'Remove from history'}
+            aria-label={it.kind === 'bookmark' ? 'Remove bookmark' : 'Remove from history'}
+            onmousedown={(e) => e.preventDefault()}
+            onclick={(e) => {
+              e.stopPropagation();
+              it.remove?.();
+            }}
+          >
+            <Icon name="close" size={14} />
+          </button>
+        {/if}
       {/if}
-    </button>
+    </div>
   {/each}
 </div>
 
@@ -114,5 +135,20 @@
     font-size: 11.5px;
     color: var(--text-3);
     white-space: nowrap;
+  }
+  .item:hover .hide-on-hover {
+    display: none;
+  }
+  .del {
+    display: none;
+    flex: none;
+    color: var(--text-2);
+  }
+  .item:hover .del {
+    display: inline-grid;
+  }
+  .del:hover {
+    background: var(--element-bg-hover);
+    color: var(--text);
   }
 </style>

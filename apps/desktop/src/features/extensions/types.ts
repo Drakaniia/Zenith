@@ -12,6 +12,26 @@ export interface ExtensionInfo {
   incognito: boolean;
   /** Chrome Web Store id, for extensions installed from the store. */
   storeId?: string | null;
+  /** Declared host match patterns (`host_permissions`, `content_scripts[].matches`, etc.). */
+  hostPermissions?: string[];
+  /** Whether the manifest declares `activeTab`. */
+  hasActiveTab?: boolean;
+  /** Whether the manifest declares an `action` or `browser_action`. */
+  hasAction?: boolean;
+}
+
+export type ActionOutcome =
+  | { kind: "popup"; url: string }
+  | { kind: "dispatched" }
+  | { kind: "fallback" };
+
+export interface ActiveExtPopup {
+  extId: string;
+  tabId: string;
+  url: string;
+  anchor: { x: number; y: number; below: boolean };
+  live: boolean;
+  loading: boolean;
 }
 
 /** An extension found in a page (a .crx download, "Add to Chrome" on the Web Store),

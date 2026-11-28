@@ -17,6 +17,7 @@ export function setLayoutRegistry(r: Registry) { registry = r; }
 const panes = new Map<HTMLElement, string>();
 const surfaces = new Map<HTMLElement, number>();
 let glanceEl: { el: HTMLElement; id: string } | null = null;
+let extPopupEl: { el: HTMLElement; id: string } | null = null;
 let devtoolsEl: { el: HTMLElement; id: string } | null = null;
 let pending = false;
 let lastSent = "";
@@ -198,6 +199,8 @@ function readLayout() {
   }
   const glance = glanceEl && glanceEl.el.isConnected && registry.isLive(glanceEl.id)
     ? rectOf(glanceEl.el, glanceEl.id) : null;
+  const extPopup = extPopupEl && extPopupEl.el.isConnected && registry.isLive(extPopupEl.id)
+    ? rectOf(extPopupEl.el, extPopupEl.id) : null;
   const devtools = devtoolsEl && devtoolsEl.el.isConnected && registry.isLive(devtoolsEl.id)
     ? rectOf(devtoolsEl.el, devtoolsEl.id) : null;
   if (devtools && devtoolsEl) {
@@ -208,7 +211,7 @@ function readLayout() {
     }
     cutouts.push({ x: devtools.x, y: devtools.y, w: devtools.w, h: devtools.h });
   }
-  const hasOverlay = overlay.holds > 0 || overlay.forced || !!glance;
+  const hasOverlay = overlay.holds > 0 || overlay.forced || !!glance || !!extPopup;
   let overlayRects: OverlayRect[] | undefined;
   if (hasOverlay && surfaces.size > 0) {
     overlayRects = [];
@@ -226,6 +229,7 @@ function readLayout() {
   const spec: LayoutSpec = {
     panes: list,
     glance,
+    ...(extPopup ? { extPopup } : {}),
     ...(devtools ? { devtools } : {}),
     overlay: hasOverlay,
     ...(overlayRects?.length ? { overlayRects } : {}),
@@ -332,6 +336,7 @@ function nextPaint() {
 export function paneRectOf(id: string): Rect | null {
   const els = [...panes].filter(([, t]) => t === id).map(([el]) => el);
   if (glanceEl?.id === id) els.push(glanceEl.el);
+  if (extPopupEl?.id === id) els.push(extPopupEl.el);
   for (const el of els) {
     if (!el.isConnected) continue;
     const r = el.getBoundingClientRect();
@@ -365,6 +370,21 @@ export function glancePane(node: HTMLElement, id: string) {
     update(next: string) { glanceEl = { el: node, id: next }; scheduleLayout(); },
     destroy() {
       if (glanceEl?.el === node) glanceEl = null;
+      observer.unobserve(node);
+      scheduleLayout();
+    },
+  };
+}
+
+/** `use:extPopupPane={tabId}` on the dedicated extension popup body. */
+export function extPopupPane(node: HTMLElement, id: string) {
+  extPopupEl = { el: node, id };
+  observer.observe(node);
+  scheduleLayout();
+  return {
+    update(next: string) { extPopupEl = { el: node, id: next }; scheduleLayout(); },
+    destroy() {
+      if (extPopupEl?.el === node) extPopupEl = null;
       observer.unobserve(node);
       scheduleLayout();
     },

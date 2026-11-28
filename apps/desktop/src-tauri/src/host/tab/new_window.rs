@@ -143,7 +143,7 @@ pub(super) fn handle_before_popup(
 
     set_tab_window(&id, &window);
     let light_bg = uri.starts_with("chrome-extension://");
-    let child_shared = Arc::new(TabShared::new(&id, &window, false, light_bg));
+    let child_shared = Arc::new(TabShared::new(&id, &window, false, light_bg, None));
     child_shared.container_hwnd.store(container_hwnd.0 as isize, Ordering::SeqCst);
 
     if let Some(wi) = window_info {
@@ -151,7 +151,7 @@ pub(super) fn handle_before_popup(
             cef::sys::HWND(container_hwnd.0.cast()),
             &Rect { x: 0, y: 0, width: 800, height: 600 },
         );
-        wi.runtime_style = RuntimeStyle::ALLOY;
+        wi.runtime_style = RuntimeStyle::CHROME;
     }
     if let Some(c) = client {
         *c = Some(create_tab_client(child_shared.clone()));

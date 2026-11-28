@@ -3,6 +3,29 @@
 
 use cef::*;
 
+use super::TabShared;
+use crate::host::cef_app::cef_str;
+
+/// Injects the extension page/popup compatibility shim on `chrome-extension://` main frames.
+pub(super) fn inject_ext_compat(frame: &mut Frame, shared: &TabShared) {
+    if frame.is_main() == 0 {
+        return;
+    }
+    let url = cef_str(frame.url());
+    if !url.starts_with("chrome-extension://") {
+        return;
+    }
+    let opener_json = serde_json::to_string(&shared.opener_url).unwrap_or_else(|_| "null".into());
+    let script = EXT_POPUP_SCRIPT
+        .replace("__OPENER__", &opener_json)
+        .replace("__IS_POPUP__", if shared.is_glance() { "true" } else { "false" });
+    frame.execute_java_script(
+        Some(&CefString::from(script.as_str())),
+        Some(&CefString::from("zenith://internal/ext-popup.js")),
+        1,
+    );
+}
+
 /// Pushes updated click-modifier trigger config to every live page tab without reloading.
 pub fn apply_triggers(triggers_json: &str) {
     let js = format!("globalThis.__z_trig={triggers_json};");
@@ -180,25 +203,32 @@ pub const STORE_SCRIPT: &str = r#"(() => {
   addEventListener('DOMContentLoaded', tick);
 })();"#;
 
-/// Runs in an extension's toolbar popup. In Chrome a popup is not a tab, so
-/// `tabs.query({ active: true, currentWindow: true })` finds the page under it. Every WebView2
-/// view is its own browser window, so that query would return the popup itself ("not a
-/// website"). Window-scoped queries are answered with the page the popup was opened over.
+/// Runs in `chrome-extension://` main frames (popups and extension pages).
+/// - Normalizes CEF's child-window `windowType: "popup"` -> `"normal"` for `chrome.tabs.query`
+///   and `chrome.windows.*` so extensions filtering by `windowType: "normal"` find Zenith's tabs.
+/// - For toolbar popups (`IS_POPUP`), ensures `chrome.tabs.getCurrent()` returns `undefined`
+///   (per `cef-extension-contract.md`) and resolves window-scoped active-tab queries to the opener.
 pub const EXT_POPUP_SCRIPT: &str = r#"(() => {
+  if (globalThis.__zenithExtPageCompat || window.top !== window) return;
   const OPENER = __OPENER__;
+  const IS_POPUP = __IS_POPUP__;
   const tabs = globalThis.chrome && chrome.tabs;
-  if (!tabs || typeof tabs.query !== 'function' || window.top !== window) return;
-  const query = tabs.query.bind(tabs);
-  const getCurrent = typeof tabs.getCurrent === 'function' ? tabs.getCurrent.bind(tabs) : null;
+  if (!tabs || typeof tabs.query !== 'function') return;
+  globalThis.__zenithExtPageCompat = true;
+  const origQuery = tabs.query.bind(tabs);
   const call = (fn, ...a) => new Promise((res) => {
     try { fn(...a, (r) => { void chrome.runtime.lastError; res(r); }); } catch { res(undefined); }
   });
   const isExt = (t) => typeof t.url === 'string' && /^chrome-extension:/.test(t.url);
   const origin = (u) => { try { return new URL(u).origin; } catch { return ''; } };
-  // The opener among `list`: same address, then same site, then the most recently used page.
-  const pick = async (list) => {
-    const self = getCurrent ? await call(getCurrent) : undefined;
-    const pages = (list || []).filter((t) => (!self || t.id !== self.id) && !isExt(t));
+  const normQuery = (q) => {
+    if (!q || q.windowType !== 'normal') return q || {};
+    const nq = { ...q };
+    delete nq.windowType;
+    return nq;
+  };
+  const pick = (list) => {
+    const pages = (list || []).filter((t) => !isExt(t));
     const recent = (a, b) => (b.lastAccessed || 0) - (a.lastAccessed || 0);
     return (
       pages.find((t) => OPENER && t.url === OPENER) ||
@@ -206,54 +236,71 @@ pub const EXT_POPUP_SCRIPT: &str = r#"(() => {
       pages.sort(recent)[0]
     );
   };
-  const scoped = (q) => q && (q.currentWindow || q.lastFocusedWindow);
   const answer = async (q) => {
-    if (!scoped(q)) return (await call(query, q || {})) || [];
-    const rest = { ...q };
-    delete rest.currentWindow;
-    delete rest.lastFocusedWindow;
-    delete rest.windowId;
-    delete rest.active;
-    delete rest.highlighted;
-    const found = (await call(query, rest)) || [];
-    if (q.active || q.highlighted) {
-      const t = await pick(found);
+    const nq = normQuery(q);
+    const direct = (await call(origQuery, nq)) || [];
+    if (!IS_POPUP) return direct;
+    const scoped = nq.currentWindow || nq.lastFocusedWindow;
+    if (!scoped) return direct.filter((t) => !isExt(t));
+    if (nq.active || nq.highlighted) {
+      const hit = direct.find((t) => !isExt(t) && (!OPENER || t.url === OPENER));
+      if (hit) return [hit];
+      const rest = { ...nq };
+      delete rest.currentWindow;
+      delete rest.lastFocusedWindow;
+      delete rest.windowId;
+      delete rest.active;
+      delete rest.highlighted;
+      const found = (await call(origQuery, rest)) || [];
+      const t = pick(found);
       return t ? [t] : [];
     }
-    return found.filter((t) => !isExt(t));
-  };
-  const wrapped = function (q, cb) {
-    const p = answer(q);
-    if (typeof cb === 'function') { p.then(cb, () => cb([])); return; }
-    return p;
-  };
-  const wrappedCurrent = function (cb) {
-    // A popup is not a tab.
-    if (typeof cb === 'function') { setTimeout(() => cb(undefined)); return; }
-    return Promise.resolve(undefined);
+    return direct.filter((t) => !isExt(t));
   };
   const set = (obj, key, fn) => {
     try { obj[key] = fn; } catch {}
     if (obj[key] !== fn) { try { Object.defineProperty(obj, key, { value: fn, configurable: true, writable: true }); } catch {} }
   };
-  set(tabs, 'query', wrapped);
-  if (getCurrent) set(tabs, 'getCurrent', wrappedCurrent);
-  const windows = chrome.windows;
-  if (windows && typeof windows.get === 'function') {
-    const get = windows.get.bind(windows);
-    const current = async (opts) => {
-      const t = await pick((await call(query, {})) || []);
-      if (t) return await call(get, t.windowId, opts || {});
-      return undefined;
+  set(tabs, 'query', function (q, cb) {
+    const p = answer(q);
+    if (typeof cb === 'function') { p.then(cb, () => cb([])); return; }
+    return p;
+  });
+  if (IS_POPUP && typeof tabs.getCurrent === 'function') {
+    set(tabs, 'getCurrent', function (cb) {
+      if (typeof cb === 'function') { setTimeout(() => cb(undefined)); return; }
+      return Promise.resolve(undefined);
+    });
+  }
+  const wins = chrome.windows;
+  if (wins) {
+    const normWin = (w) => (w && w.type === 'popup' ? { ...w, type: 'normal' } : w);
+    const fixOpts = (o) => {
+      if (!o || !Array.isArray(o.windowTypes)) return o;
+      if (o.windowTypes.includes('normal') && !o.windowTypes.includes('popup')) {
+        return { ...o, windowTypes: [...o.windowTypes, 'popup'] };
+      }
+      return o;
     };
-    for (const key of ['getCurrent', 'getLastFocused']) {
-      if (typeof windows[key] !== 'function') continue;
-      const orig = windows[key].bind(windows);
-      set(windows, key, function (a, b) {
-        const cb = typeof a === 'function' ? a : b;
-        const opts = typeof a === 'function' ? undefined : a;
-        const p = current(opts).then((w) => w || call(orig, opts || {}));
-        if (typeof cb === 'function') { p.then(cb); return; }
+    for (const k of ['getLastFocused', 'getCurrent', 'get']) {
+      if (typeof wins[k] !== 'function') continue;
+      const orig = wins[k].bind(wins);
+      set(wins, k, function (...args) {
+        const cb = typeof args[args.length - 1] === 'function' ? args.pop() : null;
+        if (k === 'get') { if (args[1]) args[1] = fixOpts(args[1]); }
+        else if (args[0]) args[0] = fixOpts(args[0]);
+        const p = call(orig, ...args).then(normWin);
+        if (cb) { p.then(cb); return; }
+        return p;
+      });
+    }
+    if (typeof wins.getAll === 'function') {
+      const origAll = wins.getAll.bind(wins);
+      set(wins, 'getAll', function (...args) {
+        const cb = typeof args[args.length - 1] === 'function' ? args.pop() : null;
+        if (args[0]) args[0] = fixOpts(args[0]);
+        const p = call(origAll, ...args).then((ws) => (ws || []).map(normWin));
+        if (cb) { p.then(cb); return; }
         return p;
       });
     }

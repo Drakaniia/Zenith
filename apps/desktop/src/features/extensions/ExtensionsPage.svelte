@@ -39,26 +39,8 @@
     storeInput = '';
   }
 
-  async function setEnabled(ext: ExtensionInfo, enabled: boolean) {
-    try {
-      await extensionsApi.extSetEnabled(ext.id, enabled);
-      await refresh();
-    } catch (e) {
-      ui.toast(String(e), { icon: 'alert' });
-      await refresh();
-    }
-  }
-
-  async function remove(ext: ExtensionInfo) {
-    try {
-      await extensionsApi.extRemove(ext.id);
-      if (extensions.isPinned(ext.id)) extensions.togglePin(ext.id);
-      ui.toast(`Removed ${ext.name}`, { icon: 'trash' });
-    } catch (e) {
-      ui.toast(String(e), { icon: 'alert' });
-    }
-    await refresh();
-  }
+  const setEnabled = (ext: ExtensionInfo, enabled: boolean) => extensions.setEnabled(ext, enabled);
+  const remove = (ext: ExtensionInfo) => extensions.remove(ext);
 
   onMount(() => {
     void refresh();
@@ -154,7 +136,7 @@
               >
                 <Icon name="incognito" size={13} />{ext.incognito ? 'Allowed in incognito' : 'Not in incognito'}
               </button>
-              {#if ext.popupUrl}<button class="btn ghost sm" onclick={() => browser.openGlance(ext.popupUrl!, browser.activeTab?.id)}><Icon name="eye" size={13} />Open popup</button>{/if}
+              {#if ext.popupUrl || ext.hasAction}<button class="btn ghost sm" disabled={!ext.enabled} onclick={() => void extensions.open(ext)}><Icon name="eye" size={13} />{ext.popupUrl ? 'Open popup' : 'Run action'}</button>{/if}
               {#if ext.optionsUrl}<button class="btn ghost sm" onclick={() => browser.openTab(ext.optionsUrl!)}><Icon name="settings" size={13} />Options</button>{/if}
               <button class="btn ghost sm" onclick={() => extensions.togglePin(ext.id)}>
                 <Icon name={extensions.isPinned(ext.id) ? 'unpin' : 'pin'} size={13} />{extensions.isPinned(ext.id) ? 'Unpin' : 'Pin to toolbar'}

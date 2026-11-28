@@ -23,6 +23,7 @@ export interface OverlayRect {
 export interface LayoutSpec {
   panes: PaneSpec[];
   glance: PaneSpec | null;
+  extPopup?: PaneSpec | null;
   devtools?: PaneSpec | null;
   overlay: boolean;
   overlayRects?: OverlayRect[];

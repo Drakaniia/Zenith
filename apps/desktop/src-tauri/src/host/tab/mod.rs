@@ -120,12 +120,14 @@ pub struct TabShared {
     pub restore_scroll: Mutex<Option<(f64, f64)>>,
     pub target_id: RwLock<String>,
     pub media: Mutex<crate::media::TabMedia>,
+    /// Opener web URL for extension toolbar popups (used by `EXT_POPUP_SCRIPT`).
+    pub opener_url: Option<String>,
     /// Pinned/Essential site boundary: `(registrable_site, is_essential)` for cross-site link routing.
     pub pin_site: RwLock<Option<(String, bool)>>,
 }
 
 impl TabShared {
-    pub(crate) fn new(id: &str, window: &str, glance: bool, light_bg: bool) -> Self {
+    pub(crate) fn new(id: &str, window: &str, glance: bool, light_bg: bool, opener_url: Option<String>) -> Self {
         Self {
             id: RwLock::new(id.to_string()),
             window: RwLock::new(window.to_string()),
@@ -146,14 +148,9 @@ impl TabShared {
             restore_scroll: Mutex::new(None),
             target_id: RwLock::new(String::new()),
             media: Mutex::new(Default::default()),
+            opener_url,
             pin_site: RwLock::new(None),
         }
-    }
-
-    pub(crate) fn new_warm(id: &str, window: &str) -> Self {
-        let s = Self::new(id, window, false, false);
-        s.warm.store(true, Ordering::Release);
-        s
     }
 
     pub fn id(&self) -> String {
@@ -314,17 +311,9 @@ pub fn create(opts: CreateOptions) -> Result<(), String> {
 
     let private = super::is_private_window(&label);
     let light_bg = opts.url.as_deref().is_some_and(|u| u.starts_with("chrome-extension://"));
-    if let Some(claimed) = warm::try_claim(&opts, parent_hwnd, light_bg) {
-        let id = opts.id.clone();
-        with_host(move |h| {
-            h.tabs.insert(id, claimed);
-            h.apply_layout(&label);
-        });
-        return Ok(());
-    }
 
     super::set_tab_window(&opts.id, &label);
-    let shared = Arc::new(TabShared::new(&opts.id, &label, opts.glance, light_bg));
+    let shared = Arc::new(TabShared::new(&opts.id, &label, opts.glance, light_bg, opts.opener_url.clone()));
     if let Ok(mut s) = shared.restore_scroll.lock() {
         *s = opts.scroll;
     }
@@ -340,10 +329,14 @@ pub fn create(opts: CreateOptions) -> Result<(), String> {
         cef::sys::HWND(container_hwnd.0.cast()),
         &Rect { x: 0, y: 0, width: w.max(1), height: h.max(1) },
     );
-    // shortcut: Alloy style used for child page tabs in Phase 3 because Chrome style crashes
-    // inside libcef.dll when hosted alongside an Alloy chrome child under bootstrap.exe;
-    // revisit Chrome style for full chrome.tabs extension APIs in Phase 4.
-    win_info.runtime_style = RuntimeStyle::ALLOY;
+    // Chrome style gives real page tabs a Chromium TabStripModel (chrome.tabs.*, scripting,
+    // tabs.create). Ephemeral Glance previews and extension popups use Alloy style so they
+    // never appear in `chrome.tabs.query` (per cef-extension-contract.md).
+    win_info.runtime_style = if opts.glance {
+        RuntimeStyle::ALLOY
+    } else {
+        RuntimeStyle::CHROME
+    };
 
     let mut extra = dictionary_value_create().ok_or("dictionary_value_create failed")?;
     extra.set_string(Some(&CefString::from("zenith_role")), Some(&CefString::from("page")));
@@ -538,6 +531,13 @@ pub fn set_glance(id: &str, glance: bool) {
 pub fn command(id: &str, cmd: &str, arg: Option<serde_json::Value>) -> Result<serde_json::Value, String> {
     if cmd == "devtools" {
         return handle_devtools_command(id, arg.as_ref());
+    }
+    if cmd == "devtoolsPopup" {
+        let browser = with_host(|h| h.tabs.get(id).and_then(|t| t.browser.clone()))
+            .flatten()
+            .ok_or("tab has no browser")?;
+        super::devtools_view::open_popup_devtools(&browser)?;
+        return Ok(serde_json::Value::Null);
     }
     let browser = with_host(|h| h.tabs.get(id).and_then(|t| t.browser.clone()))
         .flatten()

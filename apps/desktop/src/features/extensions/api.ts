@@ -1,6 +1,7 @@
 // Backend calls for browser extensions.
 import { invoke } from "@tauri-apps/api/core";
 import type {
+  ActionOutcome,
   BadgeEvent,
   ExtensionInfo,
   ExtensionUpdate,
@@ -34,6 +35,8 @@ export const extensionsApi = {
   extNativeHosts: () => invoke<NativeHostInfo[]>("ext_native_hosts"),
   extNativeHostConsent: (hostName: string, allowed: boolean) =>
     invoke<void>("ext_native_host_consent", { hostName, allowed }),
+  extTriggerAction: (id: string, tabId?: string | null) =>
+    invoke<ActionOutcome>("ext_trigger_action", { id, tabId: tabId ?? null }),
 };
 
 declare module "../../platform/ipc" {

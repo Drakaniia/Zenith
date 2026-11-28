@@ -257,6 +257,20 @@ wrap_load_handler! {
             }
         }
 
+        fn on_load_start(
+            &self,
+            _browser: Option<&mut Browser>,
+            frame: Option<&mut Frame>,
+            _transition_type: TransitionType,
+        ) {
+            if self.shared.closed.load(Ordering::SeqCst) || self.shared.is_warm() {
+                return;
+            }
+            if let Some(frame) = frame {
+                super::scripts::inject_ext_compat(frame, &self.shared);
+            }
+        }
+
         fn on_load_end(
             &self,
             _browser: Option<&mut Browser>,

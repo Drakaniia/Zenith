@@ -1,11 +1,14 @@
-// Installed extensions, install offers from pages, Web Store updates and pinned toolbar icons.
+// Installed extensions, install offers from pages, Web Store updates, toolbar icons and popups.
 import { extensionsApi } from "./api";
-import { browser } from "$features/browser/browser.svelte";
+import { browser, needsWebview } from "$features/browser/browser.svelte";
+import { tabsApi } from "$features/browser/api";
 import { settings } from "$features/settings/settings.svelte";
 import { ui } from "$shared/ui/ui.svelte";
 import { incognito } from "$features/window/window.svelte";
+import { focusAfterLayout, scheduleLayout } from "$platform/layout.svelte";
 import type {
   ActionBadge,
+  ActiveExtPopup,
   BadgeEvent,
   ExtensionInfo,
   ExtensionUpdate,
@@ -13,7 +16,7 @@ import type {
   InstallOffer,
   NativeHostInfo,
 } from "./types";
-import type { PopupAnchor } from "$features/browser/types";
+import type { PopupAnchor, TabPatch } from "$features/browser/types";
 
 export const WEB_STORE_URL = "https://chromewebstore.google.com/category/extensions";
 
@@ -44,9 +47,13 @@ class ExtensionStore {
   nativeHosts = $state<NativeHostInfo[]>([]);
   /** The toolbar's extensions popover, anchored at a point. */
   popover = $state<PopupAnchor | null>(null);
+  /** Dedicated extension toolbar popup (independent from Glance). */
+  activePopup = $state<ActiveExtPopup | null>(null);
   /** When the popover last closed (not reactive): lets its toolbar button tell a closing
    *  click from an opening one. */
   private closedAt = 0;
+  private popupOpenedAt = 0;
+  private popupSeq = 0;
 
   user = $derived(this.items.filter((e) => !e.builtin));
   /** The extensions this window runs: all of them in a normal window, in an incognito one
@@ -155,13 +162,116 @@ class ExtensionStore {
     return performance.now() - this.closedAt < 350;
   }
 
-  /** Opens what the extension shows from the toolbar: its popup (a small card anchored at the
-   *  toolbar, like Chrome's), else its options page, else the extensions page. */
-  open(ext: ExtensionInfo, anchor?: PopupAnchor) {
+  justOpenedPopup() {
+    return performance.now() - this.popupOpenedAt < 450;
+  }
+
+  /** Triggers an extension's real action on the focused web tab (waking it if asleep):
+   *  opens its dynamic/default popup in the dedicated popup card, dispatches `action.onClicked`
+   *  for popup-less extensions, or falls back to options / extensions page. */
+  async open(ext: ExtensionInfo, anchor?: PopupAnchor, opts: { inspect?: boolean } = {}) {
     this.close();
-    if (ext.popupUrl) browser.openGlance(ext.popupUrl, browser.activeTab?.id, anchor);
-    else if (ext.optionsUrl) browser.openTab(ext.optionsUrl);
-    else browser.openTab("zenith://extensions");
+    if (!opts.inspect && this.activePopup?.extId === ext.id) {
+      this.closePopup();
+      return;
+    }
+    const target = browser.activeTab;
+    if (target && !target.live && needsWebview(target.url)) {
+      await browser.wake(target);
+    }
+    const tabId = target?.live ? target.id : null;
+    const resolvedAnchor: PopupAnchor = anchor ?? {
+      x: Math.max(16, window.innerWidth - 404),
+      y: 44,
+      below: true,
+    };
+    try {
+      const outcome = await extensionsApi.extTriggerAction(ext.id, tabId);
+      if (outcome.kind === "popup") {
+        await this.openPopupUrl(ext.id, outcome.url, resolvedAnchor, target?.url ?? null, opts.inspect);
+        return;
+      }
+      if (outcome.kind === "dispatched") return;
+    } catch {
+      if (ext.popupUrl) {
+        await this.openPopupUrl(ext.id, ext.popupUrl, resolvedAnchor, target?.url ?? null, opts.inspect);
+        return;
+      }
+    }
+    if (ext.popupUrl) {
+      await this.openPopupUrl(ext.id, ext.popupUrl, resolvedAnchor, target?.url ?? null, opts.inspect);
+    } else if (ext.optionsUrl) {
+      browser.openTab(ext.optionsUrl);
+    } else {
+      browser.openTab("zenith://extensions");
+    }
+  }
+
+  private async openPopupUrl(
+    extId: string,
+    url: string,
+    anchor: PopupAnchor,
+    openerUrl: string | null,
+    inspect = false,
+  ) {
+    if (this.activePopup) this.closePopup();
+    const id = `extpop-${++this.popupSeq}`;
+    this.popupOpenedAt = performance.now();
+    this.activePopup = { extId, tabId: id, url, anchor, live: true, loading: true };
+    try {
+      await tabsApi.tabCreate({ id, url, glance: true, openerUrl });
+      if (this.activePopup?.tabId !== id) {
+        void tabsApi.tabClose(id);
+        return;
+      }
+      focusAfterLayout(id);
+      scheduleLayout();
+      if (inspect) {
+        setTimeout(() => {
+          if (this.activePopup?.tabId === id) {
+            void tabsApi.tabCommand(id, "devtoolsPopup").catch(() => {});
+          }
+        }, 250);
+      }
+    } catch {
+      if (this.activePopup?.tabId === id) this.closePopup();
+    }
+  }
+
+  closePopup() {
+    const p = this.activePopup;
+    if (!p) return;
+    this.activePopup = null;
+    void tabsApi.tabClose(p.tabId).catch(() => {});
+    focusAfterLayout(browser.activeTab?.live ? browser.activeTab.id : null);
+    scheduleLayout();
+  }
+
+  applyPopupPatch(patch: TabPatch) {
+    if (!this.activePopup || this.activePopup.tabId !== patch.id) return;
+    if (patch.loading !== undefined) this.activePopup.loading = patch.loading;
+  }
+
+  async setEnabled(ext: ExtensionInfo, enabled: boolean) {
+    if (!enabled && this.activePopup?.extId === ext.id) this.closePopup();
+    try {
+      await extensionsApi.extSetEnabled(ext.id, enabled);
+    } catch (e) {
+      ui.toast(String(e), { icon: "alert" });
+    }
+    await this.refresh();
+  }
+
+  async remove(ext: ExtensionInfo) {
+    if (this.activePopup?.extId === ext.id) this.closePopup();
+    try {
+      await extensionsApi.extRemove(ext.id);
+      if (this.isPinned(ext.id)) this.togglePin(ext.id);
+      ui.toast(`Removed ${ext.name}`, { icon: "trash" });
+    } catch (e) {
+      ui.toast(String(e), { icon: "alert" });
+    }
+    await this.refresh();
   }
 
   openStore(storeId?: string | null) {

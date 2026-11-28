@@ -202,6 +202,7 @@ pub async fn dispatch(
         "ext_query_tabs" => call!(crate::extensions::commands::ext_query_tabs, (@win, query: crate::extensions::bridge::TabQuery), app, win, args),
         "ext_native_hosts" => call!(crate::extensions::commands::ext_native_hosts, (), app, win, args),
         "ext_native_host_consent" => call!(crate::extensions::commands::ext_native_host_consent, (@win, host_name: String, allowed: bool), app, win, args),
+        "ext_trigger_action" => call!(crate::extensions::commands::ext_trigger_action, (@app, id: String, tab_id: Option<String>), app, win, args),
 
         // Security, Safe Browsing, certificate errors, external protocols & download warnings
         "security_respond_cert" => call!(crate::security::commands::security_respond_cert, (@app, request_id: u32, proceed: bool), app, win, args),

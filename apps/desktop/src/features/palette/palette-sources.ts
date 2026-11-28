@@ -27,6 +27,7 @@ export interface Item {
   icon?: IconName;
   favicon?: string;
   run: (how: How) => void;
+  remove?: () => void;
 }
 
 /** The palette state the result list is built from. */
@@ -43,12 +44,14 @@ export interface SourceContext {
   engine: { name: string };
   go: (url: string, how: How) => void;
   close: (restoreFocus?: boolean) => void;
+  removeHistory: (id: number) => void;
+  removeBookmark: (id: number) => void;
 }
 
 const POPULAR = popularCandidates();
 
 export function paletteItems(ctx: SourceContext): Item[] {
-  const { commandMode, mode, q, restrict, fill, history, suggestions, instant, engine, go, close } = ctx;
+  const { commandMode, mode, q, restrict, fill, history, suggestions, instant, engine, go, close, removeHistory, removeBookmark } = ctx;
   if (commandMode) {
     return commands()
       .map((c) => ({ c, s: q ? scoreAny(q, c.label, c.keywords) : 1 }))
@@ -92,12 +95,23 @@ export function paletteItems(ctx: SourceContext): Item[] {
         icon: 'bookmarkStar',
         favicon: faviconFor(b.url),
         run: (h) => go(b.url, h),
+        remove: () => removeBookmark(b.id),
       }),
     );
   }
   if (only === 'history') {
     return history.map(
-      (h): Item => ({ key: `h:${h.id}`, kind: 'history', title: h.title || prettyUrl(h.url), subtitle: prettyUrl(h.url), url: h.url, icon: 'history', favicon: faviconFor(h.url), run: (how) => go(h.url, how) }),
+      (h): Item => ({
+        key: `h:${h.id}`,
+        kind: 'history',
+        title: h.title || prettyUrl(h.url),
+        subtitle: prettyUrl(h.url),
+        url: h.url,
+        icon: 'history',
+        favicon: faviconFor(h.url),
+        run: (how) => go(h.url, how),
+        remove: () => removeHistory(h.id),
+      }),
     );
   }
   if (only === 'tabs') {
@@ -133,6 +147,7 @@ export function paletteItems(ctx: SourceContext): Item[] {
       icon: 'bookmarkStar',
       favicon: faviconFor(kw.url),
       run: (h) => go(kw.url, h),
+      remove: () => removeBookmark(kw.node.id),
     });
   }
   if (q) {
@@ -204,7 +219,7 @@ export function paletteItems(ctx: SourceContext): Item[] {
       if (seen.has(b.url)) continue;
       seen.add(b.url);
       shown++;
-      out.push({ key: `b:${b.id}`, kind: 'bookmark', title: nodeLabel(b), subtitle: prettyUrl(b.url), url: b.url, icon: 'bookmarkStar', favicon: faviconFor(b.url), run: (h) => go(b.url, h) });
+      out.push({ key: `b:${b.id}`, kind: 'bookmark', title: nodeLabel(b), subtitle: prettyUrl(b.url), url: b.url, icon: 'bookmarkStar', favicon: faviconFor(b.url), run: (h) => go(b.url, h), remove: () => removeBookmark(b.id) });
     }
   }
   for (const s of suggestions.slice(0, 4)) {
@@ -215,7 +230,7 @@ export function paletteItems(ctx: SourceContext): Item[] {
   for (const h of history) {
     if (seen.has(h.url)) continue;
     seen.add(h.url);
-    out.push({ key: `h:${h.id}`, kind: 'history', title: h.title || prettyUrl(h.url), subtitle: prettyUrl(h.url), url: h.url, icon: 'history', favicon: faviconFor(h.url), run: (how) => go(h.url, how) });
+    out.push({ key: `h:${h.id}`, kind: 'history', title: h.title || prettyUrl(h.url), subtitle: prettyUrl(h.url), url: h.url, icon: 'history', favicon: faviconFor(h.url), run: (how) => go(h.url, how), remove: q ? () => removeHistory(h.id) : undefined });
   }
   if (q.length >= 2) {
     for (const c of commands()

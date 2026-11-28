@@ -8,7 +8,7 @@
   import { settings } from '$features/settings/settings.svelte';
   import { rectOf } from '$shared/ui/menu';
   import { ui, type PaletteMode } from '$shared/ui/ui.svelte';
-  import { bookmarkPage } from '$features/bookmarks/bookmark-actions';
+  import { bookmarkPage, deleteNodes } from '$features/bookmarks/bookmark-actions';
   import { parseRestriction } from '$features/bookmarks/bookmarks';
   import { historyApi } from '$features/history/api';
   import { searchApi } from './api';
@@ -134,8 +134,29 @@
     if (restoreFocus) focusAfterLayout(browser.activeTab?.live ? browser.activeTab.id : null);
   }
 
+  function afterRemove() {
+    preview = null;
+    if (fill) fill = autofill(query, autofillCandidates(history));
+    if (selected >= items.length) selected = items.length - 1;
+  }
+
+  async function removeHistory(id: number) {
+    try {
+      await historyApi.historyDelete([id]);
+    } catch {
+      return;
+    }
+    history = history.filter((h) => h.id !== id);
+    afterRemove();
+  }
+
+  async function removeBookmark(id: number) {
+    await deleteNodes([id]);
+    afterRemove();
+  }
+
   const items = $derived.by<Item[]>(() =>
-    paletteItems({ commandMode, mode, q, restrict, fill, history, suggestions, instant, engine, go, close }),
+    paletteItems({ commandMode, mode, q, restrict, fill, history, suggestions, instant, engine, go, close, removeHistory, removeBookmark }),
   );
 
   async function scrollSelected() {

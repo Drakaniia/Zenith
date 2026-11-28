@@ -28,6 +28,7 @@
 
   setLayoutRegistry({
     isLive: (id) => {
+      if (extensions.activePopup?.tabId === id) return extensions.activePopup.live;
       const t = browser.tabs[id];
       return !!t && t.live && !t.crashed;
     },
@@ -151,6 +152,7 @@
   $effect(() => {
     void browser.visibleIds.join();
     void browser.glance?.tabId;
+    void extensions.activePopup?.tabId;
     void settings.value.compact;
     void settings.value.sidebarWidth;
     void settings.value.toolbarMode;
@@ -237,6 +239,7 @@
       else if (ui.selectedTabs.length) ui.clearTabSelection();
       else if (ui.media) ui.media = null;
       else if (extensions.popover) extensions.close();
+      else if (extensions.activePopup) extensions.closePopup();
       else if (ui.downloadsOpen) ui.downloadsOpen = false;
       else if (browser.glance && !ui.palette.open) browser.closeGlance();
       else if (ui.topReveal) ui.topReveal = false;

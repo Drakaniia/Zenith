@@ -24,7 +24,10 @@ import { searchUrl } from '../shared/url';
 
 export function listenBackend(flushAndClose: () => Promise<void>): Promise<() => void>[] {
   return [
-    on('tab-update', (p) => browser.applyPatch(p)),
+    on('tab-update', (p) => {
+      extensions.applyPopupPatch(p);
+      browser.applyPatch(p);
+    }),
     on('tab-created', (e) => {
       if (e.popup) browser.adoptPopup(e.id, e.url, e.openerId);
       else browser.adoptTab(e.id, e.url, e.openerId, true);
@@ -42,6 +45,10 @@ export function listenBackend(flushAndClose: () => Promise<void>): Promise<() =>
       } else browser.openTab(r.url, { activate: r.kind === 'foreground', openerId: r.openerId });
     }),
     on('tab-close-request', ({ id }) => {
+      if (extensions.activePopup?.tabId === id) {
+        extensions.closePopup();
+        return;
+      }
       if (browser.glance?.tabId === id) browser.closeGlance();
       else browser.removeTab(id, false);
       permissions.dropTab(id);
@@ -65,7 +72,10 @@ export function listenBackend(flushAndClose: () => Promise<void>): Promise<() =>
       if (ui.media) ui.media = null;
       if (ui.bookmarkPopup) ui.bookmarkPopup = null;
       if (extensions.popover) extensions.close();
-      if (browser.glance && browser.glance.tabId !== id) browser.closeGlance();
+      if (extensions.activePopup && extensions.activePopup.tabId !== id && !extensions.justOpenedPopup()) {
+        extensions.closePopup();
+      }
+      if (browser.glance && browser.glance.tabId !== id && extensions.activePopup?.tabId !== id) browser.closeGlance();
     }),
     // Another normal window changed the settings (incognito windows keep their own copy).
     on('settings-changed', ({ origin }) => {

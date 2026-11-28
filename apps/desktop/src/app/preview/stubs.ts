@@ -29,6 +29,9 @@ export function handleOther(cmd: string, a: Record<string, unknown>): unknown {
     case "search_instant_fetch":
     case "ext_sync_state":
     case "ext_native_host_consent":
+      return null;
+    case "ext_trigger_action":
+      return { kind: "fallback" };
     case "security_respond_cert":
     case "security_respond_protocol":
     case "security_respond_download":

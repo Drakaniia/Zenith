@@ -245,11 +245,21 @@ wrap_render_process_handler! {
                 if page.media_button {
                     eval_v8(context, crate::media::detect::BUTTON_SCRIPT, "zenith://internal/media-btn.js");
                 }
-                if let Some(opener) = page.ext_popup_opener {
-                    let opener_opt = (!opener.is_empty()).then_some(opener);
+                let is_ext_page = url.starts_with("chrome-extension://");
+                if is_ext_page || page.ext_popup_opener.is_some() {
+                    let is_popup = page.ext_popup_opener.is_some();
+                    let opener_opt = page.ext_popup_opener.filter(|s| !s.is_empty());
                     let opener_json = serde_json::to_string(&opener_opt).unwrap_or_else(|_| "null".into());
-                    let script = super::tab::EXT_POPUP_SCRIPT.replace("__OPENER__", &opener_json);
-                    eval_v8(context, &script, "zenith://internal/ext-popup.js");
+                    let script = super::tab::EXT_POPUP_SCRIPT
+                        .replace("__OPENER__", &opener_json)
+                        .replace("__IS_POPUP__", if is_popup { "true" } else { "false" });
+                    // Extension pages enforce MV3 CSP (`script-src 'self'`), which blocks V8 eval;
+                    // `execute_java_script` runs directly on the frame bypassing page CSP.
+                    frame.execute_java_script(
+                        Some(&CefString::from(script.as_str())),
+                        Some(&CefString::from("zenith://internal/ext-popup.js")),
+                        1,
+                    );
                 }
             }
         }
@@ -414,6 +424,7 @@ wrap_browser_process_handler! {
                 Some(&mut factory),
             );
             crate::pdf::scheme::register(ui_dist_dir());
+            crate::app::runtime::post_ui_delayed(100, crate::extensions::runtime::init);
             if let Some(label) = take_initial_window() {
                 crate::app::create_initial_window(&label);
             }
@@ -468,15 +479,24 @@ wrap_app! {
                 Some(&CefString::from("component-updater")),
                 Some(&CefString::from("disable")),
             );
+            // Preserve CEF's own disable-features (e.g. GlicActorUi, AutofillActorMode,
+            // LensOverlay, KillOnInvalidNavigationHeaders) — overwriting them crashes
+            // RuntimeStyle::CHROME child browsers during BrowserWindowFeatures init.
+            let existing_df = cef_str(cmd.switch_value(Some(&CefString::from("disable-features"))));
+            const EXTRA_DISABLE_FEATURES: &str =
+                "AutofillServerCommunication,PasswordManagerOnboarding,MediaRouter,\
+                 OptimizationHints,OptimizationGuideModelDownloading,OptimizationHintsFetching,\
+                 Translate,NetworkTimeServiceQuerying,PrivacySandboxSettings4,\
+                 CertificateTransparencyComponentUpdater,InterestFeedContentSuggestions,\
+                 DnsOverHttps,AimServerEligibility,LensOverlay,ChromeWhatsNewUI";
+            let merged_df = if existing_df.is_empty() {
+                EXTRA_DISABLE_FEATURES.to_string()
+            } else {
+                format!("{existing_df},{EXTRA_DISABLE_FEATURES}")
+            };
             cmd.append_switch_with_value(
                 Some(&CefString::from("disable-features")),
-                Some(&CefString::from(
-                    "AutofillServerCommunication,PasswordManagerOnboarding,MediaRouter,\
-                     OptimizationHints,OptimizationGuideModelDownloading,OptimizationHintsFetching,\
-                     Translate,NetworkTimeServiceQuerying,PrivacySandboxSettings4,\
-                     CertificateTransparencyComponentUpdater,InterestFeedContentSuggestions,\
-                     DnsOverHttps,AimServerEligibility,LensOverlay,ChromeWhatsNewUI",
-                )),
+                Some(&CefString::from(merged_df.as_str())),
             );
             // Browser process: attach the in-process browser-target CDP pipe and load enabled extensions.
             if opt_cef_str(process_type).is_empty() {

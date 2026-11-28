@@ -219,6 +219,7 @@ impl Host {
             .find(|p| p.id == id)
             .cloned()
             .or_else(|| layout.glance.clone().filter(|g| g.id == id))
+            .or_else(|| layout.ext_popup.clone().filter(|p| p.id == id))
     }
 
     pub fn apply_layout(&mut self, label: &str) {
@@ -243,6 +244,9 @@ impl Host {
             }
             if let Some(g) = &win.layout.glance {
                 visible.insert(g.id.clone(), g.clone());
+            }
+            if let Some(ep) = &win.layout.ext_popup {
+                visible.insert(ep.id.clone(), ep.clone());
             }
         }
 
@@ -417,6 +421,21 @@ impl Host {
                             }
                         }
                     }
+                    if let Some(ep) = &win.layout.ext_popup {
+                        if let Some(t) = self.tabs.get(&ep.id) {
+                            if !t.container_hwnd.is_invalid() {
+                                let _ = SetWindowPos(
+                                    t.container_hwnd,
+                                    Some(HWND_TOP),
+                                    0,
+                                    0,
+                                    0,
+                                    0,
+                                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+                                );
+                            }
+                        }
+                    }
                 } else if win.chrome_raised != Some(false) {
                     let _ = SetWindowPos(
                         win.chrome_hwnd,
@@ -489,6 +508,18 @@ impl Host {
                 y: g.y * fy,
                 w: g.w * fx,
                 h: g.h * fy,
+                ..Default::default()
+            });
+        }
+        if let Some(ep) = &old.ext_popup {
+            let fx = new_w / old.viewport_w;
+            let fy = new_h / old.viewport_h;
+            win.layout.ext_popup = Some(PaneSpec {
+                id: ep.id.clone(),
+                x: ep.x * fx,
+                y: ep.y * fy,
+                w: ep.w * fx,
+                h: ep.h * fy,
                 ..Default::default()
             });
         }

@@ -8,7 +8,6 @@
   import { ui } from '$shared/ui/ui.svelte';
   import { springEase } from '$shared/ui/motion';
   import { displayHost } from '$shared/url';
-  import type { GlanceState } from './types';
   import { tabsApi } from './api';
 
   // Zen's Glance (src/zen/glance): a page previewed in a card over the current tab, 80 % of the
@@ -17,11 +16,9 @@
   const tab = $derived(g ? browser.tabs[g.tabId] : undefined);
   // The card keeps its last shape while it plays its exit transition (`browser.glance` is
   // already null by then).
-  let lastAnchor: GlanceState['anchor'] = undefined;
   let lastPopup = false;
   let lastTabId = '';
   const tabId = $derived.by(() => (g ? (lastTabId = g.tabId) : lastTabId));
-  const anchor = $derived.by(() => (g ? (lastAnchor = g.anchor) : lastAnchor));
   const popup = $derived.by(() => (g ? (lastPopup = g.popup) : lastPopup));
 
   let area = $state({ left: 0, top: 0, width: window.innerWidth, height: window.innerHeight });
@@ -46,40 +43,7 @@
     if (g) measure();
   });
 
-  // Extension popups size to their content like Chrome's (25 x 25 to 800 x 600); until the
-  // page has been measured the card has a typical popup's size.
-  let fit = $state<{ id: string; w: number; h: number } | null>(null);
-  const extTabId = $derived(g?.anchor ? g.tabId : null);
-  const extLoaded = $derived(!!extTabId && browser.tabs[extTabId]?.loading === false);
-  $effect(() => {
-    const id = extTabId;
-    if (!id || !extLoaded) return;
-    let stop = false;
-    const measure = async () => {
-      if (stop) return;
-      const s = await tabsApi.tabContentSize(id).catch(() => null);
-      if (stop || !s || s.x < 1 || s.y < 1) return;
-      fit = { id, w: Math.min(800, Math.max(25, s.x)), h: Math.min(600, Math.max(25, s.y)) };
-      scheduleLayout();
-    };
-    // Re-measured while the popup settles: many build their UI after load.
-    const timers = [0, 150, 400, 900, 1600].map((ms) => setTimeout(measure, ms));
-    return () => {
-      stop = true;
-      timers.forEach(clearTimeout);
-    };
-  });
-  const sized = $derived(fit && fit.id === tabId ? fit : null);
-  const EXT_W = $derived(sized?.w ?? 380);
-  const EXT_H = $derived(sized?.h ?? 560);
-
   const frame = $derived.by(() => {
-    if (anchor) {
-      const w = Math.min(EXT_W, window.innerWidth - 16);
-      const h = Math.min(EXT_H, anchor.below ? window.innerHeight - anchor.y - 8 : anchor.y - 8);
-      const left = Math.max(8, Math.min(anchor.x, window.innerWidth - w - 8));
-      return { left, top: anchor.below ? anchor.y : anchor.y - h, w, h };
-    }
     const w = Math.round(area.width * (popup ? 0.55 : 0.8));
     const h = Math.round(popup ? area.height * 0.84 : area.height);
     return { left: Math.round(area.left + (area.width - w) / 2), top: Math.round(area.top + (area.height - h) / 2), w, h };
@@ -100,7 +64,7 @@
   const box = $derived(morph ?? frame);
   const originCss = $derived.by(() => {
     const o = g?.origin;
-    if (!o || anchor) return undefined;
+    if (!o) return undefined;
     const ox = Math.max(0, Math.min(frame.w, o.x - frame.left));
     const oy = Math.max(0, Math.min(frame.h, o.y - frame.top));
     return `${Math.round(ox)}px ${Math.round(oy)}px`;
@@ -114,7 +78,7 @@
       expanding = true;
       browser.expandGlance();
     };
-    if (anchor || matchMedia('(prefers-reduced-motion: reduce)').matches) return finish();
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches) return finish();
     measure();
     morph = { left: Math.round(area.left), top: Math.round(area.top), w: Math.round(area.width), h: Math.round(area.height) };
     followLayout(MORPH_MS + 60);
@@ -127,7 +91,6 @@
   <div class="root" class:morphing={!!morph} use:overlayLease>
     <div
       class="backdrop"
-      class:clear={!!anchor}
       role="presentation"
       transition:fade={{ duration: expanding ? 0 : 200 }}
       onpointerdown={() => browser.closeGlance()}
@@ -135,39 +98,35 @@
     <div
       class="frame"
       class:popup
-      class:ext={!!anchor}
       class:morphing={!!morph}
-      use:overlaySurface={anchor ? 16 : 6}
+      use:overlaySurface={6}
       style:left="{box.left}px"
       style:top="{box.top}px"
       style:width="{box.w}px"
       style:height="{box.h}px"
       style:transform-origin={originCss}
       style:--morph-ms="{MORPH_MS}ms"
-      in:scale={{ start: anchor ? 0.96 : 0.86, duration: anchor ? 160 : 350, opacity: 0, easing: springEase }}
+      in:scale={{ start: 0.86, duration: 350, opacity: 0, easing: springEase }}
       onintroend={() => scheduleLayout()}
-      out:scale={{ start: 0.92, duration: expanding ? 0 : anchor ? 120 : 200, opacity: 0 }}
+      out:scale={{ start: 0.92, duration: expanding ? 0 : 200, opacity: 0 }}
     >
-      {#if !anchor}
-        <div class="glance-bar">
-          <button type="button" class="gbtn" title="Back" disabled={!tab.canGoBack} onclick={() => void tabsApi.tabCommand(tab.id, 'back')}>
-            <Icon name="back" size={13} />
-          </button>
-          <button type="button" class="gbtn" title="Forward" disabled={!tab.canGoForward} onclick={() => void tabsApi.tabCommand(tab.id, 'forward')}>
-            <Icon name="forward" size={13} />
-          </button>
-          <button type="button" class="gbtn" title={tab.loading ? 'Stop' : 'Reload'} onclick={() => void tabsApi.tabCommand(tab.id, tab.loading ? 'stop' : 'reload')}>
-            <Icon name={tab.loading ? 'stop' : 'reload'} size={13} />
-          </button>
-          <span class="ghost-url ellipsis" title={tab.url}>{displayHost(tab.url) || tab.url}</span>
-        </div>
-      {/if}
+      <div class="glance-bar">
+        <button type="button" class="gbtn" title="Back" disabled={!tab.canGoBack} onclick={() => void tabsApi.tabCommand(tab.id, 'back')}>
+          <Icon name="back" size={13} />
+        </button>
+        <button type="button" class="gbtn" title="Forward" disabled={!tab.canGoForward} onclick={() => void tabsApi.tabCommand(tab.id, 'forward')}>
+          <Icon name="forward" size={13} />
+        </button>
+        <button type="button" class="gbtn" title={tab.loading ? 'Stop' : 'Reload'} onclick={() => void tabsApi.tabCommand(tab.id, tab.loading ? 'stop' : 'reload')}>
+          <Icon name={tab.loading ? 'stop' : 'reload'} size={13} />
+        </button>
+        <span class="ghost-url ellipsis" title={tab.url}>{displayHost(tab.url) || tab.url}</span>
+      </div>
       <div class="body" use:glancePane={tabId}>
         {#if !tab.live}<div class="placeholder"></div>{/if}
         {#if tab.loading}<span class="loading"></span>{/if}
       </div>
     </div>
-    {#if !anchor}
     <div class="side" use:overlaySurface={17} style:left="{frame.left + frame.w}px" style:top="{frame.top + 3}px" transition:fade={{ duration: expanding ? 0 : 160 }}>
       <button class="action close" title="Close (Esc)" onclick={() => browser.closeGlance()}><Icon name="close" size={16} /></button>
       <button class="action" title="Open as tab" onclick={openAsTab}><Icon name="expand" size={16} /></button>
@@ -183,7 +142,6 @@
         }}><Icon name="link" size={16} /></button
       >
     </div>
-    {/if}
   </div>
 {/if}
 
@@ -197,9 +155,6 @@
     position: absolute;
     inset: 0;
     background: var(--backdrop);
-  }
-  .backdrop.clear {
-    background: transparent;
   }
   .morphing .backdrop {
     opacity: 0;
@@ -226,15 +181,6 @@
     overflow: hidden;
     background: var(--page-bg);
     transform-origin: 50% 40%;
-  }
-  /* Extension popups render on white like in Chrome (most assume a light page). */
-  .frame.ext {
-    border-radius: var(--radius-xl);
-    background: #fff;
-    transform-origin: 0 0;
-  }
-  .frame.ext .placeholder {
-    background: #fff;
   }
   .glance-bar {
     flex: none;

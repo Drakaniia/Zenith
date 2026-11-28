@@ -11,6 +11,7 @@ pub mod crx;
 mod install;
 pub mod native_messaging;
 pub mod private_profile;
+pub mod runtime;
 mod updates;
 
 pub use install::{accept, discard, download_from_store, install_folder, offer, refuse, stage_crx, stage_folder, Fetch};
@@ -40,6 +41,9 @@ pub struct ExtensionInfo {
     pub builtin: bool,
     pub store_id: Option<String>,
     pub incognito: bool,
+    pub host_permissions: Vec<String>,
+    pub has_active_tab: bool,
+    pub has_action: bool,
 }
 
 #[derive(Serialize, Deserialize, Default)]
@@ -89,6 +93,9 @@ pub(crate) struct Manifest {
     pub options: Option<String>,
     pub popup: Option<String>,
     pub icon: Option<String>,
+    pub host_permissions: Vec<String>,
+    pub has_active_tab: bool,
+    pub has_action: bool,
 }
 
 fn localized(dir: &Path, manifest: &serde_json::Value, raw: &str) -> String {
@@ -123,6 +130,37 @@ pub(crate) fn read_manifest(dir: &Path) -> Option<Manifest> {
     let description = s(m.get("description")).map(|d| localized(dir, &m, &d)).unwrap_or_default();
     let options = s(m.pointer("/options_ui/page")).or_else(|| s(m.get("options_page")));
     let popup = s(m.pointer("/action/default_popup")).or_else(|| s(m.pointer("/browser_action/default_popup")));
+    let has_action = m.get("action").is_some() || m.get("browser_action").is_some() || popup.is_some();
+    let mut host_permissions = Vec::new();
+    let mut push_host = |p: &str| {
+        if !host_permissions.iter().any(|x: &String| x == p) {
+            host_permissions.push(p.to_string());
+        }
+    };
+    if let Some(arr) = m.get("host_permissions").and_then(|v| v.as_array()) {
+        for v in arr.iter().filter_map(|x| x.as_str()) {
+            push_host(v);
+        }
+    }
+    let mut has_active_tab = false;
+    if let Some(arr) = m.get("permissions").and_then(|v| v.as_array()) {
+        for v in arr.iter().filter_map(|x| x.as_str()) {
+            if v == "activeTab" {
+                has_active_tab = true;
+            } else if v == "<all_urls>" || v.contains("://") {
+                push_host(v);
+            }
+        }
+    }
+    if let Some(cs) = m.get("content_scripts").and_then(|v| v.as_array()) {
+        for entry in cs {
+            if let Some(matches) = entry.get("matches").and_then(|v| v.as_array()) {
+                for v in matches.iter().filter_map(|x| x.as_str()) {
+                    push_host(v);
+                }
+            }
+        }
+    }
     let icon = m.get("icons").and_then(|icons| icons.as_object()).and_then(|icons| {
         let mut sizes: Vec<(u32, String)> = icons
             .iter()
@@ -143,6 +181,9 @@ pub(crate) fn read_manifest(dir: &Path) -> Option<Manifest> {
         options,
         popup,
         icon,
+        host_permissions,
+        has_active_tab,
+        has_action,
     })
 }
 
@@ -163,6 +204,9 @@ pub(crate) fn info_for(id: String, name: String, enabled: bool, registry: &Regis
         description: manifest.as_ref().map(|m| m.description.clone()).unwrap_or_default(),
         options_url: manifest.as_ref().and_then(|m| page(&m.options)),
         popup_url: manifest.as_ref().and_then(|m| page(&m.popup)),
+        host_permissions: manifest.as_ref().map(|m| m.host_permissions.clone()).unwrap_or_default(),
+        has_active_tab: manifest.as_ref().is_some_and(|m| m.has_active_tab),
+        has_action: manifest.as_ref().is_some_and(|m| m.has_action),
         icon: manifest.and_then(|m| m.icon),
         builtin: !registry.folders.contains_key(&id),
         store_id: registry.sources.get(&id).cloned(),
@@ -192,6 +236,9 @@ fn load_live(dir: &Path, done: impl FnOnce() + 'static) {
     crate::host::browser_cdp("Extensions.loadUnpacked", &params, move |r| {
         if let Err(e) = r {
             eprintln!("[zenith] live extension load failed: {e}");
+        } else {
+            runtime::scan_targets();
+            crate::app::runtime::post_ui_delayed(400, runtime::scan_targets);
         }
         done();
     });
@@ -258,5 +305,37 @@ pub fn set_enabled(id: String, enabled: bool, done: impl FnOnce(Result<(), Strin
         Some(dir) if enabled => load_live(&dir, move || done(Ok(()))),
         _ if !enabled => unload_live(&id, move || done(Ok(()))),
         _ => done(Ok(())),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::read_manifest;
+    use std::fs;
+
+    #[test]
+    fn manifest_extracts_action_and_host_permissions() {
+        let dir = std::env::temp_dir().join(format!("zenith-manifest-test-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(
+            dir.join("manifest.json"),
+            r#"{
+                "manifest_version": 3,
+                "name": "Sample",
+                "version": "1.2",
+                "permissions": ["activeTab", "storage"],
+                "host_permissions": ["https://*.example.com/*"],
+                "content_scripts": [{"matches": ["https://*.example.com/*", "<all_urls>"], "js": ["a.js"]}],
+                "action": { "default_popup": "popup.html" }
+            }"#,
+        )
+        .unwrap();
+        let m = read_manifest(&dir).expect("manifest");
+        assert!(m.has_active_tab);
+        assert!(m.has_action);
+        assert_eq!(m.popup.as_deref(), Some("popup.html"));
+        assert_eq!(m.host_permissions, vec!["https://*.example.com/*", "<all_urls>"]);
+        let _ = fs::remove_dir_all(&dir);
     }
 }

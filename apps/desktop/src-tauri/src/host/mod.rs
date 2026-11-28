@@ -35,11 +35,11 @@ pub use debug::{debug_layout, DebugLayout};
 pub(crate) use devtools::{
     browser_cdp_pipe_arg, close_browser_cdp_pipes, eval_js, init_browser_cdp_pipes, target_id_of,
 };
-pub use devtools::{browser_cdp, cdp_call, chrome_cdp};
+pub use devtools::{browser_cdp, browser_cdp_session, cdp_call, chrome_cdp, set_browser_cdp_event_handler};
 pub(crate) use devtools_view::{
     emit_devtools_changed, handle_devtools_command, open_tab_devtools, TabDevTools,
 };
-pub use focus::focus_view;
+pub use focus::{activate_tab_in_chromium, focus_view};
 pub use placement::{set_fullscreen_tab, set_layout};
 pub use profile::{clear_browsing_data, incognito_context, maybe_drop_incognito_context, set_content_color_scheme, set_page_background};
 pub(crate) use state::set_tab_window;
@@ -96,6 +96,8 @@ pub struct LayoutSpec {
     pub panes: Vec<PaneSpec>,
     #[serde(default)]
     pub glance: Option<PaneSpec>,
+    #[serde(default)]
+    pub ext_popup: Option<PaneSpec>,
     #[serde(default)]
     pub devtools: Option<PaneSpec>,
     #[serde(default)]

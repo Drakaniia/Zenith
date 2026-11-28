@@ -157,3 +157,14 @@ pub async fn ext_native_host_consent(window: WindowHandle, host_name: String, al
     refuse_in_incognito(&window, "Changing native messaging permissions")?;
     blocking(move || extensions::native_messaging::set_host_consent(&host_name, allowed)).await?
 }
+
+pub async fn ext_trigger_action(
+    app: AppHandle,
+    id: String,
+    tab_id: Option<String>,
+) -> CmdResult<extensions::runtime::ActionOutcome> {
+    on_main_cb(&app, move |done| {
+        extensions::runtime::trigger_action(id, tab_id, move |r| done(r))
+    })
+    .await?
+}

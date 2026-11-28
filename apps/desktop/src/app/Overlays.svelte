@@ -8,6 +8,7 @@
   import CardSavePrompt from '$features/passwords/cards/CardSavePrompt.svelte';
   import PasswordSuggest from '$features/passwords/PasswordSuggest.svelte';
   import ExtensionInstallPrompt from '$features/extensions/ExtensionInstallPrompt.svelte';
+  import ExtensionPopup from '$features/extensions/ExtensionPopup.svelte';
   import DownloadsPopover from '$features/downloads/DownloadsPopover.svelte';
   import ExtensionsPopover from '$features/extensions/ExtensionsPopover.svelte';
   import MediaPanel from '$features/downloads/MediaPanel.svelte';
@@ -32,6 +33,7 @@
 <CardSavePrompt />
 <PasswordSuggest />
 <ExtensionInstallPrompt />
+<ExtensionPopup />
 <DownloadsPopover />
 <ExtensionsPopover />
 <MediaPanel />

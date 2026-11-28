@@ -17,10 +17,12 @@ use windows::Win32::System::Pipes::CreatePipe;
 use super::with_host;
 
 type CdpDone = Box<dyn FnOnce(Result<String, String>)>;
+type CdpEventHandler = Box<dyn Fn(&str, Option<&str>, &serde_json::Value)>;
 
 thread_local! {
     static PENDING: RefCell<HashMap<i32, CdpDone>> = RefCell::new(HashMap::new());
     static BROWSER_PENDING: RefCell<HashMap<i32, CdpDone>> = RefCell::new(HashMap::new());
+    static BROWSER_EVENT_HANDLER: RefCell<Option<CdpEventHandler>> = RefCell::new(None);
     /// Keeps each browser's `Registration` alive until the browser closes.
     static REGISTRATIONS: RefCell<HashMap<i32, Registration>> = RefCell::new(HashMap::new());
 }
@@ -206,14 +208,45 @@ pub(crate) fn close_browser_cdp_pipes() {
     }
 }
 
-fn parse_browser_cdp_reply(frame: &[u8]) -> Option<(i32, Result<String, String>)> {
+enum BrowserCdpFrame {
+    Reply(i32, Result<String, String>),
+    Event {
+        method: String,
+        session_id: Option<String>,
+        params: serde_json::Value,
+    },
+}
+
+fn parse_browser_cdp_frame(frame: &[u8]) -> Option<BrowserCdpFrame> {
     let v: serde_json::Value = serde_json::from_slice(frame).ok()?;
-    let id = v.get("id")?.as_i64()? as i32;
-    if let Some(err) = v.get("error") {
-        Some((id, Err(err.to_string())))
-    } else {
-        Some((id, Ok(v.get("result").map(|r| r.to_string()).unwrap_or_else(|| "{}".into()))))
+    if let Some(id) = v.get("id").and_then(|x| x.as_i64()) {
+        let res = if let Some(err) = v.get("error") {
+            Err(err.to_string())
+        } else {
+            Ok(v.get("result").map(|r| r.to_string()).unwrap_or_else(|| "{}".into()))
+        };
+        return Some(BrowserCdpFrame::Reply(id as i32, res));
     }
+    let method = v.get("method")?.as_str()?.to_string();
+    let session_id = v.get("sessionId").and_then(|s| s.as_str()).map(str::to_string);
+    let params = v.get("params").cloned().unwrap_or(serde_json::Value::Null);
+    Some(BrowserCdpFrame::Event { method, session_id, params })
+}
+
+#[cfg(test)]
+fn parse_browser_cdp_reply(frame: &[u8]) -> Option<(i32, Result<String, String>)> {
+    match parse_browser_cdp_frame(frame) {
+        Some(BrowserCdpFrame::Reply(id, res)) => Some((id, res)),
+        _ => None,
+    }
+}
+
+pub fn set_browser_cdp_event_handler(
+    handler: impl Fn(&str, Option<&str>, &serde_json::Value) + 'static,
+) {
+    BROWSER_EVENT_HANDLER.with(|slot| {
+        *slot.borrow_mut() = Some(Box::new(handler));
+    });
 }
 
 fn read_browser_cdp_loop(rx: File) {
@@ -227,12 +260,24 @@ fn read_browser_cdp_loop(rx: File) {
                 if buf.last() == Some(&0) {
                     buf.pop();
                 }
-                if let Some((id, res)) = parse_browser_cdp_reply(&buf) {
-                    let _ = crate::app::runtime::post_ui(move || {
-                        if let Some(done) = BROWSER_PENDING.with(|p| p.borrow_mut().remove(&id)) {
-                            done(res);
-                        }
-                    });
+                match parse_browser_cdp_frame(&buf) {
+                    Some(BrowserCdpFrame::Reply(id, res)) => {
+                        let _ = crate::app::runtime::post_ui(move || {
+                            if let Some(done) = BROWSER_PENDING.with(|p| p.borrow_mut().remove(&id)) {
+                                done(res);
+                            }
+                        });
+                    }
+                    Some(BrowserCdpFrame::Event { method, session_id, params }) => {
+                        let _ = crate::app::runtime::post_ui(move || {
+                            BROWSER_EVENT_HANDLER.with(|slot| {
+                                if let Some(ref cb) = *slot.borrow() {
+                                    cb(&method, session_id.as_deref(), &params);
+                                }
+                            });
+                        });
+                    }
+                    None => {}
                 }
             }
         }
@@ -245,11 +290,19 @@ fn read_browser_cdp_loop(rx: File) {
     });
 }
 
-/// Calls a browser-target CDP method over the in-process anonymous debugging pipe.
-pub fn browser_cdp(method: &str, params_json: &str, done: impl FnOnce(Result<String, String>) + 'static) {
+fn send_browser_cdp(
+    session_id: Option<&str>,
+    method: &str,
+    params_json: &str,
+    done: impl FnOnce(Result<String, String>) + 'static,
+) {
     let params: serde_json::Value = serde_json::from_str(params_json).unwrap_or_else(|_| serde_json::json!({}));
     let msg_id = NEXT_MSG_ID.fetch_add(1, Ordering::Relaxed);
-    let mut payload = serde_json::json!({ "id": msg_id, "method": method, "params": params }).to_string();
+    let mut body = serde_json::json!({ "id": msg_id, "method": method, "params": params });
+    if let Some(sid) = session_id {
+        body["sessionId"] = serde_json::Value::String(sid.to_string());
+    }
+    let mut payload = body.to_string();
     payload.push('\0');
 
     BROWSER_PENDING.with(|p| {
@@ -267,6 +320,21 @@ pub fn browser_cdp(method: &str, params_json: &str, done: impl FnOnce(Result<Str
             cb(Err(e));
         }
     }
+}
+
+/// Calls a browser-target CDP method over the in-process anonymous debugging pipe.
+pub fn browser_cdp(method: &str, params_json: &str, done: impl FnOnce(Result<String, String>) + 'static) {
+    send_browser_cdp(None, method, params_json, done);
+}
+
+/// Calls a CDP method on a flattened child target session (e.g. an extension service worker).
+pub fn browser_cdp_session(
+    session_id: &str,
+    method: &str,
+    params_json: &str,
+    done: impl FnOnce(Result<String, String>) + 'static,
+) {
+    send_browser_cdp(Some(session_id), method, params_json, done);
 }
 
 #[cfg(test)]
