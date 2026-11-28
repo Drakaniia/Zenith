@@ -16,15 +16,28 @@ import type { Tab } from "../browser/types";
 // ---------------------------------------------------------------------------------------------
 // Opening
 
-/** In the tab you are on, in a new tab (in front or behind it), or in Glance. */
-export type OpenHow = "here" | "tab" | "background" | "glance";
+/** In the tab you are on, in a new tab (in front or behind it), in split view, or in Glance. */
+export type OpenHow = "here" | "tab" | "background" | "glance" | "split";
 
-/** The same modifiers as links in a page (host/tab.rs): Alt opens Glance, Ctrl or the middle
- *  button a background tab, and Shift a new tab in front. In Zen the Glance key is the one
- *  chosen in its Glance settings (Ctrl by default); Zenith's is Alt. */
+function matchesTrigger(
+  m: { ctrl?: boolean; shift?: boolean; alt?: boolean },
+  spec: string,
+): boolean {
+  if (!spec || spec === "none") return false;
+  const parts = spec.split("+");
+  return (
+    !!m.ctrl === parts.includes("ctrl") &&
+    !!m.alt === parts.includes("alt") &&
+    !!m.shift === parts.includes("shift")
+  );
+}
+
+/** Matches configured page-link modifiers (Zen defaults: Shift = Glance, Alt = Split, Ctrl/middle = background). */
 export function openHow(m: { ctrl?: boolean; shift?: boolean; alt?: boolean; middle?: boolean }): OpenHow {
-  if (m.middle || m.ctrl) return "background";
-  if (m.alt) return "glance";
+  if (m.middle) return "background";
+  if (matchesTrigger(m, settings.value.glanceTrigger)) return "glance";
+  if (matchesTrigger(m, settings.value.splitTrigger)) return "split";
+  if (m.ctrl) return "background";
   if (m.shift) return "tab";
   return "here";
 }
@@ -37,6 +50,10 @@ export const menuHow = (m?: MenuMods) => openHow(m ?? {});
 export function openBookmark(url: string, how: OpenHow = "here") {
   const tab = browser.activeTab;
   if (how === "glance") return void browser.openGlance(url, tab?.id);
+  if (how === "split" && tab) {
+    const t = browser.openTab(url, { activate: false, openerId: tab.id });
+    return void browser.splitWith(tab.id, t.id);
+  }
   if (how === "tab") return void browser.openTab(url);
   if (how === "background") return void browser.openTab(url, { activate: false, openerId: tab?.id });
   if (!tab) return void browser.openTab(url);

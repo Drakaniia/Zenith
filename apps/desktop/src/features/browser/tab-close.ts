@@ -2,8 +2,10 @@
 import type { BrowserStore } from "./browser.svelte";
 import type { Space, TabId } from "./types";
 import { tabsApi } from "./api";
+import { settings } from "../settings/settings.svelte";
 import { isNewTab } from "../../shared/url";
 import { focusAfterLayout, scheduleLayout } from "../../platform/layout.svelte";
+import { detachFromSplits } from "./split";
 
 /** Tab to show after `id` goes away, following the order of the tab's own list. Never an
  *  Essential, and a regular tab never hands over to a pinned one: closing the last regular tab
@@ -26,14 +28,21 @@ export function neighbor(store: BrowserStore, id: TabId, space: Space): TabId | 
   return rest[Math.min(Math.max(i, 0), rest.length - 1)];
 }
 
-/** Ctrl+W. Pinned and essential tabs are unloaded (kept) instead of removed, as in Zen. */
+/** Ctrl+W. Pinned and essential tabs follow Zen's configurable close-shortcut behavior. */
 export function closeTab(store: BrowserStore, id: TabId) {
   const tab = store.tabs[id];
   if (!tab) return;
   if (store.glance?.tabId === id) return store.closeGlance();
   if (tab.pinned || tab.essential) {
+    const mode = settings.value.pinnedCloseBehavior;
+    if (mode === "none") return;
+    if (mode === "close") return store.removeTab(id, true);
     deactivateEverywhere(store, id);
-    void store.unload(id, true);
+    if (mode === "reset-switch") {
+      if (tab.pinnedUrl && tab.url !== tab.pinnedUrl) store.resetPinned(id);
+      return;
+    }
+    void store.unload(id, mode === "reset-unload-switch");
     return;
   }
   store.removeTab(id, true);
@@ -41,7 +50,7 @@ export function closeTab(store: BrowserStore, id: TabId) {
 
 export function deactivateEverywhere(store: BrowserStore, id: TabId) {
   for (const space of store.spaces) {
-    if (space.split?.ids.includes(id)) space.split = undefined;
+    detachFromSplits(space, id);
     if (space.activeTabId === id) {
       const next = neighbor(store, id, space);
       space.activeTabId = next;

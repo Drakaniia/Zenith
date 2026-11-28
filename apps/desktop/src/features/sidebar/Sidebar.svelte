@@ -182,12 +182,20 @@
   {/if}
 </aside>
 
-{#if dnd.drag?.started && browser.tabs[dnd.drag.id]}
+{#if dnd.drag?.started && dnd.drag.kind === 'tab' && browser.tabs[dnd.drag.id]}
   {@const t = browser.tabs[dnd.drag.id]}
   <div class="ghost" style:transform="translate({dnd.drag.x + 12}px, {dnd.drag.y + 8}px)">
     <Favicon url={t.url} favicon={t.favicon} />
     <span class="ellipsis">{tabTitle(t)}</span>
   </div>
+{:else if dnd.drag?.started && dnd.drag.kind === 'folder'}
+  {@const f = browser.activeSpace?.folders?.find((x) => x.id === dnd.drag!.id)}
+  {#if f}
+    <div class="ghost" style:transform="translate({dnd.drag.x + 12}px, {dnd.drag.y + 8}px)">
+      <span>{f.icon ?? '📁'}</span>
+      <span class="ellipsis">{f.name}</span>
+    </div>
+  {/if}
 {/if}
 
 <style>

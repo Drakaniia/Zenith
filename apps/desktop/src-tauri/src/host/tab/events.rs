@@ -437,8 +437,8 @@ wrap_request_handler! {
             _browser: Option<&mut Browser>,
             frame: Option<&mut Frame>,
             request: Option<&mut Request>,
-            _user_gesture: ::std::os::raw::c_int,
-            _is_redirect: ::std::os::raw::c_int,
+            user_gesture: ::std::os::raw::c_int,
+            is_redirect: ::std::os::raw::c_int,
         ) -> ::std::os::raw::c_int {
             let is_main = frame.is_some_and(|f| f.is_main() != 0);
             if !is_main || self.shared.is_warm() {
@@ -447,7 +447,8 @@ wrap_request_handler! {
             let uri = request.map(|r| cef_str(r.url())).unwrap_or_default();
             let tab_id = self.shared.id();
             let window = self.shared.window();
-            if crate::torrents::open_from_page(&uri, &tab_id, self.shared.private, &window)
+            if super::new_window::intercept_pinned_external(&self.shared, &uri, user_gesture != 0, is_redirect != 0)
+                || crate::torrents::open_from_page(&uri, &tab_id, self.shared.private, &window)
                 || crate::security::intercept_navigation(&tab_id, &uri)
             {
                 return 1;

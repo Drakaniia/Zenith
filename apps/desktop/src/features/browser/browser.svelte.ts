@@ -3,11 +3,11 @@
 import type { ClosedTab, Folder, GlanceState, PopupAnchor, Space, SpaceId, SplitLayout, Tab, TabId, TabPatch } from "./types";
 import { NEW_TAB_URL } from "$shared/url";
 import { createSpace, switchSpace, cycleSpace, deleteSpace, unloadSpace, moveSpace } from "./spaces";
-import { createFolder, moveToFolder, toggleFolder, renameFolder, deleteFolder } from "./folders";
+import { createFolder, moveToFolder, moveFolder, toggleFolder, renameFolder, setFolderIcon, deleteFolder, folderDescendantTabs, walkFolders } from "./folders";
 import { openTab, adoptTab, wake, activate, activateIndex, cycleTab, navigate, sleep, unload, resetPinned, resetZoom, setMuted } from "./tabs";
 import { closeTab, removeTab, closeOthers, closeBelow, clearSpace, reopenClosed, duplicate } from "./tab-close";
 import { togglePin, toggleEssential, moveToSpace, moveTab } from "./tab-move";
-import { splitWith, splitTabs, setSplitLayout, toggleSplit, unsplit } from "./split";
+import { splitWith, splitTabs, addToSplit, setSplitLayout, resetSplitRatios, swapSplitPanes, toggleSplit, unsplit, spaceSplits } from "./split";
 import { openGlance, adoptPopup, closeGlance, expandGlance } from "./glance";
 import { applyPatch, setMediaCount, reviveCrashed } from "./tab-events";
 import { snapshot, startPrivate, restore } from "./session";
@@ -49,10 +49,10 @@ class BrowserStore {
   activeSplit = $derived.by(() => {
     const s = this.activeSpace;
     const id = s?.activeTabId;
-    if (!s?.split || !id || !s.split.ids.includes(id)) return undefined;
-    if (s.split.ids.length < 2 || !s.split.ids.every((t) => this.tabs[t]))
-      return undefined;
-    return s.split;
+    if (!s || !id) return undefined;
+    return spaceSplits(s).find(
+      (g) => g.ids.includes(id) && g.ids.length >= 2 && g.ids.every((t) => this.tabs[t]),
+    );
   });
   /** Tabs currently on screen (one, or two to four in split view). */
   visibleIds = $derived<TabId[]>(
@@ -98,7 +98,11 @@ class BrowserStore {
   }
 
   folderTabs(space: Space): TabId[] {
-    return (space.folders ?? []).flatMap((f) => this.folderMembers(space, f));
+    return walkFolders(space.folders ?? []).flatMap((f) => this.folderMembers(space, f));
+  }
+
+  folderDescendantTabs(space: Space, folder: Folder): TabId[] {
+    return folderDescendantTabs(this, space, folder);
   }
 
   folderOf(id: TabId): Folder | undefined {
@@ -134,17 +138,27 @@ class BrowserStore {
   // ------------------------------------------------------------------------------------------
   // Folders (Zen: zen-folder)
 
-  /** Creates a folder at the top of the pinned section, pinning the given tabs into it. */
+  /** Creates a folder at the top of the pinned section (or inside `parentId`), pinning the given tabs into it. */
   createFolder(
     tabIds: TabId[],
     spaceId = this.activeSpaceId,
+    parentId?: string,
   ): Folder | undefined {
-    return createFolder(this, tabIds, spaceId);
+    return createFolder(this, tabIds, spaceId, parentId);
   }
 
   /** Puts a tab into a folder (pinning it), before `beforeId` or at the end; `null` takes it out. */
   moveToFolder(id: TabId, folderId: string | null, beforeId?: TabId) {
     return moveToFolder(this, id, folderId, beforeId);
+  }
+
+  moveFolder(
+    folderId: string,
+    targetParentId?: string,
+    anchorId?: string,
+    where: "before" | "after" = "before",
+  ) {
+    return moveFolder(this, folderId, targetParentId, anchorId, where);
   }
 
   toggleFolder(folderId: string, collapsed?: boolean) {
@@ -153,6 +167,10 @@ class BrowserStore {
 
   renameFolder(folderId: string, name: string) {
     return renameFolder(this, folderId, name);
+  }
+
+  setFolderIcon(folderId: string, icon?: string) {
+    return setFolderIcon(this, folderId, icon);
   }
 
   /** Removes a folder. Its tabs stay pinned, unless `closeTabs` is set. */
@@ -291,8 +309,8 @@ class BrowserStore {
   // ------------------------------------------------------------------------------------------
   // Split view
 
-  splitWith(a: TabId, b: TabId) {
-    return splitWith(this, a, b);
+  splitWith(a: TabId, b: TabId, layout: SplitLayout = "vsep") {
+    return splitWith(this, a, b, layout);
   }
 
   /** Shows two to four tabs of the active space together (Zen allows four in a grid). */
@@ -300,24 +318,36 @@ class BrowserStore {
     return splitTabs(this, ids, layout);
   }
 
+  addToSplit(tabId: TabId, side: "left" | "right" | "top" | "bottom") {
+    return addToSplit(this, tabId, side);
+  }
+
   /** Changes how the current split view is laid out. */
   setSplitLayout(layout: SplitLayout) {
     return setSplitLayout(this, layout);
+  }
+
+  resetSplitRatios() {
+    return resetSplitRatios(this);
+  }
+
+  swapSplitPanes(from: number, to: number) {
+    return swapSplitPanes(this, from, to);
   }
 
   toggleSplit() {
     return toggleSplit(this);
   }
 
-  unsplit() {
-    return unsplit(this);
+  unsplit(target?: import("./types").SplitState) {
+    return unsplit(this, target);
   }
 
   // ------------------------------------------------------------------------------------------
   // Glance
 
-  openGlance(url: string, openerId?: TabId, anchor?: PopupAnchor) {
-    return openGlance(this, url, openerId, anchor);
+  openGlance(url: string, openerId?: TabId, anchor?: PopupAnchor, origin?: { x: number; y: number }) {
+    return openGlance(this, url, openerId, anchor, origin);
   }
 
   /** Shows a page-opened popup (window.open with a size) as a floating card over its opener. */

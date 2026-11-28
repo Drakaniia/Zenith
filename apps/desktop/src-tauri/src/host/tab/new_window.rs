@@ -10,8 +10,9 @@ use serde::Serialize;
 use windows::Win32::Foundation::HWND;
 
 use super::events::create_tab_client;
-use super::{create_container, OpenRequest, Tab, TabPatch, TabShared};
+use super::{create_container, is_web, ClickOrigin, OpenRequest, Tab, TabPatch, TabShared};
 use crate::host::{config, emit_tab, post, set_tab_window, with_host};
+use crate::platform::urls::{host_of, site_of};
 
 static NEXT_POPUP: AtomicU32 = AtomicU32::new(1);
 
@@ -90,13 +91,28 @@ pub(super) fn handle_before_popup(
             }
             return 1;
         }
-        "_zenith_glance" | "_zenith_bg" => {
+        "_zenith_bg" | "_zenith_split" | "_zenith_little" => {
             if user {
-                let kind = if name == "_zenith_glance" { "glance" } else { "background" };
+                let kind = match name {
+                    "_zenith_split" => "split",
+                    "_zenith_little" => "little",
+                    _ => "background",
+                };
                 emit_tab(
                     &opener.clone(),
                     "tab-open-request",
-                    OpenRequest { url: uri.to_string(), opener_id: Some(opener), kind: kind.into() },
+                    OpenRequest { url: uri.to_string(), opener_id: Some(opener), kind: kind.into(), origin: None },
+                );
+            }
+            return 1;
+        }
+        other if other == "_zenith_glance" || other.starts_with("_zenith_glance:") => {
+            if user {
+                let origin = other.strip_prefix("_zenith_glance:").and_then(parse_origin);
+                emit_tab(
+                    &opener.clone(),
+                    "tab-open-request",
+                    OpenRequest { url: uri.to_string(), opener_id: Some(opener), kind: "glance".into(), origin },
                 );
             }
             return 1;
@@ -156,6 +172,8 @@ pub(super) fn handle_before_popup(
                 Some(&CefString::from("zenith_media_button")),
                 Some(&CefString::from(if config().media_button { "1" } else { "0" })),
             );
+            let trig = crate::host::config::triggers_json_for(&config());
+            extra.set_string(Some(&CefString::from("zenith_triggers")), Some(&CefString::from(trig.as_str())));
             *extra_slot = Some(extra);
         }
     }
@@ -189,4 +207,56 @@ pub(super) fn handle_before_popup(
         TabCreated { id, opener_id: opener, url: uri.to_string(), popup },
     );
     0
+}
+
+fn parse_origin(raw: &str) -> Option<ClickOrigin> {
+    let (xs, ys) = raw.split_once(',')?;
+    let x = xs.parse::<i32>().ok()?.clamp(0, 10_000);
+    let y = ys.parse::<i32>().ok()?.clamp(0, 10_000);
+    Some(ClickOrigin { x, y })
+}
+
+/// Intercepts cross-site user navigations from Essentials (Glance) or Pinned tabs (new tab).
+pub(super) fn intercept_pinned_external(sh: &TabShared, uri: &str, user_gesture: bool, is_redirect: bool) -> bool {
+    if !user_gesture || is_redirect || !is_web(uri) {
+        return false;
+    }
+    let Some((pin_site, essential)) = sh.pin_site.read().ok().and_then(|s| s.clone()) else {
+        return false;
+    };
+    let Some(target_host) = host_of(uri) else {
+        return false;
+    };
+    if site_of(target_host).eq_ignore_ascii_case(&pin_site) {
+        return false;
+    }
+    let cfg = config();
+    let kind = if essential {
+        if !cfg.glance_essential_external { return false; }
+        "glance"
+    } else {
+        if !cfg.open_pinned_external_in_new_tab { return false; }
+        "foreground"
+    };
+    let id = sh.id();
+    emit_tab(
+        &id.clone(),
+        "tab-open-request",
+        OpenRequest { url: uri.to_string(), opener_id: Some(id), kind: kind.into(), origin: None },
+    );
+    true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_origin_clamps_and_rejects_bad_input() {
+        let ok = parse_origin("120,450").expect("valid coords");
+        assert_eq!((ok.x, ok.y), (120, 450));
+        let clamped = parse_origin("-5,99999").expect("clamped");
+        assert_eq!((clamped.x, clamped.y), (0, 10_000));
+        assert!(parse_origin("bad").is_none());
+    }
 }

@@ -1,8 +1,10 @@
 // BrowserStore session: snapshot, restore and private (incognito) start.
 import type { BrowserStore } from "./browser.svelte";
-import type { Tab, TabId } from "./types";
+import type { SplitState, Tab, TabId } from "./types";
 import type { SessionFile } from "./model";
 import { SPACE_COLORS, INCOGNITO_SPACE, uid, makeTab } from "./model";
+import { settings } from "../settings/settings.svelte";
+import { spaceSplits } from "./split";
 
 export function snapshot(store: BrowserStore): string {
   const persistent = Object.values(store.tabs)
@@ -38,9 +40,13 @@ export function snapshot(store: BrowserStore): string {
         ...f,
         tabIds: f.tabIds.filter((id) => s.pinnedIds.includes(id)),
       })),
-      split: s.split
-        ? { ids: [...s.split.ids], ratio: s.split.ratio, layout: s.split.layout }
-        : undefined,
+      split: undefined,
+      splits: spaceSplits(s).map((g) => ({
+        ids: [...g.ids],
+        ratio: g.ratio,
+        ...(g.ratios ? { ratios: [...g.ratios] } : {}),
+        layout: g.layout,
+      })),
     })),
     tabs: persistent,
     closed: store.closed.slice(0, 25).map((c) => ({ ...c })),
@@ -87,33 +93,33 @@ export function restore(store: BrowserStore, json: string | null, keepTabs: bool
       loading: false,
       zoom: t.zoom ?? 1,
       url:
-        (t.pinned || t.essential) && !keepTabs && t.pinnedUrl
+        (t.pinned || t.essential) && (!keepTabs || settings.value.restorePinnedUrlOnStartup) && t.pinnedUrl
           ? t.pinnedUrl
           : t.url,
     } as Partial<Tab>);
   }
-  const spaces = file.spaces.map((s) => ({
-    ...s,
-    tabIds: (s.tabIds ?? []).filter((id) => tabs[id] && !tabs[id].essential),
-    pinnedIds: (s.pinnedIds ?? []).filter(
-      (id) => tabs[id] && !tabs[id].essential,
-    ),
-    folders: Array.isArray(s.folders)
-      ? s.folders.map((f) => ({
-          ...f,
-          tabIds: (f.tabIds ?? []).filter(
-            (id) => tabs[id] && !tabs[id].essential,
-          ),
-        }))
-      : [],
-    split:
-      s.split &&
-      Array.isArray(s.split.ids) &&
-      s.split.ids.length >= 2 &&
-      s.split.ids.every((id) => tabs[id])
-        ? s.split
-        : undefined,
-  }));
+  const validSplit = (g: SplitState | undefined): g is SplitState =>
+    !!g && Array.isArray(g.ids) && g.ids.length >= 2 && g.ids.every((id) => tabs[id]);
+  const spaces = file.spaces.map((s) => {
+    const rawSplits = Array.isArray(s.splits) ? s.splits : s.split ? [s.split] : [];
+    return {
+      ...s,
+      tabIds: (s.tabIds ?? []).filter((id) => tabs[id] && !tabs[id].essential),
+      pinnedIds: (s.pinnedIds ?? []).filter(
+        (id) => tabs[id] && !tabs[id].essential,
+      ),
+      folders: Array.isArray(s.folders)
+        ? s.folders.map((f) => ({
+            ...f,
+            tabIds: (f.tabIds ?? []).filter(
+              (id) => tabs[id] && !tabs[id].essential,
+            ),
+          }))
+        : [],
+      split: undefined,
+      splits: rawSplits.filter(validSplit),
+    };
+  });
   for (const s of spaces) {
     if (s.activeTabId && !tabs[s.activeTabId])
       s.activeTabId = [...s.pinnedIds, ...s.tabIds][0];
@@ -157,7 +163,10 @@ function renumberTabs(file: SessionFile, forNewWindow: boolean): SessionFile {
       pinnedIds: mapAll(s.pinnedIds),
       activeTabId: s.activeTabId ? map(s.activeTabId) : undefined,
       folders: (s.folders ?? []).map((f) => ({ ...f, tabIds: mapAll(f.tabIds) })),
-      split: s.split && !forNewWindow ? { ...s.split, ids: mapAll(s.split.ids) } : undefined,
+      split: undefined,
+      splits: !forNewWindow
+        ? spaceSplits(s).map((g) => ({ ...g, ids: mapAll(g.ids) }))
+        : [],
     })),
     closed: forNewWindow ? [] : file.closed,
   };

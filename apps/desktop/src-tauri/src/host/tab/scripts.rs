@@ -1,9 +1,29 @@
 //! Scripts injected into tab pages: link routing (Glance, background tabs), the Chrome Web
 //! Store install button and the toolbar-popup `tabs.query` shim for extensions.
 
+use cef::*;
+
+/// Pushes updated click-modifier trigger config to every live page tab without reloading.
+pub fn apply_triggers(triggers_json: &str) {
+    let js = format!("globalThis.__z_trig={triggers_json};");
+    let browsers: Vec<Browser> = crate::host::with_host(|h| {
+        h.tabs.values().filter_map(|t| t.browser.clone()).collect()
+    })
+    .unwrap_or_default();
+    for b in browsers {
+        if let Some(frame) = b.main_frame() {
+            frame.execute_java_script(
+                Some(&CefString::from(js.as_str())),
+                Some(&CefString::from("zenith://internal/triggers.js")),
+                1,
+            );
+        }
+    }
+}
+
 /// Injected into every frame of every page. It cannot reach the app (tabs have no IPC bridge):
-/// it only rewrites Alt+click into a Glance request and Ctrl/middle-click into a background-tab
-/// request, using named `window.open` calls that NewWindowRequested recognises and cancels.
+/// it routes configured modifier clicks (Glance, Split View, Little Window) and Ctrl/middle-click
+/// (background tab) via named `window.open` calls that NewWindowRequested recognises and cancels.
 pub const PAGE_SCRIPT: &str = r#"(() => {
   const open = window.open.bind(window);
   const link = (e) => {
@@ -11,6 +31,17 @@ pub const PAGE_SCRIPT: &str = r#"(() => {
       if (n instanceof HTMLAnchorElement && n.href) return n;
     }
     return null;
+  };
+  const matchMod = (e, spec) => {
+    if (!spec || spec === 'none') return false;
+    const parts = spec.split('+');
+    const want = { c: false, a: false, s: false };
+    for (const p of parts) {
+      if (p === 'ctrl') want.c = true;
+      else if (p === 'alt') want.a = true;
+      else if (p === 'shift') want.s = true;
+    }
+    return (e.ctrlKey || e.metaKey) === want.c && e.altKey === want.a && e.shiftKey === want.s;
   };
   const route = (e, target) => {
     const a = link(e);
@@ -21,8 +52,16 @@ pub const PAGE_SCRIPT: &str = r#"(() => {
   };
   addEventListener('click', (e) => {
     if (e.defaultPrevented || e.button !== 0 || !e.isTrusted) return;
-    if (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey) route(e, '_zenith_glance');
-    else if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey) route(e, '_zenith_bg');
+    const t = globalThis.__z_trig || { g: 'shift', s: 'alt', l: 'ctrl+alt' };
+    const checks = [
+      [t.l, '_zenith_little'],
+      [t.g, '_zenith_glance:' + Math.round(e.clientX) + ',' + Math.round(e.clientY)],
+      [t.s, '_zenith_split'],
+    ].sort((a, b) => (b[0] || '').split('+').length - (a[0] || '').split('+').length);
+    for (const [spec, name] of checks) {
+      if (matchMod(e, spec)) return route(e, name);
+    }
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey) route(e, '_zenith_bg');
   });
   addEventListener('auxclick', (e) => {
     if (e.defaultPrevented || e.button !== 1 || !e.isTrusted) return;

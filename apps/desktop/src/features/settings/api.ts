@@ -37,6 +37,12 @@ export interface RuntimeConfig {
   vaultAskEveryTime: boolean;
   vaultLockMinutes: number;
   extensionsInIncognito: boolean;
+  /** Click modifiers for page link routing (Zen: glance/split/little-window). */
+  glanceTrigger: string;
+  splitTrigger: string;
+  littleWindowTrigger: string;
+  glanceEssentialExternal: boolean;
+  openPinnedExternalInNewTab: boolean;
 }
 
 export interface Appearance {

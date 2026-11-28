@@ -1,6 +1,7 @@
 // Menus of the sidebar: tabs, picked tabs, spaces, the sidebar itself and its "+" button.
 import { tabsApi } from "../browser/api";
 import { browser, needsWebview } from "../browser/browser.svelte";
+import { folderDepth, walkFolders } from "../browser/folders";
 import { copyText } from "../../shared/clipboard";
 import { openIncognito } from "../window/actions";
 import { openNotes } from "../notes/actions";
@@ -21,7 +22,92 @@ const hintFor = shortcutHint;
 
 /** The menu of several tabs picked in the sidebar. */
 function pickedTabsMenu(picked: Tab[]): MenuItem[] {
-  return [
+  const space = browser.activeSpace;
+  const nonEssential = picked.filter((t) => !t.essential);
+  const allPinned = nonEssential.length > 0 && nonEssential.every((t) => t.pinned);
+  const allMuted = picked.every((t) => t.muted);
+  const folders = space ? walkFolders(space.folders ?? []) : [];
+  const otherSpaces = browser.spaces.filter((s) => s.id !== space?.id);
+  const items: MenuItem[] = [
+    ...(picked.length >= 2 && picked.length <= 4
+      ? [
+          {
+            label: `Split ${picked.length} tabs`,
+            icon: "split" as const,
+            run: () => {
+              const ids = picked.map((t) => t.id);
+              ui.clearTabSelection();
+              browser.splitTabs(ids, ids.length >= 3 ? "grid" : "vsep");
+            },
+          },
+        ]
+      : []),
+    ...(nonEssential.length
+      ? [
+          {
+            label: allPinned ? `Unpin ${nonEssential.length} tabs` : `Pin ${nonEssential.length} tabs`,
+            icon: (allPinned ? "unpin" : "pin") as "unpin" | "pin",
+            run: () => {
+              ui.clearTabSelection();
+              for (const t of nonEssential) if (t.pinned === allPinned) browser.togglePin(t.id);
+            },
+          },
+          {
+            label: "Move to folder",
+            icon: "folder" as const,
+            children: [
+              {
+                label: `New folder with ${nonEssential.length} tabs`,
+                icon: "plus" as const,
+                run: () => {
+                  const ids = nonEssential.map((t) => t.id);
+                  ui.clearTabSelection();
+                  browser.createFolder(ids);
+                },
+              },
+              ...(folders.length ? [{ separator: true } as MenuItem] : []),
+              ...folders.map((f) => ({
+                label: `${"  ".repeat(folderDepth(space?.folders ?? [], f.id))}${f.icon ? `${f.icon} ` : ""}${f.name}`,
+                icon: f.icon ? undefined : ("folder" as const),
+                run: () => {
+                  ui.clearTabSelection();
+                  for (const t of nonEssential) browser.moveToFolder(t.id, f.id);
+                },
+              })),
+            ],
+          },
+        ]
+      : []),
+    ...(otherSpaces.length && nonEssential.length
+      ? [
+          {
+            label: "Move to space",
+            icon: "layers" as const,
+            children: otherSpaces.map((s) => ({
+              label: `${s.icon}  ${s.name}`,
+              run: () => {
+                ui.clearTabSelection();
+                for (const t of nonEssential) browser.moveToSpace(t.id, s.id);
+              },
+            })),
+          },
+        ]
+      : []),
+    { separator: true },
+    {
+      label: allMuted ? "Unmute tabs" : "Mute tabs",
+      icon: allMuted ? "volume" : "volumeOff",
+      run: () => {
+        for (const t of picked) browser.setMuted(t.id, !allMuted);
+      },
+    },
+    {
+      label: "Put tabs to sleep",
+      icon: "moonSleep",
+      run: () => {
+        for (const t of picked) void browser.sleep(t.id);
+      },
+    },
     { label: `Bookmark ${picked.length} tabs…`, icon: "bookmark", run: () => bookmarkTabsDialog(picked) },
     {
       label: "Reload tabs",
@@ -40,6 +126,7 @@ function pickedTabsMenu(picked: Tab[]): MenuItem[] {
       },
     },
   ];
+  return items;
 }
 
 export function tabMenu(
@@ -103,7 +190,8 @@ export function tabMenu(
     });
   }
   if (tab.pinned && space) {
-    const folders = space.folders ?? [];
+    const allFolders = space.folders ?? [];
+    const folders = walkFolders(allFolders);
     const inFolder = browser.folderOf(tab.id);
     items.push({
       label: "Move to folder",
@@ -116,8 +204,8 @@ export function tabMenu(
         },
         ...(folders.length ? [{ separator: true } as MenuItem] : []),
         ...folders.map((f) => ({
-          label: f.name,
-          icon: "folder" as const,
+          label: `${"  ".repeat(folderDepth(allFolders, f.id))}${f.icon ? `${f.icon} ` : ""}${f.name}`,
+          icon: f.icon ? undefined : ("folder" as const),
           checked: inFolder?.id === f.id,
           run: () => browser.moveToFolder(tab.id, f.id),
         })),

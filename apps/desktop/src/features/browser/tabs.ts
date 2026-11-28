@@ -100,6 +100,7 @@ export async function wake(store: BrowserStore, tab: Tab) {
       scrollX: scroll?.x,
       scrollY: scroll?.y,
     });
+    syncPinMeta(tab);
   } catch (e) {
     tab.live = false;
     tab.loading = false;
@@ -128,6 +129,7 @@ export function activate(store: BrowserStore, id: TabId, opts: { focus?: boolean
   space.activeTabId = id;
   tab.lastActive = Date.now();
   tab.suspended = false;
+  tab.unread = false;
   for (const v of before)
     if (!store.visibleIds.includes(v)) store.hiddenAt.set(v, Date.now());
   for (const v of store.visibleIds) store.hiddenAt.delete(v);
@@ -226,4 +228,13 @@ export function setMuted(store: BrowserStore, id: TabId, muted: boolean) {
   if (!tab) return;
   tab.muted = muted;
   if (tab.live) void tabsApi.tabCommand(id, muted ? "mute" : "unmute");
+}
+
+/** Keeps the backend's cross-site pin/Essential navigation boundary aligned with tab state. */
+export function syncPinMeta(tab: Tab) {
+  if (!tab.live) return;
+  const site = (tab.pinned || tab.essential) ? siteOf(hostOf(tab.pinnedUrl || tab.url)) : "";
+  void tabsApi
+    .tabCommand(tab.id, "pinMeta", site ? { site, essential: tab.essential } : null)
+    .catch(() => {});
 }

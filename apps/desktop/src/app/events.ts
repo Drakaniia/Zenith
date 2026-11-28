@@ -20,6 +20,7 @@ import { updates } from '../features/updates/updates.svelte';
 import { vault } from '../features/passwords/vault.svelte';
 import { extensions } from '../features/extensions/extensions.svelte';
 import { onboarding } from '../features/onboarding/onboarding.svelte';
+import { searchUrl } from '../shared/url';
 
 export function listenBackend(flushAndClose: () => Promise<void>): Promise<() => void>[] {
   return [
@@ -29,8 +30,13 @@ export function listenBackend(flushAndClose: () => Promise<void>): Promise<() =>
       else browser.adoptTab(e.id, e.url, e.openerId, true);
     }),
     on('tab-open-request', (r) => {
-      if (r.kind === 'glance') browser.openGlance(r.url, r.openerId);
-      else if (r.kind === 'split' && r.openerId) {
+      if (r.kind === 'glance') browser.openGlance(r.url, r.openerId, undefined, r.origin);
+      else if (r.kind === 'glance-search') {
+        browser.openGlance(searchUrl(r.url, settings.value.searchEngine), r.openerId, undefined, r.origin);
+      } else if (r.kind === 'little') {
+        // shortcut: Little Window lands in Phase 4; preview in Glance until then.
+        browser.openGlance(r.url, r.openerId, undefined, r.origin);
+      } else if (r.kind === 'split' && r.openerId) {
         const t = browser.openTab(r.url, { activate: false, openerId: r.openerId });
         browser.splitWith(r.openerId, t.id);
       } else browser.openTab(r.url, { activate: r.kind === 'foreground', openerId: r.openerId });

@@ -15,6 +15,7 @@ const CMD_LINK_GLANCE: i32 = 26502;
 const CMD_LINK_SPLIT: i32 = 26503;
 const CMD_LINK_INCOGNITO: i32 = 26504;
 const CMD_INSPECT_ELEMENT: i32 = 26505;
+const CMD_SEARCH_GLANCE: i32 = 26506;
 /// Chromium's built-in `IDC_CONTENT_CONTEXT_INSPECTELEMENT` command ID, intercepted so it opens
 /// Zenith's docked DevTools instead of a detached popup.
 const IDC_INSPECT_ELEMENT: i32 = 50154;
@@ -57,6 +58,15 @@ wrap_context_menu_handler! {
                     idx += 1;
                 }
                 model.insert_separator_at(idx);
+            }
+
+            let sel = cef_str(params.selection_text()).trim().to_string();
+            if !sel.is_empty() {
+                let preview: String = sel.chars().take(28).collect();
+                let suffix = if sel.chars().count() > 28 { "…" } else { "" };
+                let label = format!("Search “{preview}{suffix}” in Glance");
+                model.insert_item_at(0, CMD_SEARCH_GLANCE, Some(&CefString::from(label.as_str())));
+                model.insert_separator_at(1);
             }
 
             if model.index_of(IDC_INSPECT_ELEMENT) < 0 && model.index_of(CMD_INSPECT_ELEMENT) < 0 {
@@ -104,6 +114,24 @@ wrap_context_menu_handler! {
                             url: link,
                             opener_id: Some(id.clone()),
                             kind: kind.into(),
+                            origin: None,
+                        },
+                    );
+                    1
+                }
+                CMD_SEARCH_GLANCE => {
+                    let sel = cef_str(params.selection_text()).trim().to_string();
+                    if sel.is_empty() {
+                        return 0;
+                    }
+                    emit_tab(
+                        &id,
+                        "tab-open-request",
+                        OpenRequest {
+                            url: sel,
+                            opener_id: Some(id.clone()),
+                            kind: "glance-search".into(),
+                            origin: None,
                         },
                     );
                     1

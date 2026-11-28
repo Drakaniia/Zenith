@@ -5,11 +5,17 @@ import { tabsApi } from "./api";
 import { focusAfterLayout, scheduleLayout } from "../../platform/layout.svelte";
 import { makeTab } from "./model";
 
-export function openGlance(store: BrowserStore, url: string, openerId?: TabId, anchor?: PopupAnchor) {
+export function openGlance(
+  store: BrowserStore,
+  url: string,
+  openerId?: TabId,
+  anchor?: PopupAnchor,
+  origin?: { x: number; y: number },
+) {
   if (store.glance) store.closeGlance();
   const draft = makeTab(url, "", { openerId, live: true, loading: true });
   store.tabs[draft.id] = draft;
-  store.glance = { tabId: draft.id, openerId, popup: false, anchor };
+  store.glance = { tabId: draft.id, openerId, popup: false, anchor, origin };
   void tabsApi
     .tabCreate({
       id: draft.id,

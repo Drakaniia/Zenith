@@ -3,6 +3,7 @@
   import Icon from '$shared/ui/Icon.svelte';
   import Favicon from '$shared/ui/Favicon.svelte';
   import { browser, needsWebview, tabTitle } from '$features/browser/browser.svelte';
+  import { settings } from '$features/settings/settings.svelte';
   import { dnd } from './sidebar-dnd.svelte';
   import { tabMenu } from './menus';
   import { ui } from '$shared/ui/ui.svelte';
@@ -23,7 +24,7 @@
         class="essential"
         class:active={active?.id === tab.id}
         class:sleeping={!tab.live && needsWebview(tab.url)}
-        class:dragging={dnd.drag?.started && dnd.drag.id === tab.id}
+        class:dragging={dnd.drag?.started && dnd.drag.kind === 'tab' && dnd.drag.id === tab.id}
         data-tab-id={tab.id}
         title={tabTitle(tab)}
         animate:flip={{ duration: rowFlipMs }}
@@ -41,10 +42,13 @@
           {/if}
         </span>
         <span class="icon" data-sidebar-icon="essential:{tab.id}"><Favicon url={tab.url} favicon={tab.favicon} size={16} /></span>
+        {#if settings.value.essentialsUnreadDot && tab.unread && active?.id !== tab.id}
+          <span class="unread-dot" aria-label="Updated"></span>
+        {/if}
         {#if tab.audible || tab.muted}
           <span class="audio"><Icon name={tab.muted ? 'volumeOff' : 'volume'} size={10} stroke={2.4} /></span>
         {/if}
-        {#if mark}<span class="mark" class:after={mark === 'after'}></span>{/if}
+        {#if mark === 'before' || mark === 'after'}<span class="mark" class:after={mark === 'after'}></span>{/if}
       </button>
     {/each}
   </div>
@@ -134,6 +138,16 @@
   }
   .essential.sleeping .icon {
     opacity: 0.5;
+  }
+  .unread-dot {
+    position: absolute;
+    z-index: 2;
+    left: 7px;
+    top: 7px;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--accent-button);
   }
   .audio {
     position: absolute;

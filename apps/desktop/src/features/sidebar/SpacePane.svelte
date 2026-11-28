@@ -8,12 +8,14 @@
   import TabItem from './TabItem.svelte';
   import FolderItem from './FolderItem.svelte';
   import { browser } from '$features/browser/browser.svelte';
+  import { childFolders } from '$features/browser/folders';
+  import { spaceSplits } from '$features/browser/split';
   import { dnd } from './sidebar-dnd.svelte';
   import { settings } from '$features/settings/settings.svelte';
   import { spaceMenu } from './menus';
   import { ui } from '$shared/ui/ui.svelte';
   import { isLayoutAnimating, rowFlipMs } from './sidebar-motion';
-  import type { Space, Tab, TabId } from '$features/browser/types';
+  import type { Space, SplitState, Tab, TabId } from '$features/browser/types';
 
   // One Zen workspace column: indicator, pinned section (folders and pinned tabs), separator
   // with "Clear", the New Tab button and the regular tabs.
@@ -21,27 +23,34 @@
 
   const activeId = $derived(space.activeTabId);
   const looseIds = $derived(space.pinnedIds.filter((id) => browser.tabs[id] && !browser.folderOf(id)));
-  const folders = $derived(space.folders ?? []);
-  const hasPinned = $derived(space.pinnedIds.length > 0 || folders.length > 0);
+  const folders = $derived(childFolders(space.folders ?? []));
+  const hasPinned = $derived(space.pinnedIds.length > 0 || (space.folders?.length ?? 0) > 0);
   const regular = $derived(space.tabIds.filter((id) => browser.tabs[id]));
-  const split = $derived(space.split && space.split.ids.every((id) => browser.tabs[id]) ? space.split : undefined);
+  const splits = $derived(spaceSplits(space).filter((g) => g.ids.length >= 2 && g.ids.every((id) => browser.tabs[id])));
 
-  type Row = { key: string; tab: Tab } | { key: string; group: Tab[] };
-  /** Rows of a list, with the split tabs drawn as one group row (at the first of them) where all
-   *  of them are in the list. */
+  type Row = { key: string; tab: Tab } | { key: string; group: Tab[]; split: SplitState };
+  /** Rows of a list, with each split group drawn as one row when all its members live in `ids`. */
   function rows(ids: TabId[]): Row[] {
     const out: Row[] = [];
-    const members = split && split.ids.every((id) => ids.includes(id)) ? split.ids : null;
-    const lead = members && ids.find((id) => members.includes(id));
+    const grouped = new Map<TabId, SplitState>();
+    const leadOf = new Map<TabId, SplitState>();
+    for (const g of splits) {
+      if (!g.ids.every((id) => ids.includes(id))) continue;
+      const lead = ids.find((id) => g.ids.includes(id));
+      if (!lead) continue;
+      leadOf.set(lead, g);
+      for (const id of g.ids) grouped.set(id, g);
+    }
     for (const id of ids) {
-      if (members && id === lead) out.push({ key: 'split:' + id, group: members.map((m) => browser.tabs[m]) });
-      else if (!members?.includes(id)) out.push({ key: id, tab: browser.tabs[id] });
+      const lead = leadOf.get(id);
+      if (lead) out.push({ key: 'split:' + lead.ids.join(','), group: lead.ids.map((m) => browser.tabs[m]), split: lead });
+      else if (!grouped.has(id)) out.push({ key: id, tab: browser.tabs[id] });
     }
     return out;
   }
   const pinnedRows = $derived(rows(looseIds));
   const tabRows = $derived(rows(regular));
-  const loneSplit = (id: TabId) => !!split?.ids.includes(id);
+  const loneSplit = (id: TabId) => splits.some((g) => g.ids.includes(id));
   // Rows of the first render appear as they are; only rows added later slide in.
   let settled = $state(false);
   onMount(() => { settled = true; });
@@ -117,12 +126,12 @@
           {collapsed}
           active={activeId === t.id}
           drop={dnd.mark(t.id)}
-          dragging={dnd.drag?.started && dnd.drag.id === t.id}
+          dragging={dnd.drag?.started && dnd.drag.kind === 'tab' && dnd.drag.id === t.id}
           onpointerdown={(e) => dnd.start(e, t.id)}
         />
       {/each}
       {#if !collapsed}
-        <button class="unsplit" title="Exit split view" onclick={() => browser.unsplit()}><Icon name="unsplit" size={14} /></button>
+        <button class="unsplit" title="Exit split view" onclick={() => browser.unsplit(row.split)}><Icon name="unsplit" size={14} /></button>
       {/if}
     </div>
   {:else}
@@ -132,7 +141,7 @@
       active={activeId === row.tab.id}
       inSplit={loneSplit(row.tab.id)}
       drop={dnd.mark(row.tab.id)}
-      dragging={dnd.drag?.started && dnd.drag.id === row.tab.id}
+      dragging={dnd.drag?.started && dnd.drag.kind === 'tab' && dnd.drag.id === row.tab.id}
       onpointerdown={(e) => dnd.start(e, row.tab.id)}
     />
   {/if}

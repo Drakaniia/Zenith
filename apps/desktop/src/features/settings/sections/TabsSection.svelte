@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import Toggle from '$shared/ui/Toggle.svelte';
-  import { settings, type Settings } from '../settings.svelte';
+  import { settings, type ClickTrigger, type PinnedCloseBehavior, type Settings } from '../settings.svelte';
   import { formatBytes } from '$shared/format';
   import { settingsApi } from '../api';
   import type { MemoryStats } from '../types';
@@ -33,6 +33,22 @@
     { value: 30, label: '30 minutes' },
     { value: 60, label: '1 hour' },
   ];
+  const triggerOptions: { value: ClickTrigger; label: string }[] = [
+    { value: 'shift', label: 'Shift + Click' },
+    { value: 'alt', label: 'Alt + Click' },
+    { value: 'ctrl', label: 'Ctrl + Click' },
+    { value: 'ctrl+alt', label: 'Ctrl + Alt + Click' },
+    { value: 'shift+alt', label: 'Shift + Alt + Click' },
+    { value: 'none', label: 'Disabled' },
+  ];
+
+  const pinnedCloseOptions: { value: PinnedCloseBehavior; label: string }[] = [
+    { value: 'reset-unload-switch', label: 'Reset URL, unload & switch' },
+    { value: 'unload-switch', label: 'Unload & switch' },
+    { value: 'reset-switch', label: 'Reset URL & switch' },
+    { value: 'close', label: 'Close tab' },
+    { value: 'none', label: 'Do nothing' },
+  ];
 </script>
 
 <!-- Tabs & memory -->
@@ -61,6 +77,52 @@
       <Toggle checked={s.memoryPressure} onchange={(v) => set('memoryPressure', v)} label="Memory pressure" />
     </div>
     <p class="note">Unloading a tab discards anything you typed into it that the page has not saved.</p>
+  </div>
+
+  <h3>Glance, Split View & Pinned tabs</h3>
+  <div class="group">
+    <div class="row">
+      <div class="text"><b>Open link in Glance</b><span>Click modifier for previewing links in a floating card.</span></div>
+      <select class="field select" aria-label="Glance click trigger" value={s.glanceTrigger} onchange={(e) => set('glanceTrigger', (e.currentTarget as HTMLSelectElement).value as ClickTrigger)}>
+        {#each triggerOptions as o (o.value)}<option value={o.value}>{o.label}</option>{/each}
+      </select>
+    </div>
+    <div class="row">
+      <div class="text"><b>Open link in Split View</b><span>Click modifier for opening links side by side with the current tab.</span></div>
+      <select class="field select" aria-label="Split View click trigger" value={s.splitTrigger} onchange={(e) => set('splitTrigger', (e.currentTarget as HTMLSelectElement).value as ClickTrigger)}>
+        {#each triggerOptions as o (o.value)}<option value={o.value}>{o.label}</option>{/each}
+      </select>
+    </div>
+    <div class="row">
+      <div class="text"><b>Auto-Glance external links in Essentials</b><span>Clicking a link to another site inside an Essential opens it in Glance instead of navigating away.</span></div>
+      <Toggle checked={s.glanceEssentialExternal} onchange={(v) => set('glanceEssentialExternal', v)} label="Auto-Glance from Essentials" />
+    </div>
+    <div class="row">
+      <div class="text"><b>Open external links from pinned tabs in a new tab</b><span>Keeps pinned tabs on their own site when you click outbound links.</span></div>
+      <Toggle checked={s.openPinnedExternalInNewTab} onchange={(v) => set('openPinnedExternalInNewTab', v)} label="Open external links from pinned tabs in new tab" />
+    </div>
+    <div class="row">
+      <div class="text"><b>Closing a pinned or Essential tab</b><span>What Ctrl+W or clicking close does on pinned tabs.</span></div>
+      <select class="field select" aria-label="Pinned tab close behavior" value={s.pinnedCloseBehavior} onchange={(e) => set('pinnedCloseBehavior', (e.currentTarget as HTMLSelectElement).value as PinnedCloseBehavior)}>
+        {#each pinnedCloseOptions as o (o.value)}<option value={o.value}>{o.label}</option>{/each}
+      </select>
+    </div>
+    <div class="row">
+      <div class="text"><b>Restore pinned tabs to their pinned URL on startup</b></div>
+      <Toggle checked={s.restorePinnedUrlOnStartup} onchange={(v) => set('restorePinnedUrlOnStartup', v)} label="Restore pinned URL on startup" />
+    </div>
+    <div class="row">
+      <div class="text"><b>Middle-click unloaded pinned tab to remove it</b></div>
+      <Toggle checked={s.wheelClosePendingPinned} onchange={(v) => set('wheelClosePendingPinned', v)} label="Middle-click unloaded pinned tab removes it" />
+    </div>
+    <div class="row">
+      <div class="text"><b>Show unread dot on Essentials</b><span>Highlights background Essentials when their page title changes.</span></div>
+      <Toggle checked={s.essentialsUnreadDot} onchange={(v) => set('essentialsUnreadDot', v)} label="Essentials unread dot" />
+    </div>
+    <div class="row">
+      <div class="text"><b>Close tab on Back when there is no history</b><span>Returns to the opener tab if you press Back at the start of a newly opened tab.</span></div>
+      <Toggle checked={s.closeOnBackNoHistory} onchange={(v) => set('closeOnBackNoHistory', v)} label="Close tab on Back with no history" />
+    </div>
   </div>
   <h3>Memory in use</h3>
   <div class="group" data-search-whole>
